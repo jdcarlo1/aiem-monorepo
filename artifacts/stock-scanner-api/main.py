@@ -72207,6 +72207,302 @@ def admin_evidence_chain_status():
         return jsonify({"error": str(_e_ec), "code": "DB_ERROR"}), 503
 
 
+@app.route("/stock-api/admin/options-metrics", methods=["GET"])
+def admin_options_metrics():
+    """Return oe_options_metrics rows (greeks, EV, POP) for OE Dashboard Positions & P&L screen."""
+    import hmac as _hmac_om, psycopg2 as _pg_om, os as _os_om, time as _time_om
+    _t0_om = _time_om.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_om.compare_digest(tok, _os_om.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    trace_id = request.args.get("trace_id")
+    date_str = request.args.get("date")
+    ticker = request.args.get("ticker")
+    try:
+        limit = max(1, min(int(request.args.get("limit", 100)), 500))
+    except (ValueError, TypeError):
+        limit = 100
+    try:
+        with _pg_om.connect(_os_om.environ["DATABASE_URL"], connect_timeout=8) as conn:
+            with conn.cursor() as cur:
+                where_parts = []
+                params = []
+                if trace_id:
+                    where_parts.append("trace_id = %s")
+                    params.append(trace_id)
+                if date_str:
+                    where_parts.append("scan_date = %s")
+                    params.append(date_str)
+                if ticker:
+                    where_parts.append("ticker = %s")
+                    params.append(ticker.upper())
+                where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+                params.append(limit)
+                cur.execute(f"""
+                    SELECT
+                        trace_id, alert_id, ticker, scan_date::text, direction,
+                        strike, expiry::text, dte, bid, ask, mid, last_price,
+                        spread_pct, volume, open_interest, vol_oi_ratio,
+                        iv, iv_rank, iv_percentile, hv_20d, realized_vol, vrp,
+                        pc_skew_pp, pc_skew_tag, term_ratio,
+                        delta, gamma, theta, vega, rho,
+                        vanna, charm, vomma, speed, color, ultima,
+                        gex_m, gex_regime,
+                        ev, pop, return_on_risk, premium_at_risk,
+                        capital_requirement, max_profit, max_loss, breakeven,
+                        fill_probability, slippage_pct,
+                        outcome, pnl_pct
+                    FROM oe_options_metrics
+                    {where_clause}
+                    ORDER BY scan_date DESC, ticker
+                    LIMIT %s
+                """, params)
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        row[k] = float(v) if hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool)) else v
+                    rows.append(row)
+                return jsonify({
+                    "count": len(rows),
+                    "limit": limit,
+                    "rows": rows,
+                    "elapsed_ms": round((_time_om.monotonic() - _t0_om) * 1000)
+                }), 200
+    except Exception as _e_om:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_om)}), 503
+
+
+@app.route("/stock-api/admin/trade-records", methods=["GET"])
+def admin_trade_records():
+    """Return oe_trade_records (closed options trades P&L) for OE Dashboard Positions & P&L screen."""
+    import hmac as _hmac_tr, psycopg2 as _pg_tr, os as _os_tr, time as _time_tr
+    _t0_tr = _time_tr.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_tr.compare_digest(tok, _os_tr.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    trace_id = request.args.get("trace_id")
+    date_str = request.args.get("date")
+    ticker = request.args.get("ticker")
+    try:
+        limit = max(1, min(int(request.args.get("limit", 100)), 500))
+    except (ValueError, TypeError):
+        limit = 100
+    try:
+        with _pg_tr.connect(_os_tr.environ["DATABASE_URL"], connect_timeout=8) as conn:
+            with conn.cursor() as cur:
+                where_parts = []
+                params = []
+                if trace_id:
+                    where_parts.append("trace_id = %s")
+                    params.append(trace_id)
+                if date_str:
+                    where_parts.append("scan_date = %s")
+                    params.append(date_str)
+                if ticker:
+                    where_parts.append("ticker = %s")
+                    params.append(ticker.upper())
+                where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+                params.append(limit)
+                cur.execute(f"""
+                    SELECT
+                        alert_id, trace_id, ticker, scan_date::text,
+                        strategy_family, direction,
+                        entry_ts::text, entry_price,
+                        exit_ts::text, exit_price,
+                        quantity, fees_est, slippage_est,
+                        premium_paid_received, capital_reserved,
+                        max_risk, max_reward,
+                        entry_greeks_json, exit_greeks_json,
+                        entry_iv, exit_iv,
+                        mfe_pct, mae_pct,
+                        realized_pnl, return_pct, return_on_risk,
+                        holding_days, exit_reason, fill_quality,
+                        portfolio_state_json
+                    FROM oe_trade_records
+                    {where_clause}
+                    ORDER BY exit_ts DESC NULLS LAST
+                    LIMIT %s
+                """, params)
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        if isinstance(v, float) or (hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool, dict, list))):
+                            try:
+                                row[k] = float(v)
+                            except (TypeError, ValueError):
+                                row[k] = v
+                        else:
+                            row[k] = v
+                    rows.append(row)
+                return jsonify({
+                    "count": len(rows),
+                    "limit": limit,
+                    "rows": rows,
+                    "elapsed_ms": round((_time_tr.monotonic() - _t0_tr) * 1000)
+                }), 200
+    except Exception as _e_tr:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_tr)}), 503
+
+
+@app.route("/stock-api/admin/indicator-snapshots", methods=["GET"])
+def admin_indicator_snapshots():
+    """Return oe_indicator_snapshots for a trace_id for OE Dashboard 'Why This Trade' panel."""
+    import hmac as _hmac_is, psycopg2 as _pg_is, os as _os_is, time as _time_is
+    _t0_is = _time_is.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_is.compare_digest(tok, _os_is.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    trace_id = request.args.get("trace_id")
+    date_str = request.args.get("date")
+    ticker = request.args.get("ticker")
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 1000))
+    except (ValueError, TypeError):
+        limit = 200
+    try:
+        with _pg_is.connect(_os_is.environ["DATABASE_URL"], connect_timeout=8) as conn:
+            with conn.cursor() as cur:
+                where_parts = []
+                params = []
+                if trace_id:
+                    where_parts.append("trace_id = %s")
+                    params.append(trace_id)
+                if date_str:
+                    where_parts.append("scan_date = %s")
+                    params.append(date_str)
+                if ticker:
+                    where_parts.append("ticker = %s")
+                    params.append(ticker.upper())
+                where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+                params.append(limit)
+                cur.execute(f"""
+                    SELECT
+                        id, trace_id, ticker, scan_date::text,
+                        canonical_id, raw_value, normalized_value,
+                        signal_direction, confidence, contribution_score, weight,
+                        freshness_seconds, quality_status,
+                        supported_decision, regime_context, captured_at::text
+                    FROM oe_indicator_snapshots
+                    {where_clause}
+                    ORDER BY contribution_score DESC NULLS LAST
+                    LIMIT %s
+                """, params)
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        if hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool)):
+                            try:
+                                row[k] = float(v)
+                            except (TypeError, ValueError):
+                                row[k] = v
+                        else:
+                            row[k] = v
+                    rows.append(row)
+                return jsonify({
+                    "count": len(rows),
+                    "trace_id_queried": trace_id,
+                    "limit": limit,
+                    "rows": rows,
+                    "elapsed_ms": round((_time_is.monotonic() - _t0_is) * 1000)
+                }), 200
+    except Exception as _e_is:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_is)}), 503
+
+
+@app.route("/stock-api/admin/options-pipeline/stream", methods=["GET"])
+def admin_options_pipeline_stream():
+    """
+    SSE stream of options pipeline job events for OE Dashboard Live Decisions screen.
+    Polls options_pipeline_jobs + daily_pipeline_runs for recent changes and pushes
+    as Server-Sent Events. Clients receive one event per new/updated job row.
+    """
+    import hmac as _hmac_sse, os as _os_sse, time as _time_sse, json as _json_sse
+    import psycopg2 as _pg_sse
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_sse.compare_digest(tok, _os_sse.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+
+    def _sse_default(obj):
+        import decimal as _dec
+        import datetime as _dt
+        if isinstance(obj, _dec.Decimal):
+            return float(obj)
+        if isinstance(obj, (_dt.datetime, _dt.date)):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+    def _generate():
+        # Send initial handshake
+        yield "data: {\"type\":\"connected\",\"source\":\"options-pipeline\"}\n\n"
+        last_id = 0
+        last_run_id = 0
+        poll_interval = 4  # seconds
+        max_duration = 300  # 5 minutes then close; client reconnects
+        started = _time_sse.monotonic()
+
+        while _time_sse.monotonic() - started < max_duration:
+            try:
+                with _pg_sse.connect(_os_sse.environ["DATABASE_URL"], connect_timeout=5) as conn:
+                    with conn.cursor() as cur:
+                        # New/updated pipeline jobs
+                        cur.execute("""
+                            SELECT id, ticker, scan_date::text, status, direction,
+                                   trace_id, alert_id, selected_score, trigger_source,
+                                   error_text, created_at::text, completed_at::text
+                            FROM options_pipeline_jobs
+                            WHERE id > %s
+                            ORDER BY id ASC LIMIT 20
+                        """, (last_id,))
+                        job_cols = [d[0] for d in cur.description]
+                        for r in cur.fetchall():
+                            row = dict(zip(job_cols, r))
+                            last_id = max(last_id, row["id"])
+                            row["type"] = "pipeline_job"
+                            yield f"data: {_json_sse.dumps(row, default=_sse_default)}\n\n"
+
+                        # New daily pipeline runs
+                        cur.execute("""
+                            SELECT id, run_date::text, trigger_source, status,
+                                   candidates_seeded, candidates_executed,
+                                   candidates_no_trade, started_at::text, completed_at::text
+                            FROM daily_pipeline_runs
+                            WHERE id > %s
+                            ORDER BY id ASC LIMIT 5
+                        """, (last_run_id,))
+                        run_cols = [d[0] for d in cur.description]
+                        for r in cur.fetchall():
+                            row = dict(zip(run_cols, r))
+                            last_run_id = max(last_run_id, row["id"])
+                            row["type"] = "daily_run"
+                            yield f"data: {_json_sse.dumps(row, default=_sse_default)}\n\n"
+
+            except Exception as _e_poll:
+                yield f"data: {{\"type\":\"error\",\"detail\":{_json_sse.dumps(str(_e_poll))}}}\n\n"
+
+            # Heartbeat comment to keep connection alive
+            yield ": heartbeat\n\n"
+            _time_sse.sleep(poll_interval)
+
+        yield "data: {\"type\":\"close\",\"reason\":\"max_duration_reached\"}\n\n"
+
+    return Response(
+        _generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+    )
+
+
 @app.route("/stock-api/admin/signal-discoveries", methods=["GET"])
 def admin_signal_discoveries():
     """Return aiem_signal_discoveries for AIEM Institutional Terminal Signals page."""

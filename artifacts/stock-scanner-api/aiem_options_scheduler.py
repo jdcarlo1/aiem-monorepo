@@ -3031,7 +3031,7 @@ def _job_ran_today(cur, job_id: str, today) -> bool:
     elif job_id == "grade_outcomes":
         cur.execute(
             "SELECT COUNT(*) FROM job_heartbeats "
-            "WHERE job_name='grade_outcomes' AND success=TRUE "
+            "WHERE job_name='grade_outcomes' AND status='success' "
             "  AND recorded_at >= NOW() - INTERVAL '8 hours'")
         return cur.fetchone()[0] > 0
     return True  # unknown job — don't alert
