@@ -35,6 +35,7 @@ import uuid
 import hashlib
 import logging
 import threading
+import subprocess
 import urllib.request
 import urllib.parse
 from datetime import datetime, date, timedelta
@@ -81,6 +82,29 @@ logging.basicConfig(
 )
 sys.stdout.reconfigure(line_buffering=True)
 log = logging.getLogger(_SCHEDULER_NAME)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BOOT IDENTITY — captured once at process start, never re-read at runtime.
+# Used by the drift check (Step 2) and Telegram alert (Step 3) to detect when
+# a deploy happened after this process started.
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    _BOOT_COMMIT = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        stderr=subprocess.DEVNULL,
+        text=True,
+    ).strip()
+except Exception:
+    _BOOT_COMMIT = "UNKNOWN"
+
+_BOOT_PID  = os.getpid()
+_BOOT_TIME = datetime.utcnow()
+
+log.info(
+    f"[boot] pid={_BOOT_PID}  commit={_BOOT_COMMIT}  "
+    f"boot_utc={_BOOT_TIME.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TELEGRAM
@@ -459,6 +483,44 @@ def recover_stale_jobs() -> dict:
             f"Recovered {recovered} stuck job(s) → PENDING for re-execution.\n"
             f"Permanently failed: {failed_perm}"
         )
+
+    # ── Commit-drift alert (Step 3) ──────────────────────────────────────────
+    # Fires at most once per process lifetime, only after a 15-min grace period
+    # so normal deploy+immediate-restart cycles don't produce noise.
+    global _DRIFT_ALERT_SENT
+    if not _DRIFT_ALERT_SENT and _BOOT_COMMIT != "UNKNOWN":
+        try:
+            _dsk = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+            if _dsk != _BOOT_COMMIT:
+                _drift_secs = (datetime.utcnow() - _BOOT_TIME).total_seconds()
+                if _drift_secs >= 900:  # 15-minute grace
+                    _tg(
+                        f"🔴 <b>SCHEDULER RUNNING STALE CODE</b>\n"
+                        f"Running : <code>{_BOOT_COMMIT[:12]}</code>\n"
+                        f"On-disk : <code>{_dsk[:12]}</code>\n"
+                        f"Process started {round(_drift_secs / 60)}m ago — code on disk has changed.\n"
+                        f"⚠️ <b>Restart the options-pipeline-scheduler workflow to load new code.</b>"
+                    )
+                    _DRIFT_ALERT_SENT = True
+                    log.warning(
+                        f"[drift] STALE: running={_BOOT_COMMIT[:12]} "
+                        f"disk={_dsk[:12]} drift={round(_drift_secs/60)}m "
+                        f"— Telegram alert sent"
+                    )
+                else:
+                    log.info(
+                        f"[drift] mismatch detected (running={_BOOT_COMMIT[:12]} "
+                        f"disk={_dsk[:12]}) drift={round(_drift_secs/60,1)}m "
+                        f"— within 15-min grace, no alert yet"
+                    )
+        except Exception as _da_e:
+            log.debug(f"[drift] check failed: {_da_e}")
+
     return {"recovered": recovered, "failed_permanently": failed_perm}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2970,7 +3032,8 @@ def grade_outcomes_job() -> dict:
 # HEALTH ENDPOINT
 # ─────────────────────────────────────────────────────────────────────────────
 
-_scheduler_ref = None
+_scheduler_ref    = None
+_DRIFT_ALERT_SENT = False   # fires at most once per process lifetime (Step 3)
 
 class _HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -3015,6 +3078,25 @@ class _HealthHandler(BaseHTTPRequestHandler):
         except Exception as e:
             health["db"] = f"error: {e}"
             health["status"] = "degraded"
+
+        # ── Commit-drift fields (Step 2) ─────────────────────────────────────
+        try:
+            _hc_disk = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+        except Exception:
+            _hc_disk = "UNKNOWN"
+        health["boot_commit"]  = _BOOT_COMMIT
+        health["disk_commit"]  = _hc_disk
+        health["commit_match"] = (
+            _BOOT_COMMIT == _hc_disk and _BOOT_COMMIT != "UNKNOWN"
+        )
+        if not health["commit_match"]:
+            _hc_drift = (datetime.utcnow() - _BOOT_TIME).total_seconds()
+            health["drift_minutes"] = round(_hc_drift / 60, 1)
 
         body = json.dumps(health).encode()
         self.send_response(200)
@@ -3154,6 +3236,23 @@ def main():
 
     _bootstrap_db()
     _start_health_server()
+
+    # ── Boot-identity record (Step 1) ────────────────────────────────────────
+    # Write one row to process_lifecycle_log so the loaded commit is queryable.
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _bl_c, \
+             _bl_c.cursor() as _bl_cur:
+            _bl_cur.execute("""
+                INSERT INTO process_lifecycle_log (process_name, pid, git_sha, started_at)
+                VALUES (%s, %s, %s, NOW())
+            """, (_SCHEDULER_NAME, _BOOT_PID, _BOOT_COMMIT))
+            _bl_c.commit()
+        log.info(
+            f"[startup] BOOT  pid={_BOOT_PID}  commit={_BOOT_COMMIT}  "
+            f"recorded in process_lifecycle_log"
+        )
+    except Exception as _ble:
+        log.warning(f"[startup] process_lifecycle_log insert failed: {_ble}")
 
     # ── Step 0: Register today's run as SCHEDULED (dedup signal for backup) ─
     # Weekday guard: SCHEDULED rows on weekends create misleading pipeline state
