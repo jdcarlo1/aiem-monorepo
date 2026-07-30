@@ -1,0 +1,29 @@
+# Directive_FollowUp_MisfireLiveProof_HeartbeatSentinel_2026-07-30
+
+Two of the four items from your last submission are not yet closed. Item 2 (Polygon 400) and Item 3 (status mislabeling) are accepted — good work, no further action needed on those. Items 1 and 4 need the following before they close.
+
+## Item 1 — Prove the misfire catch-up actually works live, not just in a dry evaluation
+Your test ran at 09:24 ET, before the time gate (hour>9 OR (hour==9 AND minute>=46)) even opens. That only proves the logic reads correctly — it does not prove the catch-up actually fires and executes a stuck run.
+
+Do exactly this:
+1. Wait until the time gate window is open (after 9:46 AM ET, before 3:30 PM ET), OR temporarily lower the gate threshold in a test copy so you can run it now — pick whichever is faster and say which one you did.
+2. Confirm today's row (id=216, or whatever the current stuck row is) is still status=SCHEDULED before the test.
+3. Trigger the catch-up path for real — actually call the function/restart the process the way it would run in production, not a unit test calling the condition in isolation.
+4. Paste raw DB output (SELECT status, started_at, completed_at FROM daily_pipeline_runs WHERE id=<the row> before AND after) showing the row moved from SCHEDULED to RUNNING/COMPLETED.
+5. If a real trade or candidate got seeded as a result, show that too (SELECT COUNT(*) FROM the relevant candidates table for today's run_date).
+
+If it's already past 3:30 PM ET when you do this and the window is closed for the day, say so plainly and run the test first thing tomorrow morning during the real window — do not fake it with a lowered threshold and call it done unless you also disclose you did that.
+
+## Item 4 — Implement the sentinel-row fix, don't just describe it
+Your write-up proposes writing a final heartbeat row before os._exit(0) but there's no evidence this was coded, committed, or tested. Do this:
+1. Find the exact line where the nightly os._exit(0) reset happens.
+2. Immediately before that line, add a write to aiem_process_heartbeat with ts=NOW(), a recognizable pid marker (e.g. pid=0), and a note/column indicating clean shutdown (not crash) — if there's no column for that yet, add one (e.g. shutdown_reason TEXT).
+3. Show the grep -n of the new code, before and after the os._exit(0) call.
+4. Test it for real: force the nightly reset to run once (don't wait for 3 AM naturally — trigger it manually in a way that mirrors production) and paste the actual new row that gets written, with its timestamp close to the exit.
+5. State plainly what is still NOT covered even after this fix: the window between the sentinel row and the next morning's first heartbeat is still dark by design (process is intentionally not running). That's expected and fine — just confirm out loud that's the remaining known gap, not something else.
+
+## If anything above is unclear or you're not sure how to implement a piece
+Stop and ask specifically what's unclear rather than guessing or skipping it. Example of what to ask instead of guessing: "there's no existing column for shutdown_reason, should I add one or repurpose an existing field?" — ask that instead of picking silently.
+
+## Standing requirement
+Same as always: raw query/log output showing the real before/after state, not a description of what the fix should do. A test run outside the real production trigger conditions (e.g. testing before the time gate opens, or simulating os._exit instead of really triggering it) must be disclosed as such, not presented as equivalent to a live test.
