@@ -160,6 +160,57 @@ STATUS  : MATCH — process is running current code
 
 ---
 
+## PSV8 AllowlistSync — WARN path proof and hash provenance
+
+### Hash provenance (acknowledged gap)
+
+Hash provenance for this change is unprovable retroactively — no pre-edit snapshot exists. Correctness is established via functional test (see below), not hash diff.
+
+No snapshot of `post_seal_verify.sh` was taken before the WARN-path code was added. The hash on record (`35e2aae12f0576a7cddab5f5b0431b09d1ff9cd7af4948d1f864cfba70fbefbe`) was recorded after all edits were already applied — it is the post-fix hash, not a pre-fix baseline. There is no pre-WARN hash. There was no attempt to manufacture or backdate one.
+
+This is a documentation gap, not a code defect.
+
+### Functional test — WARN path (synthetic SEQ=9999)
+
+Setup: non-allowlisted CMD (`bash tools/run_report.sh`) + archive containing a `SUMMARY: PASS=4 FAIL=0` line. Verifier must emit `[POST-SEAL WARN]` rather than SKIP.
+
+```
+$ cd /home/runner/workspace && bash artifacts/stock-scanner-api/tools/post_seal_verify.sh 9999 \
+    /tmp/psv8_warn_test/chain.jsonl \
+    /tmp/psv8_warn_test/index.tsv \
+    /tmp/psv8_warn_test/logs
+
+====== post_seal_verify.sh ======
+SEQ=9999
+ARCHIVE=/tmp/psv8_warn_test/logs/verified_run_9999.log
+CHAIN_FILE=/tmp/psv8_warn_test/chain.jsonl
+INDEX_FILE=/tmp/psv8_warn_test/index.tsv
+TS=2026-07-30T15:26:44Z
+=================================
+
+  [POST-SEAL PASS] PSV1_archive_exists
+  [POST-SEAL PASS] PSV2_archive_sha_matches_index
+    live_sha=59995754d8e5ee61e15c85ad62c8fc800abb6d4c68bd526ed69b7495ed92dc22
+    index_sha=59995754d8e5ee61e15c85ad62c8fc800abb6d4c68bd526ed69b7495ed92dc22
+  [POST-SEAL PASS] PSV3_chain_entry_exists_for_seq
+  [POST-SEAL PASS] PSV4_archive_sha256_3way_binding
+    live_archive_sha=59995754d8e5ee61e15c85ad62c8fc800abb6d4c68bd526ed69b7495ed92dc22
+    chain_archive_sha=59995754d8e5ee61e15c85ad62c8fc800abb6d4c68bd526ed69b7495ed92dc22
+  [POST-SEAL PASS] PSV5_chain_entry_hash_recomputes
+  [POST-SEAL PASS] PSV6_prev_hash_continuity
+  [POST-SEAL PASS] PSV7_exit_status_matches_archive
+  [POST-SEAL WARN] PSV8_allowlist_out_of_sync -- CMD produced SUMMARY: line but did not match allowlist pattern: bash tools/run_report.sh
+  [POST-SEAL PASS] PSV9_cmd_matches_archive
+
+POST-SEAL SUMMARY: 8 PASS  0 FAIL  0 SKIPPED  1 WARN
+POST-SEAL WARNED: PSV8_pass_fail_totals_in_archive
+=================================
+```
+
+WARN fired as required. SUMMARY line shows `1 WARN`. AllowlistSync closure is established by this functional test alone.
+
+---
+
 ## Item 3 — sha256 cross-check
 
 ```
