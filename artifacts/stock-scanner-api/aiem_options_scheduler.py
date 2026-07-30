@@ -2688,12 +2688,19 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
     except Exception as e:
         elapsed = round(time.time() - t_start, 2)
         err_msg = str(e)[:500]
-        _final_status = 'FAILED_GATE' if _gate_fired[0] else 'FAILED'
+        # Classify outcome before logging so the label is accurate.
+        # Hard-gate rejection ("not ready_for_decision: BOTH DIRECTIONS REJECTED...")
+        # is a deliberate NO_TRADE decision by the quality gates — not a crash.
+        # Reserve FAILED / FAILED_GATE for genuine exceptions; use NO_TRADE_GATES
+        # for gate-rejected outcomes so daily_pipeline_runs.status is searchable.
+        _is_gate_reject = err_msg.startswith("not ready_for_decision")
+        _final_status = ('NO_TRADE_GATES' if _is_gate_reject
+                         else 'FAILED_GATE' if _gate_fired[0]
+                         else 'FAILED')
         log.error(f"[exec] {_final_status} job_id={job_id} ticker={ticker}: {e}")
-        # Hard-gate rejection ("not ready_for_decision") is a complete NO_TRADE decision.
+        # Hard-gate rejection is a complete NO_TRADE decision.
         # Write chain_hash and PAPER_EXECUTION_OR_NO_TRADE trace so the audit is continuous.
         _failed_chain_hash = None
-        _is_gate_reject = err_msg.startswith("not ready_for_decision")
         try:
             with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
                 if _is_gate_reject:
@@ -2744,14 +2751,22 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 )
             except Exception as _p4_inc_e:
                 log.debug(f"[phase4] record_incident skipped: {_p4_inc_e}")
-        _tg(
-            f"❌ <b>OPTIONS PIPELINE FAILED</b>\n"
-            f"job_id={job_id}  ticker={ticker}  trace_id={trace_id}\n"
-            f"Error: {err_msg[:200]}\n"
-            f"elapsed={elapsed}s"
-        )
+        if _is_gate_reject:
+            _tg(
+                f"⛔ <b>OPTIONS: NO TRADE (Hard Gates)</b>\n"
+                f"job_id={job_id}  ticker={ticker}  trace_id={trace_id}\n"
+                f"Reason: {err_msg[:200]}\n"
+                f"elapsed={elapsed}s"
+            )
+        else:
+            _tg(
+                f"❌ <b>OPTIONS PIPELINE FAILED</b>\n"
+                f"job_id={job_id}  ticker={ticker}  trace_id={trace_id}\n"
+                f"Error: {err_msg[:200]}\n"
+                f"elapsed={elapsed}s"
+            )
         return {"error": err_msg, "job_id": job_id, "ticker": ticker,
-                "trace_id": trace_id}
+                "trace_id": trace_id, "is_gate_reject": _is_gate_reject}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WORKER — claim and execute all PENDING jobs for today
@@ -2806,9 +2821,18 @@ def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
 
     log.info(f"[worker] scan_date={scan_date}  executed={executed}  errors={skipped}")
 
-    # Update durable run log with final counts
+    # Update durable run log with final counts.
+    # Distinguish gate-rejections (deliberate NO_TRADE quality decisions) from
+    # genuine crashes so daily_pipeline_runs.status is meaningful:
+    #   NO_TRADE_GATES  — all candidates rejected by hard quality gates (normal)
+    #   FAILED          — at least one unexpected exception (crash / timeout)
+    #   COMPLETED       — at least one trade executed
     no_trade_count = sum(1 for r in results if r.get("direction") == "NO_TRADE")
-    final_status   = "COMPLETED" if executed > 0 else ("FAILED" if skipped > 0 else "NO_TRADE")
+    gate_rejected  = sum(1 for r in results if r.get("is_gate_reject"))
+    final_status   = ("COMPLETED"     if executed > 0
+                      else "NO_TRADE_GATES" if gate_rejected == skipped and skipped > 0
+                      else "FAILED"         if skipped > 0
+                      else "NO_TRADE")
     first_trace    = next((r.get("trace_id") for r in results if r.get("trace_id")), None)
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as _wc, _wc.cursor() as _wu:
@@ -3165,7 +3189,24 @@ def main():
                     (_now_et.date(),)
                 )
                 _today_count = _scu.fetchone()[0]
-            if _today_count == 0:
+                # Also check whether today's run row is still stuck at SCHEDULED.
+                # This covers the case where the scheduler restarted after the 09:40
+                # window: options_pipeline_jobs count=0 is already caught above, but if
+                # seed_daily_candidates was silently skipped (exception in prior run),
+                # the SCHEDULED sentinel in daily_pipeline_runs is the reliable indicator.
+                # Cutoff: 3:30 PM ET — options pipeline requires same-session fill-or-kill;
+                # entries after 3:30 PM miss the live trading window before market close.
+                _scu.execute(
+                    "SELECT status FROM daily_pipeline_runs "
+                    "WHERE run_date = %s AND trigger_source = 'primary'",
+                    (_now_et.date(),)
+                )
+                _dpr_row = _scu.fetchone()
+                _dpr_status = _dpr_row[0] if _dpr_row else None
+            # Trigger catch-up if:
+            #   (a) no jobs queued yet in options_pipeline_jobs (count=0), OR
+            #   (b) daily_pipeline_runs row is still SCHEDULED (seed never ran/committed)
+            if _today_count == 0 or _dpr_status == 'SCHEDULED':
                 log.warning(
                     f"[startup] missed-seed detected: 0 rows for {_now_et.date()} "
                     f"(VM restarted after 09:45 window). Seeding + executing now…"
