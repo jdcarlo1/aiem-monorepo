@@ -1285,14 +1285,16 @@ def _poly_grouped_daily(date_str: str) -> list:
 
 
 def _poly_options_for_ticker(ticker: str, spot: float, today_date) -> list:
-    # Polygon /v3/snapshot/options requires expiration_date.gte + expiration_date.lte.
-    # Omitting them returns HTTP 400 for ALL tickers regardless of optionability,
-    # and the silent {} fallback masks a 100%-failure rate as a normal completion.
-    # Range: today → today+90d captures near-term and short-dated option contracts.
+    # Polygon /v3/snapshot/options/{ticker} root cause of HTTP 400:
+    # "Invalid value for sort parameter" — sort=volume&order=desc is NOT a valid
+    # parameter for this endpoint (it is valid on /v3/snapshot/options/{optionsTicker}
+    # but NOT on the per-underlying snapshot route). Correct call uses no sort params;
+    # Polygon returns up to `limit` contracts ordered by its own default.
+    # expiration_date range added to scope to near-term contracts (today → +90d).
     _exp_gte = today_date.isoformat()
     _exp_lte = (today_date + _td(days=90)).isoformat()
     d = _poly_req(
-        f"/v3/snapshot/options/{ticker}?contract_type=call&limit=250&sort=volume&order=desc"
+        f"/v3/snapshot/options/{ticker}?contract_type=call&limit=250"
         f"&expiration_date.gte={_exp_gte}&expiration_date.lte={_exp_lte}",
         timeout=12,
     )
