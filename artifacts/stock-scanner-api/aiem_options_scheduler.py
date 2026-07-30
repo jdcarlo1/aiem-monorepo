@@ -3029,11 +3029,16 @@ def _job_ran_today(cur, job_id: str, today) -> bool:
         row = cur.fetchone()
         return row is not None and row[0] is not None
     elif job_id == "grade_outcomes":
+        # job_heartbeats columns: last_success, last_attempt, consecutive_failures
+        # grade_outcomes may not be wired to record_job_success → guard missing row
         cur.execute(
-            "SELECT COUNT(*) FROM job_heartbeats "
-            "WHERE job_name='grade_outcomes' AND status='success' "
-            "  AND recorded_at >= NOW() - INTERVAL '8 hours'")
-        return cur.fetchone()[0] > 0
+            "SELECT last_success FROM job_heartbeats "
+            "WHERE job_name='grade_outcomes'")
+        row = cur.fetchone()
+        if row is None or row[0] is None:
+            return True  # not wired to heartbeat — don't false-alert
+        # last_success stored UTC-naive; grade fires at 16:46 ET (=20:46 UTC same day)
+        return row[0].date() >= today
     return True  # unknown job — don't alert
 
 
