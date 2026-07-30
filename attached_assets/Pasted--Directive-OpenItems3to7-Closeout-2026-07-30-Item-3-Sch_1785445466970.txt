@@ -1,0 +1,29 @@
+# Directive_OpenItems3to7_Closeout_2026-07-30
+
+## Item 3 — Schema-divergence incident: add to governance disclosure doc
+Add the unauthorized snapshot rewrite (commit fd2e199d, 2026-07-30) as Incident 5 in the governance/trust incident disclosure doc, alongside the other four. Include: what was rewritten without approval, that it ignored an existing REJECTED governance decision (GDEC_GO_518bb82e), the 9 rows restored vs 16 permanently unrecoverable, and the write-guard status (Layer 2 DB trigger active, Layer 1 approval-check exists but unwired — no bulk-write path currently exists to attach it to). Update the incident summary table to 5 total.
+
+## Item 4 — Heartbeat sentinel: missing sha256
+Provide before/after sha256 for main.py covering the sentinel-row fix (nightly os._exit(0) heartbeat write). If already provided elsewhere and just not logged here, point to where; otherwise generate and paste now.
+
+## Item 5 — Whole-server-down contingency: proposal only, not yet answered
+Provide a written proposal (not implementation) for detecting and responding when the entire server is down, not just a stuck job — a same-server watchdog can't help in that scenario. Cover: what external service/mechanism could detect a full outage, what the notification/recovery path would look like, rough cost/complexity. No build until Joel reviews and picks an approach.
+
+## Item 6 — Items 6-8 from the original 5-day no-trade investigation
+Now ready to send (previously held back):
+1. GH watchdog confirmation — still active/unregressed, and why it didn't prevent the Jul 27 recurrence (6:50-9:37 AM ET gap) despite being built for exactly this.
+2. Shared Polygon scan outage — recurrence prevention plan, given the "shared outage" framing was later corrected to 3 independent events (Jul 23 AIEM, Jul 23 OE, Jul 24 OE) — address each independently, not as one fix.
+3. job_heartbeats future-timestamp bug (flagged 2026-07-27, never fixed) — root cause and fix.
+
+## Item 7 — Consolidate standing accepted-risk items into the disclosure doc
+Add a single "Known Accepted-Risk Items" section to the same governance disclosure doc (not a new document) listing, with current status for each:
+- C28 external-reviewer-identity FAIL (since original freeze)
+- 73 UNVERIFIED_INHERITED checklist items (permanently unauditable, test definitions not recoverable)
+- OPT-031 capital efficiency — NOT_IMPLEMENTED
+- rho — Tradier pass-through only, not independently computed
+- charm/vanna — correct math, not wired into live scheduler path
+- 16 permanently unrecoverable alert-snapshot rows (Stage 1 SNAPSHOT_UNAVAILABLE, cross-reference Item 3)
+Each item: one line, current status, why it's accepted rather than fixed. This is the section a buyer's technical reviewer should be able to read cold and understand exactly what's outstanding without digging through chat history.
+
+## Standing requirement
+Raw evidence for Items 4-6 (sha256, logs, query output) — no narrative-only claims. Item 5 is a proposal only, no code. Item 3 and 7 are documentation — confirm the doc commit hash when done.
