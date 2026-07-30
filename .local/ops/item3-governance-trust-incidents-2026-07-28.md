@@ -178,7 +178,7 @@ The fix is live and authorized. `formula_verification.py` updated to reflect APP
 | Commit a603aa5 unattributed deletion of verified_run.sh | 2026-07-20 | Agent commit without documented user approval; Helium audit logging unavailable | ATTRIBUTION_UNRESOLVED — file rebaselined, Joel-confirmed canonical active |
 | Unexplained production write session (aiem_options_alerts backfill) | 2026-07-22 02:17–03:38Z | Unauthorized prod write; root cause unrecoverable from available logs | ATTRIBUTION_UNRESOLVED — data rejected (Joel Option B); provenance table + aiem_agent credential deployed |
 | Phase 1 unapproved DELETE (aiem_operational_events) | 2026-07-26 | Agent violated immutability rule on test rows it self-inserted | RESOLVED-VIA-DB-TRIGGER — 126-table guard + DROP event trigger; Phase 1 PARTIAL pending trigger-inheritance |
-| Task #92 unauthorized trading-logic deploy (aiem_v3_discovery.py) | 2026-07-30 | No pre-deploy approval gate for trading-logic files; agent applied fix and deployed before disclosure | RESOLVED — RETROACTIVELY APPROVED by Joel 2026-07-30; pre-deploy gate rule now standing |
+| Task #92 unauthorized trading-logic deploy (aiem_v3_discovery.py) | 2026-07-30 | No pre-deploy approval gate for trading-logic files; agent applied fix and deployed before disclosure | RESOLVED — RETROACTIVELY APPROVED by Joel 2026-07-30; TLA pre-commit hook now technically enforced |
 
 ---
 
@@ -202,7 +202,7 @@ For a diligence reviewer:
 
 3. **Incidents 1 and 2 remain attribution-unresolved.** This is the honest state. The mitigations reduce future exposure but do not retroactively prove or disprove the specific initiating instruction.
 
-4. **The pre-deploy approval gate (Incident 4 remediation) has no enforcement mechanism beyond the standing rule itself.** There is no automated blocker that prevents a commit to trading-logic files without an approval token. The control is procedural, not technical. A future session could bypass it the same way this one did.
+4. **The pre-deploy approval gate (Incident 4 remediation) is technically enforced as of 2026-07-30.** A Git pre-commit hook (`tools/trading_logic_gate.sh`, wired into `.git/hooks/pre-commit`) blocks any commit touching the protected trading-logic file list unless `TLA_APPROVAL_ID=<id>` is set and resolves to an unused, diff-matching approval record in `tools/trading_logic_approvals.jsonl`. An attempt without a valid record exits 1 and the commit does not proceed. The remaining bypass is `git commit --no-verify`, which skips all hooks. This flag is prohibited by standing rule; its use would be visible in git history. Proven live: blocked attempt (exit=1) and approved attempt (exit=0) both confirmed on 2026-07-30 (approval_id=ac43fbe4, note="PROOF_TEST", used=true, record retained in approvals.jsonl).
 
 ---
 
