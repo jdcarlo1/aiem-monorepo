@@ -15,8 +15,10 @@ r_attempt  = row[2].replace(tzinfo=timezone.utc) if row[2] and row[2].tzinfo is 
 ```
 This is identical to the pattern already in `aiem_watchdog.py` line 142. Any new code that reads `job_heartbeats` timestamps and compares them to a TIMESTAMPTZ must apply this normalization.
 
-## Fixed location
-`artifacts/stock-scanner-api/aiem_sse.py` — `_poll_system_health()`. SHA before: `c9d610f9`, after: `24822922`. SEQ=80, 7 PASS / 0 FAIL, 9/9 PSV. Verifier: `tools/verify_d22a_sse_datetime.sh`.
+## Fixed locations
+- `aiem_sse.py` — `_poll_system_health()` lines 329–332. Commit `024889fc` (2026-07-22). SHA before: `c9d610f9`, after: `24822922`. SEQ=117 (blame, chain SEQ=117).
+- `aiem_watchdog.py` — `check_vm_heartbeat()` lines 140–144. Introduced by `931dc8efb81bf3a60020a2f553def60f77bae7a3` (2026-07-17, file-creation commit "Add an independent backup system…"). SHA at creation: `5f211240`. `59d887b` is a later modification to the same file (recovery-check logic) and did NOT introduce these lines — confirmed by `git blame` at chain SEQ=116.
 
-## Negative control
-`aiem_watchdog.py` line 142 already had the correct `.replace(tzinfo=timezone.utc) if ... .tzinfo is None else` guard. No other file does a bare naive/aware comparison against `job_heartbeats` timestamps.
+## Negative controls (confirmed 2026-07-30)
+- aiem_watchdog.py: synthetic row last_success=60 min ago → `is_stale=True`, age_min=60.0. Rolled back, row_count=0.
+- aiem_sse.py: synthetic row last_success=90 min ago → `is_stale=True`, age_min=90.0. Rolled back, row_count=0.
