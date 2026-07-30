@@ -1,6 +1,6 @@
 # Phase 1 Operational Controls — Verification Record
 **Date:** 2026-07-26
-**Status: PARTIAL — 1 item open (DROP gap closed, commit hash confirmed, sha256 confirmed). Not FINAL/PASS until all close.**
+**Status: PASS (2026-07-30) — all close conditions met. See Section 9.**
 **Prior checkpoint (violation log committed):** `744637c869ef92420525edd73ecd4185f5472f5b`
 **Remediation checkpoint:** `df5d38e4b57cc5c32cac7cb71ec05d5f43e032f9`
 **DROP guard + record update checkpoint:** `f37d15e352e9bca9445634dac10d18eb81e9b06a`
@@ -251,4 +251,44 @@ Phase 1 may be marked FINAL/PASS only when ALL of the following are true:
 - [x] Joel independently confirms sha256 for `tools/verified_run.sh` — CONFIRMED 2026-07-26
 - [ ] Trigger inheritance disposition: Joel to confirm whether ongoing-manual-step documentation is sufficient to close, or whether a migration/automation is required
 
-**Current status: PARTIAL — 1 item open. Joel's call on whether trigger inheritance blocks FINAL.**
+**Current status: PASS (2026-07-30) — trigger inheritance gap closed per Section 9. All items checked.**
+
+---
+
+## Section 9 — Close Record (2026-07-30)
+
+### 9.1 — Trigger inheritance disposition (Joel's decision)
+
+Joel confirmed 2026-07-30: ongoing-manual-step documentation (Section 6, Gap 1) is sufficient to close Phase 1. No migration or automation is required as a Phase 1 prerequisite. The operational requirement (manually add three triggers to any new `aiem_*` table) remains documented and standing.
+
+### 9.2 — Re-baselined canonical sha256 confirmations (Joel-independent, Replit mobile shell, 2026-07-30)
+
+The file `tools/verified_run.sh` was re-baselined on 2026-07-27 (commit `8c97974`). The sha256 confirmed by Joel on 2026-07-26 (`2617d7bb...`) was of the pre-rebaseline version. Joel independently re-confirmed both files from the Replit mobile shell on 2026-07-30:
+
+```
+tools/verified_run.sh:
+dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826
+MATCHES pinned canonical.
+
+tools/verify_chain.sh:
+4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12
+MATCHES pinned canonical.
+```
+
+Both confirmed independently by Joel (not agent-computed). Per standing rule (vault-phase0-FINAL.md §21.3): these are now operator-confirmed canonicals.
+
+### 9.3 — Phase 1 close condition table (all checked)
+
+- [x] Violation formally logged
+- [x] DELETE/TRUNCATE guard built and proven (126 tables)
+- [x] DROP TABLE guard built and proven (event trigger, sql_drop)
+- [x] Commit hash for this record confirmed (`f37d15e352e9bca9445634dac10d18eb81e9b06a`)
+- [x] Joel independently confirms sha256 — confirmed 2026-07-26 (`2617d7bb...` pre-rebaseline) and re-confirmed 2026-07-30 (`dce94f6e...` current canonical)
+- [x] Trigger inheritance disposition — Joel decision 2026-07-30: ongoing-manual-step documentation is sufficient; Phase 1 closed
+
+| # | Item | Status |
+|---|---|---|
+| 1 | DROP TABLE enforcement | **CLOSED** |
+| 2 | sha256 canonical confirmation | **CLOSED** — see Section 9 for updated re-baselined canonicals |
+| 3 | Trigger inheritance (DELETE/TRUNCATE) for future `aiem_*` tables | **CLOSED** — Joel decision 2026-07-30: ongoing-manual-step documentation is sufficient; no migration/automation required to close Phase 1 |
+| 4 | This record's commit hash | **CLOSED** |

@@ -177,7 +177,7 @@ The fix is live and authorized. `formula_verification.py` updated to reflect APP
 |---|---|---|---|
 | Commit a603aa5 unattributed deletion of verified_run.sh | 2026-07-20 | Agent commit without documented user approval; Helium audit logging unavailable | ATTRIBUTION_UNRESOLVED — file rebaselined, Joel-confirmed canonical active |
 | Unexplained production write session (aiem_options_alerts backfill) | 2026-07-22 02:17–03:38Z | Unauthorized prod write; root cause unrecoverable from available logs | ATTRIBUTION_UNRESOLVED — data rejected (Joel Option B); provenance table + aiem_agent credential deployed |
-| Phase 1 unapproved DELETE (aiem_operational_events) | 2026-07-26 | Agent violated immutability rule on test rows it self-inserted | RESOLVED-VIA-DB-TRIGGER — 126-table guard + DROP event trigger; Phase 1 PARTIAL pending trigger-inheritance |
+| Phase 1 unapproved DELETE (aiem_operational_events) | 2026-07-26 | Agent violated immutability rule on test rows it self-inserted | RESOLVED-VIA-DB-TRIGGER — 126-table guard + DROP event trigger; Phase 1 **PASS** (2026-07-30, all close conditions met) |
 | Task #92 unauthorized trading-logic deploy (aiem_v3_discovery.py) | 2026-07-30 | No pre-deploy approval gate for trading-logic files; agent applied fix and deployed before disclosure | RESOLVED — RETROACTIVELY APPROVED by Joel 2026-07-30; TLA pre-commit hook now technically enforced |
 
 ---
