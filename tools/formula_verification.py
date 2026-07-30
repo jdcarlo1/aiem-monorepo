@@ -97,14 +97,20 @@ def _indep_v3_score(row: dict, history: list) -> dict:
     momentum_pts  = rvol_pts + close_str_pts + gap_pts
 
     # 2. Trend (25 pts)
+    # Task #92 fix 2026-07-30: sma50 replaced with 10-day range-midpoint check.
+    # Source: aiem_v3_discovery.py:175-187 (post-fix)
     trend_pts = 0.0
     if has_hist:
         sma20 = _sma(closes, 20)
-        sma50 = _sma(closes, min(50, len(closes)))
         mom5  = _momentum(closes, min(5, len(closes)-1))
         mom20 = _momentum(closes, min(20, len(closes)-1))
         if sma20 and close > sma20: trend_pts += 8.0
-        if sma50 and close > sma50: trend_pts += 8.0
+        # Replacement for old sma50 check (was duplicate of sma20 with 28-day window):
+        if len(closes) >= 2:
+            _hi10 = max(closes[-10:]) if len(closes) >= 10 else max(closes)
+            _lo10 = min(closes[-10:]) if len(closes) >= 10 else min(closes)
+            _mid10 = (_hi10 + _lo10) / 2.0
+            if close > _mid10: trend_pts += 8.0
         if mom5  and mom5 > 0:     trend_pts += 5.0
         if mom20 and mom20 > 2.0:  trend_pts += 4.0
     else:
