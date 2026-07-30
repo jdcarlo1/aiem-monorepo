@@ -3856,6 +3856,29 @@ def main():
         CronTrigger(hour="*/4", minute=5),
         id="classification_integrity_sweep", replace_existing=True)
 
+    # 10:00 AM ET Mon-Fri — consolidated morning diagnostic (all 4 checks in one report)
+    # Calls tools/morning_diagnostic.py as subprocess so it runs standalone and
+    # sends ONE combined Telegram if any check fails.  Individual alerts from
+    # the existing mechanisms still fire on their own — this is an additional view.
+    def _morning_diagnostic_job():
+        import subprocess as _sp
+        script = os.path.normpath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "..", "tools", "morning_diagnostic.py"))
+        res = _sp.run(
+            ["python3", script],
+            capture_output=True, text=True, timeout=90,
+            cwd=os.path.dirname(script))
+        for line in (res.stdout + res.stderr).splitlines():
+            log.info(f"[morning_diag] {line}")
+        if res.returncode not in (0, 1):  # 1 = checks failed (expected); anything else is crash
+            log.error(f"[morning_diag] unexpected rc={res.returncode}")
+
+    sched.add_job(
+        _morning_diagnostic_job,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=_ET),
+        id="morning_diagnostic", replace_existing=True)
+
     # ── TEST CYCLE (only when TEST_CYCLE_OFFSET_SECS is set) ────────────────
     # Proves the scheduler fires jobs automatically at a scheduled time.
     # Set TEST_CYCLE_OFFSET_SECS=N to fire a full seed+execute cycle N seconds
