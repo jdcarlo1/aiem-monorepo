@@ -34,7 +34,9 @@ ARCHIVE="${LOGS_DIR}/verified_run_${SEQ}.log"
 
 _PASS=0
 _FAIL=0
+_SKIP=0
 _FAILED_CHECKS=()
+_SKIPPED_CHECKS=()
 
 psv_chk() {
     local name="$1" ok="$2" detail="${3:-}"
@@ -46,6 +48,13 @@ psv_chk() {
         _FAIL=$(( _FAIL + 1 ))
         _FAILED_CHECKS+=("$name")
     fi
+}
+
+psv_skip() {
+    local name="$1" reason="${2:-not applicable for this command type}"
+    echo "  [POST-SEAL SKIP] ${name} -- ${reason}"
+    _SKIP=$(( _SKIP + 1 ))
+    _SKIPPED_CHECKS+=("$name")
 }
 
 echo ""
@@ -240,16 +249,48 @@ else
 fi
 
 # ── PSV-8: PASS/FAIL totals extractable from archive ─────────────────────────
-if [ -f "${ARCHIVE}" ]; then
-    SUMMARY_LINE=$(grep "^SUMMARY:" "${ARCHIVE}" | head -1 || echo "")
-    if [ -n "$SUMMARY_LINE" ]; then
-        psv_chk "PSV8_pass_fail_totals_in_archive" 1 "${SUMMARY_LINE}"
-        echo "    ${SUMMARY_LINE}"
+# Only applies to commands that are test-suite runs (i.e. expected to produce a
+# "SUMMARY:" line).  Non-test-suite commands (e.g. one-shot health checks or
+# shell utilities) produce no SUMMARY: line by design and are SKIPPED, not
+# failed.
+#
+# Allowlist patterns (CMD must match at least one to be treated as a test suite):
+#   verify_   — verify_phase*.py, verify_*.sh, verify_*.py
+#   /test_    — tools/test_*.py (path-qualified to avoid false matches)
+#   negctl    — negctl*.py / negctl*.sh
+#   /opp[0-9] — opp040_verify.sh etc.
+#   dpl/verify — dpl/verify_dpl_phase3.py etc.
+#
+# Extract CMD from chain entry (also consumed verbatim by PSV9 below).
+PSV8_CMD=""
+if [ -n "$CHAIN_ENTRY" ]; then
+    PSV8_CMD=$(echo "${CHAIN_ENTRY}" | python3 -c "
+import sys, json
+e = json.load(sys.stdin)
+print(e.get('cmd', ''))
+" 2>/dev/null || true)
+fi
+
+_psv8_is_test_suite=0
+if echo "${PSV8_CMD}" | grep -qE '(verify_|/test_|negctl|/opp[0-9]|dpl/verify)'; then
+    _psv8_is_test_suite=1
+fi
+
+if [ "${_psv8_is_test_suite}" = "1" ]; then
+    if [ -f "${ARCHIVE}" ]; then
+        SUMMARY_LINE=$(grep "^SUMMARY:" "${ARCHIVE}" | head -1 || echo "")
+        if [ -n "$SUMMARY_LINE" ]; then
+            psv_chk "PSV8_pass_fail_totals_in_archive" 1 "${SUMMARY_LINE}"
+            echo "    ${SUMMARY_LINE}"
+        else
+            psv_chk "PSV8_pass_fail_totals_in_archive" 0 "SUMMARY: line not found in archive"
+        fi
     else
-        psv_chk "PSV8_pass_fail_totals_in_archive" 0 "SUMMARY: line not found in archive"
+        psv_chk "PSV8_pass_fail_totals_in_archive" 0 "archive missing"
     fi
 else
-    psv_chk "PSV8_pass_fail_totals_in_archive" 0 "archive missing"
+    psv_skip "PSV8_pass_fail_totals_in_archive" \
+        "cmd is not a test-suite run (no SUMMARY: line expected): ${PSV8_CMD}"
 fi
 
 # ── PSV-9: CMD matches chain entry ────────────────────────────────────────────
@@ -277,9 +318,12 @@ else
 fi
 
 echo ""
-echo "POST-SEAL SUMMARY: ${_PASS} PASS  ${_FAIL} FAIL"
+echo "POST-SEAL SUMMARY: ${_PASS} PASS  ${_FAIL} FAIL  ${_SKIP} SKIPPED"
 if [ "${_FAIL}" -gt 0 ]; then
     echo "POST-SEAL FAILED: ${_FAILED_CHECKS[*]}"
+fi
+if [ "${_SKIP}" -gt 0 ]; then
+    echo "POST-SEAL SKIPPED: ${_SKIPPED_CHECKS[*]}"
 fi
 echo "================================="
 
