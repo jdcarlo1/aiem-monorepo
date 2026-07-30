@@ -324,3 +324,5 @@ print("ALL CHECKS PASSED")
 161	2026-07-28T00:08:25Z	0	a70580f82dab43b1561df3abdfc8bd2cec937397a60c88cbd73e12fdba73cb3d	bash /tmp/verify_item1_greeks_wiring.sh
 162	2026-07-30T14:49:03Z	1	bdc1073d8dcf26d002584ca5b091e711b36f4e90b158cea98748e95fe49efca6	bash tools/check_scheduler_drift.sh
 163	2026-07-30T14:49:35Z	0	1b29ca5dd0092cc5d31c28fc25a37e8f46977e3cac7988b85f3f2a5156ebfb2c	bash tools/check_scheduler_drift.sh
+164	2026-07-30T20:02:23Z	0	6a0c8459fe08c0f421dbe5b5e0ba83890355aeab44fc6430ea74bbb51188d23b	python3 tools/formula_verification.py
+165	2026-07-30T20:02:49Z	0	0b0991207508fcecda4edd0cca217452b5ef796fa75d7f6e4a93d9d9590f6301	python3 tools/formula_verification.py
