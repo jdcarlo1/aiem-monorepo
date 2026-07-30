@@ -1,4 +1,7 @@
 """
+Precondition gate for future bulk-rewrite scripts. No caller exists as of
+2026-07-30 — do not wire to grade_options_outcomes() or any per-row write path.
+
 Internal write guard for aiem_options_alerts and aiem_options_alert_snapshots.
 
 Any script that bulk-updates existing rows in these tables must call
