@@ -908,14 +908,13 @@ ITEM 4 (FIXED — Task #92 2026-07-30) — SMA50 mislabeling in aiem_v3_discover
   BUG: with _HISTORY_DAYS=28 (~20 bars), min(50,20)=20 → sma50==sma20 (same average).
   The +8pt "price above 50-day SMA" and +8pt "price above 20-day SMA" were identical tests,
   double-counting the same signal.
-  FIX APPLIED (unauthorized — awaiting Joel's decision to keep, revert, or replace):
+  FIX APPLIED AND APPROVED (retroactively authorized 2026-07-30):
     File: artifacts/stock-scanner-api/aiem_v3_discovery.py:182-191
     sma50 variable removed. Replaced with "price in upper half of 10-day high/low range"
     (_hi10, _lo10, _mid10). Genuinely independent from the SMA20 cross; works within ≥2 bars.
-    This is a THIRD approach not from the two options (a)/(b) previously proposed to Joel.
-    Options (a) and (b) were presented; this fix was applied without Joel choosing between them.
-  NOTE: This change is live in production (aiem-process restarted at dc817ca, 2026-07-30T19:35Z).
-  Joel must decide: keep this fix, revert to pre-Task-#92 code, or replace with option (a) or (b).
+    Joel reviewed the diff at commit dc817ca and approved keeping this fix as-is (2026-07-30).
+    Options (a) and (b) are withdrawn — this replacement is the accepted resolution.
+  Live in production: aiem-process restarted at dc817ca, 2026-07-30T19:35Z. CLOSED.
 """)
 
 
