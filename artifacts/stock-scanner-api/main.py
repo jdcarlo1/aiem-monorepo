@@ -71972,7 +71972,8 @@ def admin_decision_audit():
                 cur.execute(f"""
                     SELECT decision_id, parent_id, created_at, input_hash, output_hash,
                            verification_status, engine_version, db_version,
-                           identity_json, technical_json, options_intel_json
+                           identity_json, technical_json, options_intel_json,
+                           probability_risk_json, justification_json
                     FROM oe_decision_audit WHERE {where}
                     ORDER BY created_at DESC LIMIT %s OFFSET %s
                 """, params + [limit, offset])
@@ -72449,6 +72450,97 @@ def admin_indicator_snapshots():
                 }), 200
     except Exception as _e_is:
         return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_is)}), 503
+
+
+@app.route("/stock-api/admin/options-pipeline/candidates", methods=["GET"])
+def admin_options_pipeline_candidates():
+    """
+    Return options_pipeline_jobs rows for OE Dashboard Live Decisions screen.
+    Enriches each row with gate_events_count from oe_gate_events.
+    Auth: X-Admin-Token (ADMIN_TOKEN), constant-time compare.
+    Query params: limit (default 50, max 200), date (YYYY-MM-DD), ticker, status
+    """
+    import hmac as _hmac_opc, psycopg2 as _pg_opc, os as _os_opc, time as _time_opc
+
+    _t0_opc = _time_opc.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_opc.compare_digest(tok, _os_opc.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+
+    date_arg  = request.args.get("date")
+    ticker    = request.args.get("ticker")
+    status_f  = request.args.get("status")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except (ValueError, TypeError):
+        limit = 50
+
+    try:
+        with _pg_opc.connect(_os_opc.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds  = []
+                params = []
+                if date_arg:
+                    conds.append("opj.scan_date = %s"); params.append(date_arg)
+                else:
+                    # default: last 7 days
+                    conds.append("opj.scan_date >= CURRENT_DATE - INTERVAL '7 days'")
+                if ticker:
+                    conds.append("opj.ticker = %s"); params.append(ticker.upper())
+                if status_f:
+                    conds.append("opj.status = %s"); params.append(status_f)
+                where = ("WHERE " + " AND ".join(conds)) if conds else ""
+                cur.execute(f"""
+                    SELECT
+                        opj.id, opj.ticker, opj.scan_date::text, opj.direction,
+                        opj.status, opj.trace_id, opj.alert_id, opj.selected_score,
+                        opj.trigger_source, opj.error_text, opj.completed_at,
+                        COALESCE(ge.gate_events_count, 0) AS gate_events_count,
+                        da.decision_id AS decision_id,
+                        da.verification_status
+                    FROM options_pipeline_jobs opj
+                    LEFT JOIN (
+                        SELECT trace_id, COUNT(*) AS gate_events_count
+                        FROM oe_gate_events
+                        WHERE is_test_record = FALSE
+                        GROUP BY trace_id
+                    ) ge ON ge.trace_id = opj.trace_id
+                    LEFT JOIN LATERAL (
+                        SELECT decision_id, verification_status
+                        FROM oe_decision_audit
+                        WHERE is_test_record = FALSE
+                          AND created_at BETWEEN opj.created_at - INTERVAL '5 minutes'
+                                             AND COALESCE(opj.completed_at, NOW()) + INTERVAL '5 minutes'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    ) da ON TRUE
+                    {where}
+                    ORDER BY opj.id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        if hasattr(v, 'isoformat'):
+                            row[k] = v.isoformat()
+                        elif hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool)):
+                            try:
+                                row[k] = float(v)
+                            except (TypeError, ValueError):
+                                row[k] = v
+                        else:
+                            row[k] = v
+                    rows.append(row)
+                return jsonify(rows), 200
+    except Exception as _e_opc:
+        return jsonify({"error": "database unavailable",
+                        "code": "DB_ERROR",
+                        "detail": str(_e_opc),
+                        "elapsed_ms": round((_time_opc.monotonic() - _t0_opc) * 1000)}), 503
 
 
 @app.route("/stock-api/admin/options-pipeline/stream", methods=["GET"])
