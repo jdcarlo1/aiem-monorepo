@@ -1,0 +1,18 @@
+=== Formula test vectors ===
+  PASS  entry=100.0 exit=110.0 -> ret=0.1 win=True  (expected ret=0.1 win=True)
+  PASS  entry=100.0 exit=90.0 -> ret=-0.1 win=False  (expected ret=-0.1 win=False)
+  PASS  entry=50.0 exit=50.0 -> ret=0.0 win=False  (expected ret=0.0 win=False)
+  PASS  entry=25.0 exit=26.5 -> ret=0.06 win=True  (expected ret=0.06 win=True)
+  PASS  entry=200.0 exit=150.0 -> ret=-0.25 win=False  (expected ret=-0.25 win=False)
+
+=== Mutation check ===
+  PASS  mutant_ret=-0.1 != correct_ret=0.1: True
+  PASS  mutant_ret=0.1 != correct_ret=-0.1: True
+
+=== DB round-trip test (insert test row → grade → verify → clean) ===
+Traceback (most recent call last):
+  File "/tmp/test_grader_vectors.py", line 83, in <module>
+    cur.execute("""
+psycopg2.errors.UndefinedColumn: column "confidence" of relation "aiem_predictions" does not exist
+LINE 2: ...T INTO aiem_predictions (prediction_date, ticker, confidence...
+                                                             ^
