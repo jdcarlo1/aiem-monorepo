@@ -599,6 +599,13 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             # seeded=0 regardless of _double_zero means nothing will execute —
             # write NO_CANDIDATES so the deadman never sees a stuck RUNNING row.
             _run_status = "NO_CANDIDATES" if (_double_zero or seeded == 0) else "RUNNING"
+            # NOTE (informational-counter): candidates_seeded here is a last-writer-wins
+            # summary.  When /run-seed and the natural 09:40 cron both land within the
+            # same minute, the 09:40 cron's ON CONFLICT DO UPDATE overwrites this field
+            # with _pre_pending (count of PENDING jobs at that instant), which may differ
+            # from the total inserted by the earlier call.
+            # AUTHORITATIVE count: SELECT COUNT(*) FROM options_pipeline_jobs
+            #                      WHERE scan_date=<date> — not this column.
             _cu.execute("""
                 INSERT INTO daily_pipeline_runs
                     (run_date, trigger_source, status, candidates_seeded, started_at)
@@ -2836,6 +2843,14 @@ def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
     first_trace    = next((r.get("trace_id") for r in results if r.get("trace_id")), None)
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as _wc, _wc.cursor() as _wu:
+            # NOTE (informational-counter): candidates_failed (= skipped) is a
+            # last-writer-wins summary written by every run_pipeline_worker call.
+            # When /run-now and the natural 09:45 cron process different slices
+            # of the same day's jobs, the last ON CONFLICT DO UPDATE wins and
+            # reflects only that call's skipped count — not the day total.
+            # AUTHORITATIVE count: SELECT COUNT(*) FROM options_pipeline_jobs
+            #                      WHERE scan_date=<date> AND status='FAILED'
+            #                      (or 'NO_TRADE_GATES') — not this column.
             _wu.execute("""
                 INSERT INTO daily_pipeline_runs
                     (run_date, trigger_source, status, trace_id,

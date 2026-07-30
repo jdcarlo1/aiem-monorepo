@@ -1,3 +1,4 @@
+- [Options scheduler hot-reload gap](options-scheduler-hot-reload.md) — scheduler never reloads code; must restart workflow after any aiem_options_scheduler.py change; daily_pipeline_runs.candidates_* are informational (last-writer-wins), not authoritative
 - [Git dev-branch autosync](git-dev-autosync.md) — push `git add -u && commit && push origin dev` at end of every session; all 10 workflow slots full so no persistent daemon possible
 - [Crash forensics infrastructure](crash-forensics-infrastructure.md) — 4-gap system: lifecycle wrapper (exit code 137=OOM), vm_resource_log, crash_log_buffer_aiem, resource monitor; query patterns for post-crash diagnosis
 - [StockScanner export package](stockscanner-export-package.md) — pre-built zip at project root `stockscanner-ai-source.zip`; 228 files, 1.8MB, no AIEM/options engine; present instantly without rebuild
