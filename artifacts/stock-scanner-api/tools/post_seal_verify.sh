@@ -35,8 +35,10 @@ ARCHIVE="${LOGS_DIR}/verified_run_${SEQ}.log"
 _PASS=0
 _FAIL=0
 _SKIP=0
+_WARN=0
 _FAILED_CHECKS=()
 _SKIPPED_CHECKS=()
+_WARNED_CHECKS=()
 
 psv_chk() {
     local name="$1" ok="$2" detail="${3:-}"
@@ -289,8 +291,17 @@ if [ "${_psv8_is_test_suite}" = "1" ]; then
         psv_chk "PSV8_pass_fail_totals_in_archive" 0 "archive missing"
     fi
 else
-    psv_skip "PSV8_pass_fail_totals_in_archive" \
-        "cmd is not a test-suite run (no SUMMARY: line expected): ${PSV8_CMD}"
+    # CMD does not match allowlist — but check archive anyway.
+    # If a SUMMARY: line is present, the allowlist is out of sync with this
+    # script and must be updated; emit WARN so it is never invisible.
+    if [ -f "${ARCHIVE}" ] && grep -q "^SUMMARY:" "${ARCHIVE}" 2>/dev/null; then
+        _WARN=$(( _WARN + 1 ))
+        _WARNED_CHECKS+=("PSV8_pass_fail_totals_in_archive")
+        echo "  [POST-SEAL WARN] PSV8_allowlist_out_of_sync -- CMD produced SUMMARY: line but did not match allowlist pattern: ${PSV8_CMD}"
+    else
+        psv_skip "PSV8_pass_fail_totals_in_archive" \
+            "cmd is not a test-suite run (no SUMMARY: line expected): ${PSV8_CMD}"
+    fi
 fi
 
 # ── PSV-9: CMD matches chain entry ────────────────────────────────────────────
@@ -318,12 +329,15 @@ else
 fi
 
 echo ""
-echo "POST-SEAL SUMMARY: ${_PASS} PASS  ${_FAIL} FAIL  ${_SKIP} SKIPPED"
+echo "POST-SEAL SUMMARY: ${_PASS} PASS  ${_FAIL} FAIL  ${_SKIP} SKIPPED  ${_WARN} WARN"
 if [ "${_FAIL}" -gt 0 ]; then
     echo "POST-SEAL FAILED: ${_FAILED_CHECKS[*]}"
 fi
 if [ "${_SKIP}" -gt 0 ]; then
     echo "POST-SEAL SKIPPED: ${_SKIPPED_CHECKS[*]}"
+fi
+if [ "${_WARN}" -gt 0 ]; then
+    echo "POST-SEAL WARNED: ${_WARNED_CHECKS[*]}"
 fi
 echo "================================="
 
