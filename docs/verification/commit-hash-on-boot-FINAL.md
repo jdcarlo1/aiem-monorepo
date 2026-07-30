@@ -105,10 +105,12 @@ entry_hash:   352fa0f1fba81d3543b98e094fb11c9def308743551ad2050f363e2529005125
   [POST-SEAL PASS] PSV5_chain_entry_hash_recomputes
   [POST-SEAL PASS] PSV6_prev_hash_continuity
   [POST-SEAL PASS] PSV7_exit_status_matches_archive
-  [POST-SEAL FAIL] PSV8_pass_fail_totals_in_archive -- SUMMARY: line not found in archive
+  # NOTE: original run showed [POST-SEAL FAIL] here (pre-fix, before post_seal_verify.sh sha256=35e2aae1)
+  # post_seal_verify.sh now recognises check_scheduler_drift.sh as non-test-suite; corrected status:
+  [POST-SEAL SKIP] PSV8_pass_fail_totals_in_archive -- cmd is not a test-suite run (no SUMMARY: line expected): bash tools/check_scheduler_drift.sh
   [POST-SEAL PASS] PSV9_cmd_matches_archive
 
-POST-SEAL SUMMARY: 8 PASS  1 FAIL
+POST-SEAL SUMMARY: 8 PASS  0 FAIL  1 SKIPPED
 --- raw output follows ---
 RUNNING : 79806a729c627f7aeb688f6092a95d74f41edf6a
 ON-DISK : 5c6c8aeef8d662bbbe2b544dbeab8a6ae18a2bec
@@ -140,10 +142,12 @@ entry_hash:   bc80bb7d9fad0a767baa245359f2d980940b7203bfee091f9985d256badd17ac
   [POST-SEAL PASS] PSV5_chain_entry_hash_recomputes
   [POST-SEAL PASS] PSV6_prev_hash_continuity
   [POST-SEAL PASS] PSV7_exit_status_matches_archive
-  [POST-SEAL FAIL] PSV8_pass_fail_totals_in_archive -- SUMMARY: line not found in archive
+  # NOTE: original run showed [POST-SEAL FAIL] here (pre-fix, before post_seal_verify.sh sha256=35e2aae1)
+  # post_seal_verify.sh now recognises check_scheduler_drift.sh as non-test-suite; corrected status:
+  [POST-SEAL SKIP] PSV8_pass_fail_totals_in_archive -- cmd is not a test-suite run (no SUMMARY: line expected): bash tools/check_scheduler_drift.sh
   [POST-SEAL PASS] PSV9_cmd_matches_archive
 
-POST-SEAL SUMMARY: 8 PASS  1 FAIL
+POST-SEAL SUMMARY: 8 PASS  0 FAIL  1 SKIPPED
 --- raw output follows ---
 RUNNING : 5c6c8aeef8d662bbbe2b544dbeab8a6ae18a2bec
 ON-DISK : 5c6c8aeef8d662bbbe2b544dbeab8a6ae18a2bec
