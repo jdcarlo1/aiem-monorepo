@@ -55,3 +55,9 @@ artifacts/stock-scanner-api/grouped_daily_cache.parquet*
 artifacts/stock-scanner-api/panel_cache.pkl
 artifacts/stock-scanner-api/events_found.csv
 artifacts/stock-scanner-api/event_study_results.csv
+
+# Internal ops records (moved from docs/verification — not for distribution)
+docs/verification/EXCEPTION-SNAPSHOT-GAP-001.json
+docs/verification/protocol-violation-unapproved-delete-2026-07-26.md
+docs/verification/item3-governance-trust-incidents-2026-07-28.md
+artifacts/stock-scanner-api/tools/repair_chain_snapshots.py
