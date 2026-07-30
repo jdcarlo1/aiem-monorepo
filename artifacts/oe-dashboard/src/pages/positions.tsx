@@ -60,23 +60,42 @@ interface PaperPosition {
   opened_at: string;
 }
 
+// ── Response shape normalisers ────────────────────────────────────────────────
+function extractRows<T>(resp: unknown): T[] {
+  if (Array.isArray(resp)) return resp as T[];
+  const r = resp as Record<string, unknown>;
+  if (Array.isArray(r?.rows)) return r.rows as T[];
+  if (Array.isArray(r?.positions)) return r.positions as T[];
+  if (Array.isArray(r?.trades)) return r.trades as T[];
+  return [];
+}
+
 export default function PositionsPage() {
   const { apiFetch } = useApi();
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
 
   const { data: trades, isLoading: tradesLoading } = useQuery({
     queryKey: ['trade-records'],
-    queryFn: () => apiFetch<TradeRecord[]>('/admin/trade-records?limit=50'),
+    queryFn: () =>
+      apiFetch<unknown>('/admin/trade-records?limit=50').then(extractRows<TradeRecord>),
   });
 
   const { data: allMetrics } = useQuery({
     queryKey: ['options-metrics'],
-    queryFn: () => apiFetch<OptionsMetrics[]>('/admin/options-metrics?limit=50'),
+    queryFn: () =>
+      apiFetch<unknown>('/admin/options-metrics?limit=50').then(extractRows<OptionsMetrics>),
   });
 
   const { data: paperPositions } = useQuery({
     queryKey: ['paper-portfolio'],
-    queryFn: () => apiFetch<PaperPosition[]>('/aiem-paper-portfolio'),
+    queryFn: () =>
+      apiFetch<unknown>('/aiem-paper-portfolio').then((resp) => {
+        if (Array.isArray(resp)) return resp as PaperPosition[];
+        const r = resp as Record<string, unknown>;
+        // paper-portfolio may return {positions:[...]} or {open:[...]}
+        const arr = r?.positions ?? r?.open ?? r?.rows ?? [];
+        return (Array.isArray(arr) ? arr : []) as PaperPosition[];
+      }),
   });
 
   const metrics = selectedTraceId

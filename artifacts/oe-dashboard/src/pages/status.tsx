@@ -38,17 +38,75 @@ interface PipelineCheckpoint {
   updated_at: string;
 }
 
+// ── Response shape normalisers ────────────────────────────────────────────────
+function normaliseJobHealth(resp: unknown): JobHealth[] {
+  // /admin/job-heartbeats returns { status, jobs: [{job_name, last_success, last_attempt, consecutive_failures, last_error}] }
+  // /admin/job-health    returns { alerts, checked_at, healthy, status, total_jobs }
+  if (Array.isArray(resp)) return resp as JobHealth[];
+  const r = resp as Record<string, unknown>;
+  const jobs = r?.jobs;
+  if (Array.isArray(jobs)) {
+    return (jobs as Record<string, unknown>[]).map((j) => ({
+      job_name: j.job_name as string,
+      last_heartbeat: (j.last_attempt ?? j.last_success ?? '') as string,
+      consecutive_failures: (j.consecutive_failures ?? 0) as number,
+      last_error: j.last_error as string | undefined,
+    }));
+  }
+  return [];
+}
+
+function normaliseSchedulerJobs(resp: unknown): SchedulerJob[] {
+  if (Array.isArray(resp)) return resp as SchedulerJob[];
+  const r = resp as Record<string, unknown>;
+  const jobs = r?.jobs;
+  if (!Array.isArray(jobs)) return [];
+  return (jobs as Record<string, unknown>[]).map((j) => ({
+    job_id: (j.id ?? j.job_id ?? '') as string,
+    job_name: (j.name ?? j.job_name ?? '') as string,
+    next_run_time: (j.next_run ?? j.next_run_time ?? '') as string,
+    trigger_type: (j.trigger ?? j.trigger_type ?? '') as string,
+  }));
+}
+
+function normalisePipelineCheckpoint(resp: unknown): PipelineCheckpoint | null {
+  if (!resp || typeof resp !== 'object') return null;
+  const r = resp as Record<string, unknown>;
+  // /admin/pipeline-checkpoint returns:
+  // {date, jobs:[{ticker,status}], pending, done, pipeline_run:{status,trigger_source}, needs_recovery}
+  if (r?.pipeline_run || r?.date) {
+    const pr = (r.pipeline_run ?? {}) as Record<string, unknown>;
+    return {
+      checkpoint_id: 0,
+      stage: (pr.trigger_source ?? 'primary') as string,
+      status: (pr.status ?? r.status ?? 'UNKNOWN') as string,
+      updated_at: (r.date ?? '') as string,
+    };
+  }
+  // Fallback: generic object with updated_at
+  if (!r?.updated_at && !r?.status) return null;
+  return {
+    checkpoint_id: (r.checkpoint_id ?? r.id ?? 0) as number,
+    stage: (r.stage ?? r.phase ?? '') as string,
+    status: (r.status ?? '') as string,
+    updated_at: (r.updated_at ?? r.completed_at ?? '') as string,
+  };
+}
+
 export default function StatusPage() {
   const { apiFetch } = useApi();
 
+  // Use /admin/job-heartbeats (raw heartbeat table) instead of /admin/job-health (aggregate)
   const { data: jobHealth, isLoading: jobHealthLoading } = useQuery({
     queryKey: ['job-health'],
-    queryFn: () => apiFetch<JobHealth[]>('/admin/job-health'),
+    queryFn: () =>
+      apiFetch<unknown>('/admin/job-heartbeats').then(normaliseJobHealth),
   });
 
   const { data: schedulerJobs } = useQuery({
     queryKey: ['scheduler-jobs'],
-    queryFn: () => apiFetch<SchedulerJob[]>('/admin/scheduler-jobs'),
+    queryFn: () =>
+      apiFetch<unknown>('/admin/scheduler-jobs').then(normaliseSchedulerJobs),
   });
 
   const { data: reconcileStatus } = useQuery({
@@ -58,7 +116,8 @@ export default function StatusPage() {
 
   const { data: pipelineCheckpoint } = useQuery({
     queryKey: ['pipeline-checkpoint'],
-    queryFn: () => apiFetch<PipelineCheckpoint>('/admin/pipeline-checkpoint'),
+    queryFn: () =>
+      apiFetch<unknown>('/admin/pipeline-checkpoint').then(normalisePipelineCheckpoint),
   });
 
   const getHealthBadge = (consecutiveFailures: number) => {
@@ -125,36 +184,38 @@ export default function StatusPage() {
           <h2 className="font-semibold">Job Heartbeats</h2>
         </div>
         {jobHealth && jobHealth.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Job Name</TableHead>
-                <TableHead>Last Heartbeat</TableHead>
-                <TableHead>Consecutive Failures</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last Error</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {jobHealth.map((job, idx) => (
-                <TableRow key={idx} data-testid={`row-job-${idx}`}>
-                  <TableCell className="font-mono text-sm">
-                    {job.job_name}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {formatDate(job.last_heartbeat)}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {job.consecutive_failures}
-                  </TableCell>
-                  <TableCell>{getHealthBadge(job.consecutive_failures)}</TableCell>
-                  <TableCell className="text-xs max-w-xs truncate">
-                    {job.last_error ?? '—'}
-                  </TableCell>
+          <div className="overflow-auto max-h-96">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Job Name</TableHead>
+                  <TableHead>Last Heartbeat</TableHead>
+                  <TableHead>Consecutive Failures</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Last Error</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {jobHealth.map((job, idx) => (
+                  <TableRow key={idx} data-testid={`row-job-${idx}`}>
+                    <TableCell className="font-mono text-sm">
+                      {job.job_name}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {formatDate(job.last_heartbeat)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {job.consecutive_failures}
+                    </TableCell>
+                    <TableCell>{getHealthBadge(job.consecutive_failures)}</TableCell>
+                    <TableCell className="text-xs max-w-xs truncate">
+                      {job.last_error ?? '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : (
           <div className="p-12 text-center">
             <p className="text-muted-foreground">0 job health records found</p>
@@ -168,30 +229,32 @@ export default function StatusPage() {
           <h2 className="font-semibold">APScheduler Jobs</h2>
         </div>
         {schedulerJobs && schedulerJobs.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Job ID</TableHead>
-                <TableHead>Job Name</TableHead>
-                <TableHead>Next Run Time</TableHead>
-                <TableHead>Trigger Type</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {schedulerJobs.map((job, idx) => (
-                <TableRow key={idx} data-testid={`row-scheduler-${idx}`}>
-                  <TableCell className="font-mono text-xs">{job.job_id}</TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {job.job_name}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {formatDate(job.next_run_time)}
-                  </TableCell>
-                  <TableCell className="text-xs">{job.trigger_type}</TableCell>
+          <div className="overflow-auto max-h-96">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Job ID</TableHead>
+                  <TableHead>Job Name</TableHead>
+                  <TableHead>Next Run Time</TableHead>
+                  <TableHead>Trigger Type</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {schedulerJobs.map((job, idx) => (
+                  <TableRow key={idx} data-testid={`row-scheduler-${idx}`}>
+                    <TableCell className="font-mono text-xs">{job.job_id}</TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {job.job_name}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {formatDate(job.next_run_time)}
+                    </TableCell>
+                    <TableCell className="text-xs">{job.trigger_type}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : (
           <div className="p-12 text-center">
             <p className="text-muted-foreground">0 scheduler jobs found</p>

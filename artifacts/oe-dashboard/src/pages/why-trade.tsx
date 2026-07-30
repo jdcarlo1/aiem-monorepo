@@ -41,6 +41,15 @@ interface OptionsMetrics {
   iv_percentile?: number;
 }
 
+// ── Response shape normalisers ────────────────────────────────────────────────
+function extractRows<T>(resp: unknown): T[] {
+  if (Array.isArray(resp)) return resp as T[];
+  const r = resp as Record<string, unknown>;
+  if (Array.isArray(r?.rows)) return r.rows as T[];
+  if (Array.isArray(r?.snapshots)) return r.snapshots as T[];
+  return [];
+}
+
 export default function WhyTradePage() {
   const params = useParams();
   const traceId = params.traceId;
@@ -49,16 +58,17 @@ export default function WhyTradePage() {
   const { data: indicators, isLoading: indicatorsLoading } = useQuery({
     queryKey: ['indicator-snapshots', traceId],
     queryFn: () =>
-      apiFetch<IndicatorSnapshot[]>(
+      apiFetch<unknown>(
         `/admin/indicator-snapshots?trace_id=${traceId}`
-      ),
+      ).then(extractRows<IndicatorSnapshot>),
     enabled: !!traceId,
   });
 
   const { data: metrics } = useQuery({
     queryKey: ['options-metrics-why', traceId],
     queryFn: () =>
-      apiFetch<OptionsMetrics[]>(`/admin/options-metrics?trace_id=${traceId}`),
+      apiFetch<unknown>(`/admin/options-metrics?trace_id=${traceId}`)
+        .then(extractRows<OptionsMetrics>),
     enabled: !!traceId,
   });
 

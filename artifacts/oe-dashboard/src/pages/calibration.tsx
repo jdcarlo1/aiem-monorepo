@@ -28,6 +28,7 @@ interface DailyPick {
   prob_up_2d: number;
   prob_up_3d: number;
   prob_up_4d: number;
+  confidence?: number;
 }
 
 interface TrackRecord {
@@ -39,24 +40,108 @@ interface TrackRecord {
   resolved_at: string;
 }
 
+// ── Response shape normalisers ─────────────────────────────────────────────────
+
+/**
+ * /aiem-probability-engine/calibration returns:
+ * {
+ *   calibrator_artifacts: { "1d": {raw_brier_test_fold, cal_brier_test_fold, n_test, ...}, ... }
+ *   pit_metrics: { genuine: {n_rows_total}, contaminated: {n_rows_total}, corrected: {n_rows_total} }
+ * }
+ */
+function normaliseCalibration(resp: unknown): CalibrationHorizon[] {
+  if (Array.isArray(resp)) return resp as CalibrationHorizon[];
+  const r = resp as Record<string, unknown>;
+  const arts = r?.calibrator_artifacts as Record<string, Record<string, number>> | undefined;
+  const pit  = r?.pit_metrics as Record<string, Record<string, number>> | undefined;
+
+  if (!arts) return [];
+
+  const totalContaminated = (pit?.contaminated as Record<string, number>)?.n_rows_total ?? 0;
+  const totalGenuine      = (pit?.genuine as Record<string, number>)?.n_rows_total ?? 0;
+  const totalCorrected    = (pit?.corrected as Record<string, number>)?.n_rows_total ?? 0;
+  const totalRows = totalGenuine + totalContaminated + totalCorrected;
+
+  return Object.entries(arts).map(([horizon, art]) => ({
+    horizon,
+    raw_brier: art.raw_brier_test_fold ?? 0,
+    cal_brier: art.cal_brier_test_fold ?? 0,
+    n_genuine: (art.n_test ?? totalGenuine),
+    contamination_pct: totalRows > 0 ? (totalContaminated / totalRows) * 100 : 0,
+    n_contaminated: totalContaminated,
+    n_corrected: totalCorrected,
+  }));
+}
+
+/**
+ * /aiem-probability-engine/daily-picks returns:
+ * { pick_date: "YYYY-MM-DD", picks: [{ticker, prob_up_1d, prob_up_2d, ...}, ...] }
+ */
+function normaliseDailyPicks(resp: unknown): DailyPick[] {
+  if (Array.isArray(resp)) return resp as DailyPick[];
+  const r = resp as Record<string, unknown>;
+  const picks = r?.picks;
+  const scanDate = (r?.pick_date as string) ?? '';
+  if (!Array.isArray(picks)) return [];
+  return (picks as Record<string, unknown>[]).map((p) => ({
+    ticker:      (p.ticker as string) ?? '',
+    scan_date:   scanDate,
+    prob_up_1d:  (p.prob_up_1d as number) ?? 0,
+    prob_up_2d:  (p.prob_up_2d as number) ?? 0,
+    prob_up_3d:  (p.prob_up_3d as number) ?? 0,
+    prob_up_4d:  (p.prob_up_4d as number) ?? 0,
+    confidence:  p.confidence as number | undefined,
+  }));
+}
+
+/**
+ * /aiem-probability-engine/track-record returns:
+ * { rows: [{ticker, signal_date, prob_up_1d, correct_1d, outcome_label_1d, ...}], ... }
+ * Each row contains 4 horizons; we expand into individual records (settled only).
+ */
+function normaliseTrackRecord(resp: unknown): TrackRecord[] {
+  if (Array.isArray(resp)) return resp as TrackRecord[];
+  const r = resp as Record<string, unknown>;
+  const rows = r?.rows;
+  if (!Array.isArray(rows)) return [];
+
+  const result: TrackRecord[] = [];
+  for (const row of rows as Record<string, unknown>[]) {
+    for (const h of [1, 2, 3, 4] as const) {
+      const correct = row[`correct_${h}d`];
+      if (correct === null || correct === undefined) continue; // not settled yet
+      result.push({
+        ticker:         (row.ticker as string) ?? '',
+        scan_date:      (row.signal_date as string) ?? '',
+        horizon:        `${h}d`,
+        predicted_prob: (row[`prob_up_${h}d`] as number) ?? 0,
+        actual_outcome: correct === true ? 1 : 0,
+        resolved_at:    (row.signal_date as string) ?? '',
+      });
+    }
+  }
+  return result;
+}
+
 export default function CalibrationPage() {
   const { apiFetch } = useApi();
 
   const { data: calibration, isLoading: calibrationLoading } = useQuery({
     queryKey: ['calibration'],
     queryFn: () =>
-      apiFetch<CalibrationHorizon[]>('/aiem-probability-engine/calibration'),
+      apiFetch<unknown>('/aiem-probability-engine/calibration').then(normaliseCalibration),
   });
 
   const { data: dailyPicks } = useQuery({
     queryKey: ['daily-picks'],
-    queryFn: () => apiFetch<DailyPick[]>('/aiem-probability-engine/daily-picks'),
+    queryFn: () =>
+      apiFetch<unknown>('/aiem-probability-engine/daily-picks').then(normaliseDailyPicks),
   });
 
   const { data: trackRecord } = useQuery({
     queryKey: ['track-record'],
     queryFn: () =>
-      apiFetch<TrackRecord[]>('/aiem-probability-engine/track-record'),
+      apiFetch<unknown>('/aiem-probability-engine/track-record').then(normaliseTrackRecord),
   });
 
   if (calibrationLoading) {
@@ -174,6 +259,7 @@ export default function CalibrationPage() {
                 <TableHead>Prob Up 2D</TableHead>
                 <TableHead>Prob Up 3D</TableHead>
                 <TableHead>Prob Up 4D</TableHead>
+                <TableHead>Confidence</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -196,6 +282,11 @@ export default function CalibrationPage() {
                   </TableCell>
                   <TableCell className="font-mono text-xs">
                     {(pick.prob_up_4d * 100).toFixed(1)}%
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {pick.confidence !== undefined
+                      ? `${(pick.confidence * 100).toFixed(0)}%`
+                      : '—'}
                   </TableCell>
                 </TableRow>
               ))}
@@ -222,7 +313,6 @@ export default function CalibrationPage() {
                 <TableHead>Horizon</TableHead>
                 <TableHead>Predicted Prob</TableHead>
                 <TableHead>Actual Outcome</TableHead>
-                <TableHead>Resolved At</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -246,9 +336,6 @@ export default function CalibrationPage() {
                     >
                       {record.actual_outcome === 1 ? 'UP' : 'DOWN'}
                     </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {new Date(record.resolved_at).toLocaleDateString()}
                   </TableCell>
                 </TableRow>
               ))}

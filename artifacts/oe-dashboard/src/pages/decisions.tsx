@@ -28,8 +28,8 @@ interface DecisionAudit {
   identity_json: Record<string, unknown>;
   technical_json: Record<string, unknown>;
   options_intel_json: Record<string, unknown>;
-  probability_risk_json: Record<string, unknown>;
-  justification_json: Record<string, unknown>;
+  probability_risk_json?: Record<string, unknown>;
+  justification_json?: Record<string, unknown>;
 }
 
 interface GateEvent {
@@ -48,6 +48,39 @@ interface EvidenceChainStatus {
   last_entry_hash: string;
 }
 
+// ── response-shape normalisers ─────────────────────────────────────────────────
+function normaliseDecisions(resp: unknown): DecisionAudit[] {
+  if (Array.isArray(resp)) return resp as DecisionAudit[];
+  const r = resp as Record<string, unknown>;
+  return (Array.isArray(r?.rows) ? r.rows : []) as DecisionAudit[];
+}
+
+function normaliseGateEvents(resp: unknown): GateEvent[] {
+  const rows: Record<string, unknown>[] = Array.isArray(resp)
+    ? (resp as Record<string, unknown>[])
+    : Array.isArray((resp as Record<string, unknown>)?.rows)
+    ? ((resp as Record<string, unknown>).rows as Record<string, unknown>[])
+    : [];
+  return rows.map((e) => ({
+    id: (e.gate_event_id ?? e.id) as number,
+    trace_id: e.trace_id as string,
+    gate_type: (e.gate_name ?? e.gate_type) as string,
+    action_taken: e.action_taken as string,
+    chain_hash: e.chain_hash as string,
+    recorded_at: (e.fired_at ?? e.recorded_at) as string,
+  }));
+}
+
+function normaliseChainStatus(resp: unknown): EvidenceChainStatus {
+  const r = resp as Record<string, unknown>;
+  return {
+    chain_seq: (r?.chain_seq ?? r?.seq ?? 0) as number,
+    last_timestamp_utc: (r?.last_timestamp_utc ?? '') as string,
+    total_entries: (r?.total_entries ?? 0) as number,
+    last_entry_hash: (r?.last_entry_hash ?? '') as string,
+  };
+}
+
 export default function DecisionsPage() {
   const { apiFetch } = useApi();
   const [selectedDecision, setSelectedDecision] = useState<DecisionAudit | null>(null);
@@ -55,20 +88,20 @@ export default function DecisionsPage() {
   const { data: decisions, isLoading: decisionsLoading } = useQuery({
     queryKey: ['decision-audit'],
     queryFn: () =>
-      apiFetch<DecisionAudit[]>('/admin/decision-audit?limit=50'),
+      apiFetch<unknown>('/admin/decision-audit?limit=50').then(normaliseDecisions),
   });
 
   const { data: gateEvents } = useQuery({
     queryKey: ['gate-events'],
-    queryFn: () => apiFetch<GateEvent[]>('/admin/gate-events?limit=20'),
+    queryFn: () => apiFetch<unknown>('/admin/gate-events?limit=20').then(normaliseGateEvents),
   });
 
   const { data: chainStatus } = useQuery({
     queryKey: ['evidence-chain-status'],
-    queryFn: () => apiFetch<EvidenceChainStatus>('/admin/evidence-chain/status'),
+    queryFn: () => apiFetch<unknown>('/admin/evidence-chain/status').then(normaliseChainStatus),
   });
 
-  const JsonViewer = ({ label, data }: { label: string; data: Record<string, unknown> }) => {
+  const JsonViewer = ({ label, data }: { label: string; data?: Record<string, unknown> | null }) => {
     const [isOpen, setIsOpen] = useState(false);
     return (
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -78,7 +111,7 @@ export default function DecisionsPage() {
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-2">
           <pre className="text-xs font-mono bg-card border border-border p-3 rounded overflow-auto max-h-96">
-            {JSON.stringify(data, null, 2)}
+            {JSON.stringify(data ?? null, null, 2)}
           </pre>
         </CollapsibleContent>
       </Collapsible>
