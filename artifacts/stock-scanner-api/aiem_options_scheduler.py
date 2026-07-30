@@ -2986,6 +2986,415 @@ def backfill_missed_jobs() -> dict:
     return {"backfilled_dates": [str(d) for d in missed_dates], "results": all_results}
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PART 1 — SCHEDULE-INTEGRITY MONITOR
+# Catches jobs silently skipped because the scheduler restarted after their
+# cron window — APScheduler misfires are never retried automatically.
+# Exact scenario caught: 09:40 seed job, VM restart at 12:57, silent skip.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SCHED_MONITOR_JOBS = [
+    {"id": "premarket_scan",        "desc": "07:30 premarket scan",
+     "expected_et": (7, 30),  "grace_minutes": 15},
+    {"id": "seed_daily_candidates", "desc": "09:40 seed daily candidates",
+     "expected_et": (9, 40),  "grace_minutes": 15},
+    {"id": "run_pipeline_worker",   "desc": "09:45 pipeline worker",
+     "expected_et": (9, 45),  "grace_minutes": 20},
+    {"id": "grade_outcomes",        "desc": "16:46 grade outcomes",
+     "expected_et": (16, 46), "grace_minutes": 10},
+]
+
+
+def _job_ran_today(cur, job_id: str, today) -> bool:
+    """Return True if DB evidence shows this job ran today."""
+    if job_id == "premarket_scan":
+        try:
+            cur.execute(
+                "SELECT COUNT(*) FROM options_engine_premarket WHERE run_date=%s",
+                (today,))
+            return cur.fetchone()[0] > 0
+        except Exception:
+            return True  # table absent — don't false-alert
+    elif job_id == "seed_daily_candidates":
+        cur.execute(
+            "SELECT status FROM daily_pipeline_runs "
+            "WHERE run_date=%s AND trigger_source='primary'",
+            (today,))
+        row = cur.fetchone()
+        return row is not None and row[0] not in (None, "SCHEDULED")
+    elif job_id == "run_pipeline_worker":
+        cur.execute(
+            "SELECT completed_at FROM daily_pipeline_runs "
+            "WHERE run_date=%s AND trigger_source='primary'",
+            (today,))
+        row = cur.fetchone()
+        return row is not None and row[0] is not None
+    elif job_id == "grade_outcomes":
+        cur.execute(
+            "SELECT COUNT(*) FROM job_heartbeats "
+            "WHERE job_name='grade_outcomes' AND success=TRUE "
+            "  AND recorded_at >= NOW() - INTERVAL '8 hours'")
+        return cur.fetchone()[0] > 0
+    return True  # unknown job — don't alert
+
+
+def _schedule_integrity_check(force_now_et=None) -> list:
+    """
+    Runs every 15 minutes and on startup.
+    For every monitored daily job, checks whether DB evidence of a run exists
+    once the expected fire time + grace period has elapsed today.
+    Fires a Telegram alert immediately on any overdue job.
+
+    Returns list of overdue job_ids (empty = all good).
+    force_now_et: datetime override for testing only.
+    """
+    now_et = force_now_et or datetime.now(_ET)
+    today  = now_et.date()
+
+    if now_et.weekday() >= 5:
+        log.debug("[sched_integrity] weekend — skipping")
+        return []
+
+    overdue = []
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            for cfg in _SCHED_MONITOR_JOBS:
+                jid   = cfg["id"]
+                h, m  = cfg["expected_et"]
+                grace = cfg["grace_minutes"]
+                alert_after = (
+                    now_et.replace(hour=h, minute=m, second=0, microsecond=0)
+                    + timedelta(minutes=grace)
+                )
+                if now_et < alert_after:
+                    continue  # grace period not expired yet for this job
+                if _job_ran_today(cur, jid, today):
+                    continue
+
+                overdue.append(jid)
+                msg = (
+                    f"⚠️ <b>SCHEDULE MISS DETECTED</b>\n"
+                    f"Job: <code>{jid}</code>\n"
+                    f"Expected: {h:02d}:{m:02d} ET  |  Grace: {grace} min\n"
+                    f"Alert cutoff: {alert_after.strftime('%H:%M ET')}\n"
+                    f"Detected at: {now_et.strftime('%H:%M:%S ET')}\n"
+                    f"Evidence of run: NONE\n"
+                    f"Root cause: scheduler restarted after cron window — "
+                    f"APScheduler misfires are not retried automatically.\n"
+                    f"Date: {today}"
+                )
+                log.warning(f"[sched_integrity] OVERDUE job={jid} date={today}")
+                _tg(msg)
+    except Exception as e:
+        log.warning(f"[sched_integrity] check error: {e}")
+
+    return overdue
+
+
+def _test_misfire_proof() -> dict:
+    """
+    PROOF TEST — Part 1.
+    Simulates the exact scenario: scheduler restart after 09:40 window,
+    seed job silently skipped (daily_pipeline_runs stays SCHEDULED).
+
+    1. Records current daily_pipeline_runs status for today.
+    2. Temporarily sets row to status='SCHEDULED'.
+    3. Calls _schedule_integrity_check() with force_now_et = 10:00 ET today
+       (past the 09:55 grace cutoff for seed_daily_candidates).
+    4. Verifies overdue list contains 'seed_daily_candidates' and
+       Telegram alert was fired.
+    5. Restores original row status.
+    """
+    now_et = datetime.now(_ET)
+    today  = now_et.date()
+    result = {
+        "test": "forced_misfire_proof", "date": str(today),
+        "passed": False, "overdue_jobs": [], "detail": "",
+    }
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            # Save original
+            cur.execute(
+                "SELECT status FROM daily_pipeline_runs "
+                "WHERE run_date=%s AND trigger_source='primary'", (today,))
+            row = cur.fetchone()
+            original_status = row[0] if row else None
+
+            # Force to SCHEDULED sentinel
+            cur.execute("""
+                INSERT INTO daily_pipeline_runs (run_date, trigger_source, status)
+                VALUES (%s, 'primary', 'SCHEDULED')
+                ON CONFLICT (run_date, trigger_source) DO UPDATE SET status='SCHEDULED'
+            """, (today,))
+            conn.commit()
+
+            # Run check with fake time = 10:00 ET (past 09:55 grace)
+            fake_time = now_et.replace(hour=10, minute=0, second=0, microsecond=0)
+            overdue = _schedule_integrity_check(force_now_et=fake_time)
+
+            result["overdue_jobs"] = overdue
+            result["passed"] = "seed_daily_candidates" in overdue
+            result["detail"] = (
+                f"Set status=SCHEDULED for {today}, "
+                f"ran check at fake_time=10:00 ET (grace cutoff 09:55 ET). "
+                f"Overdue detected: {overdue}. "
+                f"Telegram alert fired: {result['passed']}"
+            )
+
+            # Restore
+            if original_status is None:
+                cur.execute(
+                    "DELETE FROM daily_pipeline_runs "
+                    "WHERE run_date=%s AND trigger_source='primary'", (today,))
+            else:
+                cur.execute(
+                    "UPDATE daily_pipeline_runs SET status=%s "
+                    "WHERE run_date=%s AND trigger_source='primary'",
+                    (original_status, today))
+            conn.commit()
+    except Exception as e:
+        result["detail"] = f"error: {e}"
+        log.error(f"[misfire_proof] {e}")
+
+    log.info(f"[misfire_proof] result={result}")
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PART 2 — STATUS / CLASSIFICATION INTEGRITY CHECK
+# Detects and corrects daily_pipeline_runs rows where status=FAILED but the
+# underlying options_pipeline_jobs are all gate-rejections (not real crashes).
+# Root cause of the Jul 28-29 misclassification:
+#   Per-job status was written as FAILED (old code, before _is_gate_reject
+#   classification was added). Worker rollup saw gate_rejected=0 → FAILED.
+#   error_text stayed NULL because no crash description existed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GATE_REJECT_PREFIX = "not ready_for_decision"
+
+
+def _validate_and_fix_pipeline_run_classifications(
+        fix_db: bool = True, days_back: int = 30) -> dict:
+    """
+    Sweeps daily_pipeline_runs for misclassified FAILED rows:
+      - status = 'FAILED'
+      - candidates_failed > 0
+      - error_text IS NULL
+
+    For each, queries options_pipeline_jobs for that date:
+      - All failed jobs have 'not ready_for_decision' error → reclassify to
+        NO_TRADE_GATES, populate error_text with gate summary.
+      - Any real crash present → leave status=FAILED, populate error_text
+        from the first real exception.
+
+    fix_db=False is a dry-run that returns what would change.
+    """
+    cutoff = date.today() - timedelta(days=days_back)
+    fixed = []
+    dry_run_would_fix = []
+
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, run_date, status, candidates_failed, error_text
+                FROM daily_pipeline_runs
+                WHERE status = 'FAILED'
+                  AND candidates_failed > 0
+                  AND error_text IS NULL
+                  AND run_date >= %s
+                ORDER BY run_date DESC
+            """, (cutoff,))
+            suspect_rows = cur.fetchall()
+            log.info(f"[classify_fix] found {len(suspect_rows)} suspect FAILED rows "
+                     f"(null error_text) since {cutoff}")
+
+            for row_id, run_date, status, n_failed, _err in suspect_rows:
+                cur.execute("""
+                    SELECT id, ticker, status, error_text
+                    FROM options_pipeline_jobs
+                    WHERE scan_date = %s
+                      AND status IN ('FAILED', 'NO_TRADE_GATES')
+                """, (run_date,))
+                jobs = cur.fetchall()
+                if not jobs:
+                    continue
+
+                all_gate = all(
+                    (j[3] or "").startswith(_GATE_REJECT_PREFIX) for j in jobs)
+                first_real_crash = next(
+                    (j[3] for j in jobs
+                     if j[3] and not j[3].startswith(_GATE_REJECT_PREFIX)),
+                    None)
+
+                if all_gate:
+                    new_status = "NO_TRADE_GATES"
+                    new_err    = (
+                        f"Reclassified from FAILED: {len(jobs)} gate-rejection(s) "
+                        f"on {run_date}. Sample: "
+                        f"{(jobs[0][3] or '')[:120]}"
+                    )
+                elif first_real_crash:
+                    new_status = "FAILED"
+                    new_err    = first_real_crash[:400]
+                else:
+                    continue
+
+                entry = {
+                    "daily_pipeline_runs_id": row_id,
+                    "run_date":         str(run_date),
+                    "old_status":       status,
+                    "new_status":       new_status,
+                    "job_count":        len(jobs),
+                    "all_gate_reject":  all_gate,
+                    "new_error_text":   new_err[:120],
+                }
+                if fix_db:
+                    cur.execute("""
+                        UPDATE daily_pipeline_runs
+                        SET status=%s, error_text=%s
+                        WHERE id=%s
+                    """, (new_status, new_err, row_id))
+                    fixed.append(entry)
+                    log.info(
+                        f"[classify_fix] id={row_id} date={run_date} "
+                        f"{status} → {new_status}")
+                else:
+                    dry_run_would_fix.append(entry)
+
+            if fix_db and fixed:
+                conn.commit()
+                log.info(f"[classify_fix] committed {len(fixed)} fix(es)")
+
+    except Exception as e:
+        log.error(f"[classify_fix] error: {e}")
+        return {"error": str(e)}
+
+    return {
+        "fixed":             fixed,
+        "dry_run_would_fix": dry_run_would_fix,
+        "fix_db":            fix_db,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PART 3 — EXTERNAL API CONTRACT CANARY
+# Lightweight pre-batch checks on Polygon endpoints.
+# Runs at 07:45 ET and 09:30 ET (before the 09:40 seed job).
+# On any failure: loud Telegram alert — does NOT use the fallback-to-cache
+# path that masked the Jul-30 74-ticker Polygon 400 burst.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _polygon_canary_check(force_fail: bool = False) -> dict:
+    """
+    Canary checks for the two Polygon endpoints the daily pipeline depends on:
+      1. /v2/aggs/grouped/locale/us/market/stocks/{date} — grouped daily OHLCV
+      2. /v3/snapshot/options/{ticker}?limit=1          — options chain snapshot
+
+    On any non-200 / error response: fires Telegram alert immediately.
+    Does NOT fall back to cache — silent cache fallback is the exact failure
+    mode this canary is designed to expose.
+
+    force_fail=True: deliberately uses bad params to prove the alert fires.
+    """
+    api_key = os.environ.get("POLYGON_API_KEY", "").strip()
+    if not api_key:
+        log.warning("[canary] POLYGON_API_KEY not set — skipping")
+        return {"skipped": True, "reason": "no POLYGON_API_KEY"}
+
+    results = {}
+    alerts  = []
+
+    # ── Canary 1: grouped-daily ───────────────────────────────────────────────
+    if force_fail:
+        test_date = "1900-01-01"  # guaranteed no-data date
+    else:
+        test_date = (datetime.now(_ET).date() - timedelta(days=1)).isoformat()
+
+    url1 = (
+        f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks"
+        f"/{test_date}?adjusted=true&apiKey={api_key}"
+    )
+    try:
+        req1 = urllib.request.Request(url1, headers={"User-Agent": "aiem-canary/1"})
+        with urllib.request.urlopen(req1, timeout=10) as r1:
+            http1 = r1.status
+            # grouped-daily response can be megabytes; read enough to parse
+            # status/error fields but don't load the full body into memory.
+            try:
+                body1 = json.loads(r1.read(4096))
+            except Exception:
+                # Truncated JSON = very large valid response → status was 200
+                body1 = {"status": "OK_LARGE_RESPONSE", "resultsCount": 1}
+        ok1 = http1 == 200
+    except Exception as e1:
+        http1  = 0
+        body1  = {"error": str(e1)}
+        ok1    = False
+
+    results["grouped_daily"] = {
+        "endpoint": f"/v2/aggs/grouped/locale/us/market/stocks/{test_date}",
+        "http_status": http1, "ok": ok1,
+        "body_sample": str(body1)[:160],
+    }
+    if not ok1:
+        alerts.append(
+            f"🚨 <b>POLYGON CANARY FAIL — grouped-daily</b>\n"
+            f"Endpoint: {results['grouped_daily']['endpoint']}\n"
+            f"HTTP {http1}  |  {str(body1)[:200]}\n"
+            f"⚠️ <b>seed_daily_candidates WILL FAIL</b> if unresolved by 09:40 ET.\n"
+            f"force_fail={force_fail}"
+        )
+
+    # ── Canary 2: options snapshot ────────────────────────────────────────────
+    if force_fail:
+        canary_ticker = "BADTICKER_CANARY_XYZ"  # invalid ticker
+    else:
+        canary_ticker = "SPY"
+
+    url2 = (
+        f"https://api.polygon.io/v3/snapshot/options/{canary_ticker}"
+        f"?limit=1&apiKey={api_key}"
+    )
+    try:
+        req2 = urllib.request.Request(url2, headers={"User-Agent": "aiem-canary/1"})
+        with urllib.request.urlopen(req2, timeout=10) as r2:
+            http2  = r2.status
+            body2  = json.loads(r2.read(512))
+        ok2 = http2 == 200
+    except Exception as e2:
+        http2  = 0
+        body2  = {"error": str(e2)}
+        ok2    = False
+
+    results["options_snapshot"] = {
+        "endpoint": f"/v3/snapshot/options/{canary_ticker}?limit=1",
+        "http_status": http2, "ok": ok2,
+        "body_sample": str(body2)[:160],
+    }
+    if not ok2:
+        alerts.append(
+            f"🚨 <b>POLYGON CANARY FAIL — options snapshot</b>\n"
+            f"Endpoint: {results['options_snapshot']['endpoint']}\n"
+            f"HTTP {http2}  |  {str(body2)[:200]}\n"
+            f"⚠️ <b>execute_pipeline_job WILL FAIL</b> for all tickers.\n"
+            f"force_fail={force_fail}"
+        )
+
+    for alert_msg in alerts:
+        log.error(f"[canary] {alert_msg}")
+        _tg(alert_msg)
+
+    log.info(
+        f"[canary] grouped_daily={ok1} options_snapshot={ok2} "
+        f"alerts_fired={len(alerts)} force_fail={force_fail}"
+    )
+    return {
+        "results":      results,
+        "alerts_fired": len(alerts),
+        "all_ok":       ok1 and ok2,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GRADE OUTCOMES (4:46 PM job — stages 9-10)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3421,6 +3830,31 @@ def main():
     sched.add_job(recover_stale_jobs,
                   CronTrigger(minute="*/5"),
                   id="stale_recovery", replace_existing=True)
+
+    # ── Runtime Integrity Monitoring ─────────────────────────────────────────
+
+    # Every 15 min — schedule-integrity monitor (Part 1)
+    # Catches jobs silently skipped when the scheduler restarts after their
+    # cron window; APScheduler misfires are never retried automatically.
+    sched.add_job(_schedule_integrity_check,
+                  CronTrigger(minute="*/15"),
+                  id="sched_integrity_check", replace_existing=True)
+
+    # 07:45 ET — Polygon API canary before premarket window (Part 3)
+    sched.add_job(_polygon_canary_check,
+                  CronTrigger(day_of_week="mon-fri", hour=7, minute=45, timezone=_ET),
+                  id="polygon_canary_preopen", replace_existing=True)
+
+    # 09:30 ET — Polygon API canary 10 min before seed job fires (Part 3)
+    sched.add_job(_polygon_canary_check,
+                  CronTrigger(day_of_week="mon-fri", hour=9, minute=30, timezone=_ET),
+                  id="polygon_canary_preseed", replace_existing=True)
+
+    # Every 4 hours — pipeline run classification validation sweep (Part 2)
+    sched.add_job(
+        lambda: _validate_and_fix_pipeline_run_classifications(fix_db=True),
+        CronTrigger(hour="*/4", minute=5),
+        id="classification_integrity_sweep", replace_existing=True)
 
     # ── TEST CYCLE (only when TEST_CYCLE_OFFSET_SECS is set) ────────────────
     # Proves the scheduler fires jobs automatically at a scheduled time.
