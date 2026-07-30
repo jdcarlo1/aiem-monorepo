@@ -550,7 +550,9 @@ def save_options_alert(
             cur.execute("""
                 INSERT INTO aiem_options_alert_snapshots (alert_id, polygon_data, oss_data)
                 VALUES (%s, %s, %s)
-                ON CONFLICT (alert_id) DO NOTHING
+                ON CONFLICT (alert_id) DO UPDATE
+                    SET polygon_data = EXCLUDED.polygon_data,
+                        oss_data     = EXCLUDED.oss_data
             """, (alert_id,
                   json.dumps(pmd_data, default=str),
                   json.dumps(oss_data, default=str)))
