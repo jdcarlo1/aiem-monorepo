@@ -1,0 +1,35 @@
+# Directive_OptionsEngineDashboard_DesignAndPhaseA_2026-07-30
+
+Options Engine dashboard Phase A inventory was never done. Starting clean now.
+
+## Phase A (must run first — no build until this closes)
+Same discipline as AIEM's dashboard build:
+- Full inventory: DB tables/columns actually populated, API routes, auth model, calibration module status
+- No fabricated values — every line must trace to raw grep/SQL output
+- Explicit verdict: BUILD MAY BEGIN YES/NO
+- Deliver as real files this time — confirm file paths and show `ls` proof they exist
+
+## Design system (applies once build starts)
+Target: hedge-fund/institutional terminal quality, not a retail dashboard template.
+
+Visual:
+- Deep charcoal/navy background, not pure black
+- Monospace/condensed type for all numeric data
+- Hairline dividers, no card shadows, dense information layout
+- One restrained accent color for live-state changes only
+
+Differentiating features (build only if backend data actually supports it — verify first, no fabricated UI):
+1. Live decision lineage view — visual trace of a candidate through data guard → risk gate → position sizing → execution, sourced from the real audit/hash-chain tables
+2. "Why this trade" panel — real gating logic + probability/EV that produced the decision, not a black-box score
+3. Live probability calibration reliability diagram, sourced from real calibration data
+4. Visible evidence-chain/verification status indicator on live decisions (sealed/verified/sha256-anchored)
+
+Technical:
+- Real push (WebSocket/SSE) for the live-decisions feed — polling is not acceptable for this screen
+- Command-palette navigation (Cmd+K style)
+- Canvas/WebGL charts for Greeks/P&L views, not laggy DOM charts
+
+## Standing requirements (unchanged)
+Full verification protocol applies at every phase — raw evidence, sha256 cross-checks where relevant, no fabrication, negative controls where applicable. No screen ships without confirming the data behind it is real and live, not a mock.
+
+Confirm scope understanding before writing any code (pre-action gate).
