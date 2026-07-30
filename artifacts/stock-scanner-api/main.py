@@ -17503,6 +17503,29 @@ try:
             _nmr_sys.stdout.flush()
             _nmr_sys.stderr.flush()
             _flush_crash_log_to_db(sync=True)
+            # ── Sentinel heartbeat ─────────────────────────────────────────
+            # pid=0 = sentinel marker (not a real PID); shutdown_reason
+            # distinguishes a deliberate nightly reset from an OOM/crash
+            # (crashes write no sentinel row).  The dark window between this
+            # row and next morning's first live heartbeat is intentional —
+            # the process is not running — but the sentinel proves it chose
+            # to exit rather than die unexpectedly.
+            try:
+                import psycopg2 as _nmr_pg2
+                with _nmr_pg2.connect(
+                    os.environ.get("DATABASE_URL", ""), connect_timeout=3
+                ) as _nmr_hb_c, _nmr_hb_c.cursor() as _nmr_hb_cu:
+                    _nmr_hb_cu.execute(
+                        "INSERT INTO aiem_process_heartbeat (ts, pid, shutdown_reason)"
+                        " VALUES (NOW(), 0, %s)",
+                        ("nightly_memory_reset",),
+                    )
+                    _nmr_hb_c.commit()
+                print("[NIGHTLY-RESET] sentinel heartbeat written"
+                      " (pid=0, reason=nightly_memory_reset)", flush=True)
+            except Exception as _nmr_hb_e:
+                print(f"[NIGHTLY-RESET] sentinel heartbeat failed (non-fatal): {_nmr_hb_e}",
+                      flush=True)
             os._exit(0)
 
     _scheduler.add_job(
