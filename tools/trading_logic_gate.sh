@@ -152,6 +152,18 @@ if uncovered:
     print(f"FAIL:FILES_NOT_COVERED:{sorted(uncovered)}")
     sys.exit(1)
 
+# If self_issued=True, a human_directive field must be present and non-empty.
+# This closes the direct-write path: the agent can still write a record to the
+# file without using issue_tla.py (which now requires a TTY), but only if it
+# cites a real human directive in human_directive.  An empty string, missing
+# field, or None all fail here.
+if match.get('self_issued'):
+    hd = match.get('human_directive', '') or ''
+    if not hd.strip():
+        print(f"FAIL:SELF_ISSUED_NO_DIRECTIVE:{approval_id}:"
+              f"self_issued=True records require a non-empty human_directive field")
+        sys.exit(1)
+
 # All checks passed — mark as used in-place
 now = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
 new_records = []
