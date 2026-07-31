@@ -83,7 +83,8 @@ def get_staged_diff_sha256(files: list[str]) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Issue a Trading Logic Approval record")
     parser.add_argument("--note", default="", help="Free-text note (e.g. task/directive ref)")
-    parser.add_argument("--approved-by", default="Joel", help="Approver name (default: Joel)")
+    parser.add_argument("--approved-by", required=True,
+                        help="Approver name — must be passed explicitly; no default accepted")
     args = parser.parse_args()
 
     repo_root = get_repo_root()
