@@ -1,0 +1,23 @@
+# Directive_AIEM_FormulaLevel_Verification_Build_2026-07-30
+
+Purpose: AIEM's own decision math (conviction scoring, final_confidence, position sizing, P&L) has never been formula-verified — Options Engine got a full audit (FIN-001..042, 42/42 PASS), AIEM never has. This is a different problem than uptime/scheduling: bad math produces trades that execute fine but pick the wrong thing or size it wrong, with no error thrown.
+
+## Item 1 — Conviction scoring / final_confidence derivation
+- Pull the actual formula/code for how conviction score and final_confidence are computed.
+- Independent recomputation: take 10 real historical candidates (mix of high and low conviction), recompute the score by hand/independent script using the documented formula, compare against what the live system actually stored. Any mismatch = bug.
+- Confirm which inputs feed the score (gap%, rvol, price, volume, source type, etc.) and whether any documented input is silently missing or zero-weighted in the live code path (this is the exact class of bug found in the E2E trading logic work — a gate ignoring a factor it claims to use).
+
+## Item 2 — Position sizing
+- Pull the actual position-sizing formula (whatever determines size given confidence/conviction).
+- Independent recomputation on 10 real historical trades: does the stored position size match what the documented formula would produce given that trade's stored confidence/conviction at the time?
+- Flag anything sized flat/default regardless of confidence — that would mean confidence isn't actually driving size in practice.
+
+## Item 3 — P&L / MTM calculation
+- Same independent-recomputation approach: pick 10 closed real trades, recompute P&L from entry/exit prices independently, compare to stored P&L. Any mismatch = bug.
+
+## Item 4 — Staleness/live-condition re-check at execution (ZCMD-class bug)
+- Confirm: for every candidate source, does execution re-check the *current* live price/gap/rvol condition immediately before firing, not just data recency? (Per the E2E work, most sources got this fix — confirm it's still true, and confirm AIEM v3 discovery specifically, since that one required a real DB-based recheck, not pass-through.)
+- Provide a real forced test: a candidate that qualified in the past but would clearly fail if re-checked now — confirm it gets rejected, not executed.
+
+## Standing requirement
+Independent recomputation means a separate script/method that does NOT import or call the same code path as the live scorer — otherwise a bug in the original formula would just get confirmed by itself. Raw before/after values for every one of the 10+10+10 samples, not summarized pass/fail counts. No PASS label without this.

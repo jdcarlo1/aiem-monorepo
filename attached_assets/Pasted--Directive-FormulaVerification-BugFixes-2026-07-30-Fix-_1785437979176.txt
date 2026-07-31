@@ -1,0 +1,32 @@
+# Directive_FormulaVerification_BugFixes_2026-07-30
+
+Fix priority order: #91 → #90 → #92. No PASS claim on any item without raw before/after values shown.
+
+## 1. Task #91 — conviction_score bypass in position sizing (HIGHEST PRIORITY)
+
+Bug: gap_volume, unusual_calls, layer9_stat, oi_buildup, aiem_v3_discovery pass raw composite scores (range 7–9,507) as `conviction_score` into `compute_position_size()`. Ceiling is 9.0, so `mult` clamps to 1.0 on every trade from these 5 sources — conviction-driven sizing is not operating.
+
+Steps:
+1. Cite exact file:line for each of the 5 sources' call into `compute_position_size()`.
+2. Normalize each source's raw composite score to the intended 0–9 scale before it's passed. Do not pass raw composite values.
+3. Show `mult` distribution (min/max/mean) for the last 20 trades per source, before and after the fix.
+4. Re-run `tools/formula_verification.py --item 2` on the same 10 historical trades plus 5 new trades drawn from the previously-affected sources. Provide raw recomputed values.
+
+## 2. Task #90 — price=0 fail-open in staleness re-check
+
+Bug: `main.py:18476-18478` — when Tradier returns no live quote (price=0), gap_volume check silently approves instead of rejecting. ZCMD executed 2026-07-24 at $1.43, below the $2.00 gate, via this path. Same hole in `gap_down_distribution`.
+
+Steps:
+1. Fix `main.py:18476-18478`: price=0 → `REJECTED_NO_LIVE_QUOTE`, not silent approve.
+2. Apply identical fix to `gap_down_distribution` — cite exact file:line.
+3. Add negative-control test: simulate price=0 input, confirm rejection with `REJECTED_NO_LIVE_QUOTE`. Show raw test input/output.
+4. Confirm `aiem_execution_revalidation_log` writes a row even when a fail-open would have triggered — not zero rows.
+
+## 3. Task #92 — SMA50 mislabeling
+
+Bug: `_sma(closes, min(50, len(closes)))` with a 28-day history window (~20 bars) computes SMA20, not SMA50. The "price above 50-day SMA" and "price above 20-day SMA" trend checks are the same test, both scoring +8pts off the same average.
+
+Steps:
+1. Cite exact file:line for the call site driving the 50-day trend check.
+2. Do NOT pick a fix — flag back to Joel with two options: (a) extend the history window to actually supply 50+ bars, or (b) relabel as 20-day and redesign the duplicate +8pt check so the same average isn't scored twice.
+3. Once Joel decides, re-verify with `tools/formula_verification.py` and show raw sma20/sma50 values for a real candidate confirming they're no longer identical.

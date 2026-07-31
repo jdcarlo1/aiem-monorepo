@@ -1,0 +1,4 @@
+RUNNING : 79806a729c627f7aeb688f6092a95d74f41edf6a
+ON-DISK : 5c6c8aeef8d662bbbe2b544dbeab8a6ae18a2bec
+STATUS  : STALE — PROCESS IS RUNNING OLD CODE, RESTART REQUIRED
+DRIFT   : 9.9 minutes since process last started

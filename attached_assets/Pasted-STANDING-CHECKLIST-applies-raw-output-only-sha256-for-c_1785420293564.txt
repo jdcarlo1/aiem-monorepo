@@ -1,0 +1,16 @@
+STANDING CHECKLIST applies (raw output only, sha256 for changed files, no narrative-only claims, "PASS" reserved for fully proven).
+
+ITEM D — Prove NO_TRADE_GATES actually fires on the restarted process (Item B not yet proven live)
+Your explanation (stale pre-fix process vs restarted 13:49Z process) is plausible but unproven for the NEW process.
+1. Trigger one real gate-rejected candidate through the CURRENTLY RUNNING scheduler (the one restarted 13:49Z, workflow run 9RueNh1ikZiYceOBVSFav or whatever is live now) — either wait for the next natural cron cycle or force one via /run-now on a candidate you know will fail hard gates.
+2. Paste the raw job row: SELECT id,ticker,status,error_text FROM options_pipeline_jobs WHERE id=<that job>; — must show status='NO_TRADE_GATES', not FAILED.
+3. Paste the raw log line for that job (should read [exec] NO_TRADE_GATES job_id=... not [exec] FAILED).
+4. If it still shows FAILED, the restart didn't actually pick up d0ebf62 — grep the running process's loaded file path/mtime vs commit d0ebf62's timestamp and report the discrepancy directly, don't reinterpret it as expected.
+
+ITEM E — Decide + implement fix for run-level counter overwrite bug (Item A root cause confirmed, not fixed)
+The ON CONFLICT DO UPDATE SET candidates_seeded/candidates_failed=EXCLUDED.x pattern (scheduler line 606, worker line 2849) means concurrent seed/worker calls overwrite instead of accumulate — this will undercount any time two calls land close together, not just during this test.
+1. State plainly: do you want (a) true accumulation — change the UPDATE to add to the existing value instead of overwriting, with a mutation check proving two overlapping calls now sum correctly, or (b) leave as-is and document that job-level rows in options_pipeline_jobs are the authoritative count, run-level candidates_seeded/candidates_failed are informational only and may lag.
+2. If (a): implement it, paste before/after code diff + sha256, and prove via a forced double-call test (two seed calls in quick succession) that the final seeded count equals the true total, not just the last call's count.
+3. If (b): no code change required, but state this explicitly in a permanent doc note (per standing Permanent Phase Verification Record rule) so this isn't re-flagged as a bug later.
+
+No "PASS" on Item B/Item 1 misfire-proof until Item D closes. No further count-mismatch investigation needed once Item E's decision is made and (if applicable) implemented.

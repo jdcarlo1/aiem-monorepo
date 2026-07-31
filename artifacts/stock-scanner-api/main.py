@@ -6382,15 +6382,51 @@ try:
     # Loop B - prediction grader: 4:35 PM ET Mon-Fri
     # Grades T+1 / T+3 / T+5 outcomes for Loop B predictions using Tradier history.
     def _run_aiem_grader_job():
-        try:
-            import threading as _agj_thr
-            _agj_thr.Thread(target=_run_aiem_prediction_grader, daemon=True).start()
-            # Also grade AIEM chat track record predictions
-            _agj_thr.Thread(target=_grade_aiem_track_record, daemon=True).start()
-            record_job_success("aiem_prediction_grader")
-        except Exception as e:
-            record_job_failure("aiem_prediction_grader", str(e))
-            print(f"[scheduler] aiem grader error: {e}")
+        # Use globals().get() to guard against startup-race NameError:
+        # APScheduler registers this job early in module load (line ~6384); the
+        # grader function is defined at line 44481. If the process restarts close
+        # to 4:35 PM ET the scheduler can fire before line 44481 is executed.
+        _grader_fn = globals().get('_run_aiem_prediction_grader')
+        _track_fn  = globals().get('_grade_aiem_track_record')
+        if _grader_fn is None:
+            _err = ("_run_aiem_prediction_grader not in module globals — "
+                    "startup-race: scheduler fired before line 44481 was executed")
+            record_job_failure("aiem_prediction_grader", _err)
+            print(f"[scheduler] aiem grader setup error: {_err}")
+            # Telegram alert if repeated
+            try:
+                import psycopg2 as _pgr2, os as _osr
+                with _pgr2.connect(_osr.environ["DATABASE_URL"]) as _cr:
+                    with _cr.cursor() as _cur:
+                        _cur.execute("SELECT consecutive_failures FROM job_heartbeats WHERE job_name='aiem_prediction_grader'")
+                        _row = _cur.fetchone()
+                        if _row and _row[0] >= 2:
+                            _tg_send(f"⚠️ aiem_prediction_grader: {_row[0]} consecutive failures\nlast_error: {_err}")
+            except Exception:
+                pass
+            return
+        import threading as _agj_thr
+        def _grader_wrapper():
+            # Record success/failure AFTER the work completes (not before thread.start)
+            try:
+                _grader_fn()
+                if _track_fn:
+                    _track_fn()
+                record_job_success("aiem_prediction_grader")
+            except Exception as _we:
+                record_job_failure("aiem_prediction_grader", str(_we))
+                print(f"[scheduler] aiem grader thread error: {_we}")
+                try:
+                    import psycopg2 as _pgr2b, os as _osrb
+                    with _pgr2b.connect(_osrb.environ["DATABASE_URL"]) as _crb:
+                        with _crb.cursor() as _curb:
+                            _curb.execute("SELECT consecutive_failures FROM job_heartbeats WHERE job_name='aiem_prediction_grader'")
+                            _rowb = _curb.fetchone()
+                            if _rowb and _rowb[0] >= 2:
+                                _tg_send(f"⚠️ aiem_prediction_grader: {_rowb[0]} consecutive failures\nerror: {_we}")
+                except Exception:
+                    pass
+        _agj_thr.Thread(target=_grader_wrapper, daemon=True).start()
     _scheduler.add_job(
         _run_aiem_grader_job,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=_ET),
@@ -17503,6 +17539,29 @@ try:
             _nmr_sys.stdout.flush()
             _nmr_sys.stderr.flush()
             _flush_crash_log_to_db(sync=True)
+            # ── Sentinel heartbeat ─────────────────────────────────────────
+            # pid=0 = sentinel marker (not a real PID); shutdown_reason
+            # distinguishes a deliberate nightly reset from an OOM/crash
+            # (crashes write no sentinel row).  The dark window between this
+            # row and next morning's first live heartbeat is intentional —
+            # the process is not running — but the sentinel proves it chose
+            # to exit rather than die unexpectedly.
+            try:
+                import psycopg2 as _nmr_pg2
+                with _nmr_pg2.connect(
+                    os.environ.get("DATABASE_URL", ""), connect_timeout=3
+                ) as _nmr_hb_c, _nmr_hb_c.cursor() as _nmr_hb_cu:
+                    _nmr_hb_cu.execute(
+                        "INSERT INTO aiem_process_heartbeat (ts, pid, shutdown_reason)"
+                        " VALUES (NOW(), 0, %s)",
+                        ("nightly_memory_reset",),
+                    )
+                    _nmr_hb_c.commit()
+                print("[NIGHTLY-RESET] sentinel heartbeat written"
+                      " (pid=0, reason=nightly_memory_reset)", flush=True)
+            except Exception as _nmr_hb_e:
+                print(f"[NIGHTLY-RESET] sentinel heartbeat failed (non-fatal): {_nmr_hb_e}",
+                      flush=True)
             os._exit(0)
 
     _scheduler.add_job(
@@ -18451,7 +18510,26 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
             _rv_crit  = "price>=2.0,gap_pct>=1.0,rvol_adj>=2.0"
 
             if _rv_price == 0:
-                _rv_approved.append(_rv_pick)
+                # Task #90 fix 2026-07-30: price=0 means Tradier returned no live quote.
+                # Previous code silently approved — this allowed ZCMD to execute at $1.43
+                # on 2026-07-24 (below the $2.00 gate) because the live check was bypassed.
+                # Fix: treat missing quote as a failed gate, write to revalidation_log.
+                _rv_nq_sv = _rv_scan_vals.get(_rv_t) or {}
+                print(f"[revalid] REJECTED {_rv_t} (gap_volume) — no live quote (price=0) "
+                      f"REJECTED_NO_LIVE_QUOTE | "
+                      f"scan({_rv_nq_sv.get('scan_date','?')}): "
+                      f"price={_rv_nq_sv.get('scan_price','?')}")
+                _rv_rejections.append({
+                    "ticker": _rv_t, "source": _rv_src, "criteria_checked": _rv_crit,
+                    "scan_date": _rv_nq_sv.get("scan_date"),
+                    "scan_price": _rv_nq_sv.get("scan_price"),
+                    "scan_gap_pct": _rv_nq_sv.get("scan_gap_pct"),
+                    "scan_rvol": _rv_nq_sv.get("scan_rvol"),
+                    "exec_price": 0.0, "exec_gap_pct": None,
+                    "exec_rvol_raw": None, "exec_rvol_adj": None,
+                    "failed_checks": "no_live_quote",
+                    "action": "REJECTED_NO_LIVE_QUOTE",
+                })
                 continue
 
             _rv_failed = []
@@ -18497,7 +18575,24 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
             _rv_crit  = "price>=5.0,gap_pct<=-1.5,rvol_adj>=2.5"
 
             if _rv_price == 0:
-                _rv_approved.append(_rv_pick)
+                # Task #90 fix 2026-07-30: same fail-open as gap_volume — price=0 means
+                # Tradier returned no live quote; must reject, not silently approve.
+                _rv_nq_sv2 = _rv_scan_vals.get(_rv_t) or {}
+                print(f"[revalid] REJECTED {_rv_t} (gap_down_distribution) — no live quote "
+                      f"(price=0) REJECTED_NO_LIVE_QUOTE | "
+                      f"scan({_rv_nq_sv2.get('scan_date','?')}): "
+                      f"price={_rv_nq_sv2.get('scan_price','?')}")
+                _rv_rejections.append({
+                    "ticker": _rv_t, "source": _rv_src, "criteria_checked": _rv_crit,
+                    "scan_date": _rv_nq_sv2.get("scan_date"),
+                    "scan_price": _rv_nq_sv2.get("scan_price"),
+                    "scan_gap_pct": _rv_nq_sv2.get("scan_gap_pct"),
+                    "scan_rvol": _rv_nq_sv2.get("scan_rvol"),
+                    "exec_price": 0.0, "exec_gap_pct": None,
+                    "exec_rvol_raw": None, "exec_rvol_adj": None,
+                    "failed_checks": "no_live_quote",
+                    "action": "REJECTED_NO_LIVE_QUOTE",
+                })
                 continue
 
             _rv_failed = []
@@ -19587,9 +19682,14 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         _sz = _pos_sizer.compute_position_size(
                             ticker=_t,
                             signal_source=pick["source"],
-                            conviction_score=_conviction_stack_scores.get(
-                                _t, min(9.0, float(pick.get("score") or 0))
-                            ),
+                            # min(9.0,...) applied at BOTH paths:
+                            # — conviction_stack total_pts (0-12 range; cap prevents >9.0)
+                            # — per-source normalized pick["score"] (already 5-9 after #91
+                            #   normalizations; cap is defense-in-depth for dormant sources)
+                            # Task #91 fix 2026-07-30.
+                            conviction_score=min(9.0, _conviction_stack_scores.get(
+                                _t, float(pick.get("score") or 0)
+                            )),
                             entry_price=_fill_price,
                             signal_row=pick,
                         )
@@ -47696,7 +47796,13 @@ def _aiem_paper_pick_candidates() -> list:
                 LIMIT 20
             """)
             for _t, _prem, _voi, _urg, _strk, _exp in _cu.fetchall():
-                _score = (float(_prem or 0) / 100000) * (float(_voi or 1))
+                # Raw composite: (prem_$100k) × VOI — range 0.75 to 9,000+
+                # Normalize to 5.0–9.0 conviction scale via hyperbolic compression
+                # (half-saturation at raw=50, i.e. $500k prem × VOI=10 → score≈7.0).
+                # Task #91 fix 2026-07-30: raw score exceeded ceiling=9.0 on every
+                # real trade, clamping mult to 1.0 for all unusual_calls picks.
+                _score_raw = (float(_prem or 0) / 100000) * (float(_voi or 1))
+                _score = 5.0 + 4.0 * _score_raw / (_score_raw + 50.0) if _score_raw > 0 else 5.0
                 _add(_t, _score, "CALL_OPTION", "unusual_calls",
                      f"${int(_prem or 0):,} prem VOI={_voi}",
                      strike=float(_strk) if _strk is not None else None,
@@ -47711,7 +47817,13 @@ def _aiem_paper_pick_candidates() -> list:
                 ORDER BY (gap_pct * rvol) DESC LIMIT 10
             """)
             for _t, _rv, _gp, _pr, _cs in _cu.fetchall():
-                _score = float(_rv or 1) * float(_gp or 1) * (1 + float(_cs or 0))
+                # Raw composite: rvol × gap_pct × (1+close_str) — range 2 to 8,000+
+                # Normalize to 5.0–9.0 conviction scale via hyperbolic compression
+                # (half-saturation at raw=50, i.e. rvol=5×gap=10%×cs=1 → score≈7.0).
+                # Task #91 fix 2026-07-30: raw score exceeded ceiling=9.0 on every
+                # real trade, clamping mult to 1.0 for all gap_volume picks.
+                _score_raw = float(_rv or 1) * float(_gp or 1) * (1 + float(_cs or 0))
+                _score = 5.0 + 4.0 * _score_raw / (_score_raw + 50.0) if _score_raw > 0 else 5.0
                 _add(_t, _score, "STOCK", "gap_volume",
                      f"gap={_gp:.1f}% rvol={_rv:.1f}x")
 
@@ -47777,7 +47889,13 @@ def _aiem_paper_pick_candidates() -> list:
                     LIMIT 8
                 """)
                 for _t, _oip, _days in _cu.fetchall():
-                    _score = float(_oip or 0) / 10 * (1 + float(_days or 0) * 0.1)
+                    # Raw composite: oi_change_pct/10 × (1+days×0.1) — range 2 to ~100
+                    # Normalize to 5.0–9.0 conviction scale via hyperbolic compression
+                    # (half-saturation at raw=5, i.e. 50% OI gain over 1 day → score≈7.0).
+                    # Task #91 fix 2026-07-30: raw score exceeded ceiling=9.0 on strong
+                    # OI signals, clamping mult to 1.0 and suppressing sizing differentiation.
+                    _score_raw = float(_oip or 0) / 10 * (1 + float(_days or 0) * 0.1)
+                    _score = 5.0 + 4.0 * _score_raw / (_score_raw + 5.0) if _score_raw > 0 else 5.0
                     _add(_t, _score, "CALL_OPTION", "oi_buildup",
                          f"OI +{_oip:.0f}% over {_days}d")
             except Exception as _oib_e:
@@ -47873,7 +47991,14 @@ def _aiem_paper_pick_candidates() -> list:
             for _v3dec in _v3_decisions:
                 if _v3dec["decision"] in ("BUY", "SMALL_BUY"):
                     _size_mult = 0.8 if _v3dec["decision"] == "SMALL_BUY" else 1.0
-                    _v3_score  = _v3dec["confidence"] * _size_mult
+                    # confidence is 0-100 (conf = 50+weighted×50 in aiem_v3_orchestrator).
+                    # Map valid range [60,100] → [5.0,9.0] so conviction drives sizing.
+                    # Apply _size_mult after, floor at 5.0 so SMALL_BUY stays tradeable.
+                    # Task #91 fix 2026-07-30: raw confidence×size_mult (e.g. 49–69) always
+                    # exceeded ceiling=9.0, clamping mult to 1.0 for all v3_discovery picks.
+                    _v3_score  = max(5.0,
+                        (5.0 + (_v3dec["confidence"] - 60.0) / 40.0 * 4.0) * _size_mult
+                    )
                     # Find matching discovery for detail
                     _v3_detail = next(
                         (d["detail"] for d in _v3_disc if d["ticker"] == _v3dec["ticker"]),
@@ -71847,7 +71972,8 @@ def admin_decision_audit():
                 cur.execute(f"""
                     SELECT decision_id, parent_id, created_at, input_hash, output_hash,
                            verification_status, engine_version, db_version,
-                           identity_json, technical_json, options_intel_json
+                           identity_json, technical_json, options_intel_json,
+                           probability_risk_json, justification_json
                     FROM oe_decision_audit WHERE {where}
                     ORDER BY created_at DESC LIMIT %s OFFSET %s
                 """, params + [limit, offset])
@@ -72116,6 +72242,393 @@ def admin_evidence_chain_status():
         return jsonify({"error": "chain file not found", "code": "NOT_FOUND", "seq": 0}), 404
     except Exception as _e_ec:
         return jsonify({"error": str(_e_ec), "code": "DB_ERROR"}), 503
+
+
+@app.route("/stock-api/admin/options-metrics", methods=["GET"])
+def admin_options_metrics():
+    """Return oe_options_metrics rows (greeks, EV, POP) for OE Dashboard Positions & P&L screen."""
+    import hmac as _hmac_om, psycopg2 as _pg_om, os as _os_om, time as _time_om
+    _t0_om = _time_om.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_om.compare_digest(tok, _os_om.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    trace_id = request.args.get("trace_id")
+    date_str = request.args.get("date")
+    ticker = request.args.get("ticker")
+    try:
+        limit = max(1, min(int(request.args.get("limit", 100)), 500))
+    except (ValueError, TypeError):
+        limit = 100
+    try:
+        with _pg_om.connect(_os_om.environ["DATABASE_URL"], connect_timeout=8) as conn:
+            with conn.cursor() as cur:
+                where_parts = []
+                params = []
+                if trace_id:
+                    where_parts.append("trace_id = %s")
+                    params.append(trace_id)
+                if date_str:
+                    where_parts.append("scan_date = %s")
+                    params.append(date_str)
+                if ticker:
+                    where_parts.append("ticker = %s")
+                    params.append(ticker.upper())
+                where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+                params.append(limit)
+                cur.execute(f"""
+                    SELECT
+                        trace_id, alert_id, ticker, scan_date::text, direction,
+                        strike, expiry::text, dte, bid, ask, mid, last_price,
+                        spread_pct, volume, open_interest, vol_oi_ratio,
+                        iv, iv_rank, iv_percentile, hv_20d, realized_vol, vrp,
+                        pc_skew_pp, pc_skew_tag, term_ratio,
+                        delta, gamma, theta, vega, rho,
+                        vanna, charm, vomma, speed, color, ultima,
+                        gex_m, gex_regime,
+                        ev, pop, return_on_risk, premium_at_risk,
+                        capital_requirement, max_profit, max_loss, breakeven,
+                        fill_probability, slippage_pct,
+                        outcome, pnl_pct
+                    FROM oe_options_metrics
+                    {where_clause}
+                    ORDER BY scan_date DESC, ticker
+                    LIMIT %s
+                """, params)
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        row[k] = float(v) if hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool)) else v
+                    rows.append(row)
+                return jsonify({
+                    "count": len(rows),
+                    "limit": limit,
+                    "rows": rows,
+                    "elapsed_ms": round((_time_om.monotonic() - _t0_om) * 1000)
+                }), 200
+    except Exception as _e_om:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_om)}), 503
+
+
+@app.route("/stock-api/admin/trade-records", methods=["GET"])
+def admin_trade_records():
+    """Return oe_trade_records (closed options trades P&L) for OE Dashboard Positions & P&L screen."""
+    import hmac as _hmac_tr, psycopg2 as _pg_tr, os as _os_tr, time as _time_tr
+    _t0_tr = _time_tr.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_tr.compare_digest(tok, _os_tr.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    trace_id = request.args.get("trace_id")
+    date_str = request.args.get("date")
+    ticker = request.args.get("ticker")
+    try:
+        limit = max(1, min(int(request.args.get("limit", 100)), 500))
+    except (ValueError, TypeError):
+        limit = 100
+    try:
+        with _pg_tr.connect(_os_tr.environ["DATABASE_URL"], connect_timeout=8) as conn:
+            with conn.cursor() as cur:
+                where_parts = []
+                params = []
+                if trace_id:
+                    where_parts.append("trace_id = %s")
+                    params.append(trace_id)
+                if date_str:
+                    where_parts.append("scan_date = %s")
+                    params.append(date_str)
+                if ticker:
+                    where_parts.append("ticker = %s")
+                    params.append(ticker.upper())
+                where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+                params.append(limit)
+                cur.execute(f"""
+                    SELECT
+                        alert_id, trace_id, ticker, scan_date::text,
+                        strategy_family, direction,
+                        entry_ts::text, entry_price,
+                        exit_ts::text, exit_price,
+                        quantity, fees_est, slippage_est,
+                        premium_paid_received, capital_reserved,
+                        max_risk, max_reward,
+                        entry_greeks_json, exit_greeks_json,
+                        entry_iv, exit_iv,
+                        mfe_pct, mae_pct,
+                        realized_pnl, return_pct, return_on_risk,
+                        holding_days, exit_reason, fill_quality,
+                        portfolio_state_json
+                    FROM oe_trade_records
+                    {where_clause}
+                    ORDER BY exit_ts DESC NULLS LAST
+                    LIMIT %s
+                """, params)
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        if isinstance(v, float) or (hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool, dict, list))):
+                            try:
+                                row[k] = float(v)
+                            except (TypeError, ValueError):
+                                row[k] = v
+                        else:
+                            row[k] = v
+                    rows.append(row)
+                return jsonify({
+                    "count": len(rows),
+                    "limit": limit,
+                    "rows": rows,
+                    "elapsed_ms": round((_time_tr.monotonic() - _t0_tr) * 1000)
+                }), 200
+    except Exception as _e_tr:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_tr)}), 503
+
+
+@app.route("/stock-api/admin/indicator-snapshots", methods=["GET"])
+def admin_indicator_snapshots():
+    """Return oe_indicator_snapshots for a trace_id for OE Dashboard 'Why This Trade' panel."""
+    import hmac as _hmac_is, psycopg2 as _pg_is, os as _os_is, time as _time_is
+    _t0_is = _time_is.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_is.compare_digest(tok, _os_is.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    trace_id = request.args.get("trace_id")
+    date_str = request.args.get("date")
+    ticker = request.args.get("ticker")
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 1000))
+    except (ValueError, TypeError):
+        limit = 200
+    try:
+        with _pg_is.connect(_os_is.environ["DATABASE_URL"], connect_timeout=8) as conn:
+            with conn.cursor() as cur:
+                where_parts = []
+                params = []
+                if trace_id:
+                    where_parts.append("trace_id = %s")
+                    params.append(trace_id)
+                if date_str:
+                    where_parts.append("scan_date = %s")
+                    params.append(date_str)
+                if ticker:
+                    where_parts.append("ticker = %s")
+                    params.append(ticker.upper())
+                where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+                params.append(limit)
+                cur.execute(f"""
+                    SELECT
+                        id, trace_id, ticker, scan_date::text,
+                        canonical_id, raw_value, normalized_value,
+                        signal_direction, confidence, contribution_score, weight,
+                        freshness_seconds, quality_status,
+                        supported_decision, regime_context, captured_at::text
+                    FROM oe_indicator_snapshots
+                    {where_clause}
+                    ORDER BY contribution_score DESC NULLS LAST
+                    LIMIT %s
+                """, params)
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        if hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool)):
+                            try:
+                                row[k] = float(v)
+                            except (TypeError, ValueError):
+                                row[k] = v
+                        else:
+                            row[k] = v
+                    rows.append(row)
+                return jsonify({
+                    "count": len(rows),
+                    "trace_id_queried": trace_id,
+                    "limit": limit,
+                    "rows": rows,
+                    "elapsed_ms": round((_time_is.monotonic() - _t0_is) * 1000)
+                }), 200
+    except Exception as _e_is:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_is)}), 503
+
+
+@app.route("/stock-api/admin/options-pipeline/candidates", methods=["GET"])
+def admin_options_pipeline_candidates():
+    """
+    Return options_pipeline_jobs rows for OE Dashboard Live Decisions screen.
+    Enriches each row with gate_events_count from oe_gate_events.
+    Auth: X-Admin-Token (ADMIN_TOKEN), constant-time compare.
+    Query params: limit (default 50, max 200), date (YYYY-MM-DD), ticker, status
+    """
+    import hmac as _hmac_opc, psycopg2 as _pg_opc, os as _os_opc, time as _time_opc
+
+    _t0_opc = _time_opc.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_opc.compare_digest(tok, _os_opc.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+
+    date_arg  = request.args.get("date")
+    ticker    = request.args.get("ticker")
+    status_f  = request.args.get("status")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except (ValueError, TypeError):
+        limit = 50
+
+    try:
+        with _pg_opc.connect(_os_opc.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds  = []
+                params = []
+                if date_arg:
+                    conds.append("opj.scan_date = %s"); params.append(date_arg)
+                else:
+                    # default: last 7 days
+                    conds.append("opj.scan_date >= CURRENT_DATE - INTERVAL '7 days'")
+                if ticker:
+                    conds.append("opj.ticker = %s"); params.append(ticker.upper())
+                if status_f:
+                    conds.append("opj.status = %s"); params.append(status_f)
+                where = ("WHERE " + " AND ".join(conds)) if conds else ""
+                cur.execute(f"""
+                    SELECT
+                        opj.id, opj.ticker, opj.scan_date::text, opj.direction,
+                        opj.status, opj.trace_id, opj.alert_id, opj.selected_score,
+                        opj.trigger_source, opj.error_text, opj.completed_at,
+                        COALESCE(ge.gate_events_count, 0) AS gate_events_count,
+                        da.decision_id AS decision_id,
+                        da.verification_status
+                    FROM options_pipeline_jobs opj
+                    LEFT JOIN (
+                        SELECT trace_id, COUNT(*) AS gate_events_count
+                        FROM oe_gate_events
+                        WHERE is_test_record = FALSE
+                        GROUP BY trace_id
+                    ) ge ON ge.trace_id = opj.trace_id
+                    LEFT JOIN LATERAL (
+                        SELECT decision_id, verification_status
+                        FROM oe_decision_audit
+                        WHERE is_test_record = FALSE
+                          AND created_at BETWEEN opj.created_at - INTERVAL '5 minutes'
+                                             AND COALESCE(opj.completed_at, NOW()) + INTERVAL '5 minutes'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    ) da ON TRUE
+                    {where}
+                    ORDER BY opj.id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = {}
+                    for k, v in zip(cols, r):
+                        if hasattr(v, 'isoformat'):
+                            row[k] = v.isoformat()
+                        elif hasattr(v, '__float__') and v is not None and not isinstance(v, (str, bool)):
+                            try:
+                                row[k] = float(v)
+                            except (TypeError, ValueError):
+                                row[k] = v
+                        else:
+                            row[k] = v
+                    rows.append(row)
+                return jsonify(rows), 200
+    except Exception as _e_opc:
+        return jsonify({"error": "database unavailable",
+                        "code": "DB_ERROR",
+                        "detail": str(_e_opc),
+                        "elapsed_ms": round((_time_opc.monotonic() - _t0_opc) * 1000)}), 503
+
+
+@app.route("/stock-api/admin/options-pipeline/stream", methods=["GET"])
+def admin_options_pipeline_stream():
+    """
+    SSE stream of options pipeline job events for OE Dashboard Live Decisions screen.
+    Polls options_pipeline_jobs + daily_pipeline_runs for recent changes and pushes
+    as Server-Sent Events. Clients receive one event per new/updated job row.
+    """
+    import hmac as _hmac_sse, os as _os_sse, time as _time_sse, json as _json_sse
+    import psycopg2 as _pg_sse
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_sse.compare_digest(tok, _os_sse.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+
+    def _sse_default(obj):
+        import decimal as _dec
+        import datetime as _dt
+        if isinstance(obj, _dec.Decimal):
+            return float(obj)
+        if isinstance(obj, (_dt.datetime, _dt.date)):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+    def _generate():
+        # Send initial handshake
+        yield "data: {\"type\":\"connected\",\"source\":\"options-pipeline\"}\n\n"
+        last_id = 0
+        last_run_id = 0
+        poll_interval = 4  # seconds
+        max_duration = 300  # 5 minutes then close; client reconnects
+        started = _time_sse.monotonic()
+
+        while _time_sse.monotonic() - started < max_duration:
+            try:
+                with _pg_sse.connect(_os_sse.environ["DATABASE_URL"], connect_timeout=5) as conn:
+                    with conn.cursor() as cur:
+                        # New/updated pipeline jobs
+                        cur.execute("""
+                            SELECT id, ticker, scan_date::text, status, direction,
+                                   trace_id, alert_id, selected_score, trigger_source,
+                                   error_text, created_at::text, completed_at::text
+                            FROM options_pipeline_jobs
+                            WHERE id > %s
+                            ORDER BY id ASC LIMIT 20
+                        """, (last_id,))
+                        job_cols = [d[0] for d in cur.description]
+                        for r in cur.fetchall():
+                            row = dict(zip(job_cols, r))
+                            last_id = max(last_id, row["id"])
+                            row["type"] = "pipeline_job"
+                            yield f"data: {_json_sse.dumps(row, default=_sse_default)}\n\n"
+
+                        # New daily pipeline runs
+                        cur.execute("""
+                            SELECT id, run_date::text, trigger_source, status,
+                                   candidates_seeded, candidates_executed,
+                                   candidates_no_trade, started_at::text, completed_at::text
+                            FROM daily_pipeline_runs
+                            WHERE id > %s
+                            ORDER BY id ASC LIMIT 5
+                        """, (last_run_id,))
+                        run_cols = [d[0] for d in cur.description]
+                        for r in cur.fetchall():
+                            row = dict(zip(run_cols, r))
+                            last_run_id = max(last_run_id, row["id"])
+                            row["type"] = "daily_run"
+                            yield f"data: {_json_sse.dumps(row, default=_sse_default)}\n\n"
+
+            except Exception as _e_poll:
+                yield f"data: {{\"type\":\"error\",\"detail\":{_json_sse.dumps(str(_e_poll))}}}\n\n"
+
+            # Heartbeat comment to keep connection alive
+            yield ": heartbeat\n\n"
+            _time_sse.sleep(poll_interval)
+
+        yield "data: {\"type\":\"close\",\"reason\":\"max_duration_reached\"}\n\n"
+
+    return Response(
+        _generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 @app.route("/stock-api/admin/signal-discoveries", methods=["GET"])

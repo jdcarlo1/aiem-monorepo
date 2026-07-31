@@ -1285,8 +1285,17 @@ def _poly_grouped_daily(date_str: str) -> list:
 
 
 def _poly_options_for_ticker(ticker: str, spot: float, today_date) -> list:
+    # Polygon /v3/snapshot/options/{ticker} root cause of HTTP 400:
+    # "Invalid value for sort parameter" — sort=volume&order=desc is NOT a valid
+    # parameter for this endpoint (it is valid on /v3/snapshot/options/{optionsTicker}
+    # but NOT on the per-underlying snapshot route). Correct call uses no sort params;
+    # Polygon returns up to `limit` contracts ordered by its own default.
+    # expiration_date range added to scope to near-term contracts (today → +90d).
+    _exp_gte = today_date.isoformat()
+    _exp_lte = (today_date + _td(days=90)).isoformat()
     d = _poly_req(
-        f"/v3/snapshot/options/{ticker}?contract_type=call&limit=250&sort=volume&order=desc",
+        f"/v3/snapshot/options/{ticker}?contract_type=call&limit=250"
+        f"&expiration_date.gte={_exp_gte}&expiration_date.lte={_exp_lte}",
         timeout=12,
     )
     out = []
@@ -1432,6 +1441,23 @@ def _aiem_tab_scan(force: bool = False):
                     all_calls.extend(contracts)
 
         log.info(f"[tab-scan] {len(all_calls)} call contracts collected")
+
+        # Batch-failure alert: if ALL scanned tickers return empty, the notifier silently
+        # falls back to DB cache and shows no visible error. Surface a single alert so a
+        # full-endpoint outage (e.g. missing required API parameter → HTTP 400 for all)
+        # is not silent. Per-ticker 400s are already written to polygon_api_calls table.
+        if len(top400) > 0 and len(all_calls) == 0:
+            log.warning(
+                f"[tab-scan] FULL-BATCH FAILURE: 0 contracts returned for all "
+                f"{len(top400)} tickers — Polygon /v3/snapshot/options endpoint may be "
+                f"returning 400 or empty for every request; check polygon_api_calls table"
+            )
+            _tg(
+                f"⚠️ <b>POLYGON OPTIONS SCAN: FULL-BATCH FAILURE</b>\n"
+                f"0 contracts returned for ALL {len(top400)} tickers\n"
+                f"Notifier briefs will fall back to DB cache (stale data).\n"
+                f"Check polygon_api_calls table for HTTP status codes."
+            )
 
         cache: dict = {
             "scan_date": today, "bar_date": date_str,

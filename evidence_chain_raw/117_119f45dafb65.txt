@@ -1,0 +1,6 @@
+024889fc (Replit Agent 2026-07-22 16:29:54 +0000 329)             # Normalize naive timestamps to UTC-aware before comparison to avoid
+024889fc (Replit Agent 2026-07-22 16:29:54 +0000 330)             # "can't compare offset-naive and offset-aware datetimes".
+024889fc (Replit Agent 2026-07-22 16:29:54 +0000 331)             r_success = row[1].replace(tzinfo=timezone.utc) if row[1] and row[1].tzinfo is None else row[1]
+024889fc (Replit Agent 2026-07-22 16:29:54 +0000 332)             r_attempt = row[2].replace(tzinfo=timezone.utc) if row[2] and row[2].tzinfo is None else row[2]
+1492a9a2 (Replit Agent 2026-07-22 04:19:25 +0000 333)             payload = {
+1492a9a2 (Replit Agent 2026-07-22 04:19:25 +0000 334)                 "job_name": row[0],

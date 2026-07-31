@@ -1,0 +1,27 @@
+# Directive_OptionsEngineDashboard_PhaseA_Fixes_2026-07-30
+
+Fix and verify the following before any build work starts. Standing verification protocol applies to every item — raw evidence, no fabrication.
+
+## 1. trace_id format mismatch (investigate BEFORE building lineage connector)
+options_pipeline_jobs.trace_id is 16-char hex; oe_decision_audit.decision_id is 24-char hex. These don't match, breaking the pipeline-job → decision-audit join needed for the Live Decision Lineage screen.
+- Root-cause why the two formats diverge (different ID generation logic? different systems entirely?)
+- Determine: is there a real correlating key between the two tables (timestamp+ticker, a shared foreign key, anything), or are they genuinely unlinked datasets?
+- State plainly if lineage cannot be fully built as scoped, rather than forcing a fix that fakes the connection
+
+## 2. Three pre-conditions before first screen ships
+1. Create artifacts/oe-dashboard/ (Phase B main task — blocks everything)
+2. Add 3 missing P1 routes to main.py: oe_options_metrics, oe_trade_records, oe_indicator_snapshots — no schema changes needed per Phase A, ~4 hrs estimate
+3. Add options pipeline SSE endpoint wired to aiem_communication_bus.py — required before Live Decisions screen
+
+For each: raw diff/grep proof the route exists and returns real data, not just "route added."
+
+## 3. Calibration screen constraint — confirm before Build 4
+Raw Brier score must be the primary metric displayed. Calibrated (pkl) outputs are measurably worse than raw for all 4 horizons — confirm no screen or copy anywhere implies calibration improved accuracy. This is a standing constraint, not a one-time note.
+
+## Verification requirement
+Once all 3 items are fixed and the trace_id question is answered, provide:
+- Raw evidence for each (grep/diff/live API response)
+- Restated verdict: which of the 4 differentiating features (lineage, "why this trade," calibration diagram, evidence-chain indicator) are actually buildable now vs. still blocked
+- Confirm scope understanding before writing any further code (pre-action gate)
+
+No Phase B start until this closes.

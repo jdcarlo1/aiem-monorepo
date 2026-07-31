@@ -1,0 +1,5 @@
+931dc8ef (Replit Agent 2026-07-17 14:36:44 +0000 140)     if last_success is None:
+931dc8ef (Replit Agent 2026-07-17 14:36:44 +0000 141)         return CheckResult(name, "FAIL", "last_success is NULL — scheduler never wrote a heartbeat")
+931dc8ef (Replit Agent 2026-07-17 14:36:44 +0000 142)     last_success_utc = last_success.replace(tzinfo=timezone.utc) if last_success.tzinfo is None else last_success
+931dc8ef (Replit Agent 2026-07-17 14:36:44 +0000 143)     age_min = round((datetime.now(timezone.utc) - last_success_utc).total_seconds() / 60, 1)
+931dc8ef (Replit Agent 2026-07-17 14:36:44 +0000 144)     if last_success_utc < stale_ts:

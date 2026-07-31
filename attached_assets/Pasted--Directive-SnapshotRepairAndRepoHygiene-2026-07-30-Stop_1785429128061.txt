@@ -1,0 +1,29 @@
+# Directive_SnapshotRepairAndRepoHygiene_2026-07-30
+
+Stop all further changes to `aiem_options_alerts` / `aiem_options_alert_snapshots` until this is complete.
+
+## 1. Restore recoverable rows
+For alerts 1,2,4,7,11,15,16,20 (PSX) and 25 (TER): overwrite `polygon_data`/`oss_data` back to the pre-rewrite values (already on record from session output). Do NOT recompute stage_hashes h2–h6 for these — leave them as SNAPSHOT_UNAVAILABLE / failing, since the original hash inputs are gone. Do not touch stage 1 hash h1 for these — it already matches.
+
+## 2. Leave the 16 unrecoverable rows alone
+NTLA, EW, MAA, MEC, UMC, PINS, WOLF (16 rows total): no pre-write data exists anywhere. Do not fabricate, backfill, or re-derive values for these. Leave them as-is with an honest FAIL/UNAVAILABLE status. This must never be turned into a PASS.
+
+## 3. Move governance/incident records out of the shipped repo path
+Relocate the following out of any directory that gets packaged, deployed, or distributed to customers — to an internal-only ops location (e.g. a private repo or local docs folder, NOT `artifacts/` or anything git-tracked in the customer repo):
+- `docs/verification/EXCEPTION-SNAPSHOT-GAP-001.json`
+- Any other governance-decision, audit-exception, or violation-tracking file
+- `.agents/memory/options-chain-snapshot-rehash.md` and any other agent-memory file describing this incident
+
+Confirm via `git log --all --full-history -- <path>` whether any of these were ever committed to a branch that ships, and report back before deleting anything from git history.
+
+## 4. Commit message hygiene going forward
+No more commit messages or code comments containing words like "unauthorized," "violation," "governance," "repair," or similar incident language. Use plain functional descriptions only (e.g. "fix snapshot schema mismatch in options pipeline").
+
+## 5. Prevent recurrence
+Add a guard so `aiem_options_alert_snapshots` / `aiem_options_alerts` rows can never be bulk-rewritten without an explicit human-approved flag checked at runtime — not just a code comment. Log any attempted rewrite internally (not customer-visible) regardless of outcome.
+
+## 6. Report back
+- Confirmation of restored rows (before/after for the 9 recoverable alerts)
+- Git history check result from item 3
+- Diff + sha256 for any file moves/deletions
+- Confirmation no fabricated values were introduced anywhere

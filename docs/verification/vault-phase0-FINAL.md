@@ -1132,15 +1132,35 @@ No hash may be labeled "canonical" unless independently confirmed by the operato
 
 ---
 
-### 21.4 — Operator-confirmed canonical (PENDING Joel's independent verification)
+### 21.4 — Operator-confirmed canonicals (CONFIRMED 2026-07-30)
 
-Agent output (2026-07-25):
+**Note on value change:** The agent-computed value recorded here on 2026-07-25 was `2617d7bb...`. `tools/verified_run.sh` was subsequently re-baselined on 2026-07-27 (commit `8c97974`, per directive `VerifyChainCanonicalReject_2026-07-27`). The pending confirmation is of the current re-baselined version.
+
+Joel independently ran `sha256sum` from the Replit mobile shell on 2026-07-30 (not agent-computed):
 
 ```
-sha256sum tools/verified_run.sh
-2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29  tools/verified_run.sh
+tools/verified_run.sh:
+dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826
+MATCHES pinned canonical.
+
+tools/verify_chain.sh:
+4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12
+MATCHES pinned canonical.
 ```
 
-Status: **PENDING** — awaiting Joel's independent confirmation via Replit shell or file viewer outside this chat session. Once confirmed, this section will be updated to:
+**CANONICAL (operator-confirmed 2026-07-30 by Joel, independently, Replit mobile shell):**
+- `tools/verified_run.sh` = `dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826`
+- `tools/verify_chain.sh` = `4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12`
 
-> CANONICAL (operator-confirmed 2026-07-25 by Joel, independently, not agent-self-recorded): `tools/verified_run.sh` = `2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29`
+Per §21.3 standing rule: these are now operator-confirmed, not provisional.
+
+---
+
+## 22. Phase 0 Closure (2026-07-30)
+
+Phase 0 standing gate condition: Joel's explicit independent confirmation of `tools/verified_run.sh` and `tools/verify_chain.sh` sha256 before Vault Phase 1 (database schema) may begin.
+
+Gate condition met: Joel confirmed both canonicals from Replit mobile shell on 2026-07-30 (Section 21.4 above).
+
+**Phase 0 status: CLOSED.**
+**Vault Phase 1 (database schema, per Section 8-9 of the Master Build Directive) may now proceed on next instruction.**

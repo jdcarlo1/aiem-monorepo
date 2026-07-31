@@ -1,0 +1,22 @@
+# Directive_RuntimeIntegrityMonitoring_Build_2026-07-30
+
+Purpose: crash forensics tells us when a process dies. This covers the other blind spot — jobs that never crash but silently don't run, silently mislabel their own outcome, or silently fail because an external API changed shape. Build all 3 pieces below.
+
+## Part 1 — Schedule-Integrity Monitor
+- For every scheduled daily job (seed_daily_candidates, options pipeline run, send_oi_buildup_brief, any others on a fixed daily schedule), record the expected fire time in a config/table.
+- On a recurring check (every 15 min is fine) and on every process startup, compare expected fire time vs actual: if a job's DB row is still SCHEDULED/NULL past (expected_time + reasonable grace), fire an alert (Telegram/log, whatever channel you already use) immediately — do not wait for the next cron tick to notice.
+- This must catch today's exact scenario: 09:40 ET job, workflow restart at 12:57 ET, job silently skipped as a misfire.
+- Proof required: real forced-misfire test — deliberately delay/skip a scheduled job and show the alert fires within the check interval, not a code-review claim that it would.
+
+## Part 2 — Status/Classification Integrity Check
+- Add a validation pass (can run as part of job completion, or a periodic sweep) that checks: any row with status=FAILED must have a non-null error_text describing an actual exception/crash. If status=FAILED but candidates_failed>0 and error_text is null/generic and candidates_no_trade=0, that's a misclassification — a gate-rejection outcome wrongly written as FAILED.
+- Fix the underlying Jul 28-29 pattern: gate-rejections should write status=NO_TRADE_GATES (or equivalent) and populate candidates_no_trade, not candidates_failed.
+- Proof required: raw before/after example rows, plus a real test showing a genuine gate-rejection day now writes the correct status.
+
+## Part 3 — External API Contract Canary
+- For each critical external API call the daily jobs depend on (start with Polygon /v3/snapshot/options/{ticker} and /v2/aggs grouped-daily, and any other endpoint used before 10 AM ET), run a lightweight canary call before the real batch job needs it — same params shape as production use, checking for 200 vs 4xx/5xx.
+- On a canary failure, alert loudly (not just log) — this must NOT reuse the same silent fallback-to-cache path as the notifier, since that's exactly what masked today's 74-ticker Polygon 400 burst.
+- Proof required: a real test forcing a canary to fail (bad/missing param, as happened today) and showing the loud alert fires before the batch job runs.
+
+## Standing requirement
+Same evidence bar as always: raw grep/query/test output, not narrative summaries. For each part: show the failure being caught live (forced test), not just code that "should" catch it.

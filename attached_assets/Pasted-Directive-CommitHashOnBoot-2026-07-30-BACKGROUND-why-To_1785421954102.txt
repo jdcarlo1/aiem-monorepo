@@ -1,0 +1,29 @@
+Directive_CommitHashOnBoot_2026-07-30
+
+BACKGROUND (why): Today's NO_TRADE_GATES incident took a multi-step live investigation to discover the running scheduler process had loaded commit b81c909 at ~12:57Z, 27 minutes before the actual fix (d0ebf62) was pushed — so it silently ran stale code for 90+ minutes. This should be a one-query answer, not a forensic investigation, every time it happens again.
+
+STEP 1 — Log commit hash at process startup
+- On every scheduler process boot (aiem_options_scheduler.py and any other long-running process in this codebase), log the currently-checked-out git commit hash (git rev-parse HEAD, captured at process start, not re-read later) to both stdout/log and a DB row (new or existing process-start/heartbeat table — reuse one if it already exists).
+- Raw grep showing the exact line(s) added, before/after sha256 for every file touched, git diff --stat.
+
+STEP 2 — Build a queryable drift check
+- Add a simple check (script or existing endpoint) that compares: (a) the commit hash the currently-running process loaded (from Step 1) vs (b) git rev-parse HEAD on disk right now.
+- If they differ, that means a deploy happened after the process last started and the process has NOT picked it up yet — output this plainly (e.g. "RUNNING: b81c909, ON-DISK: d0ebf62, PROCESS IS STALE, RESTART REQUIRED").
+- Raw terminal output showing this check run twice: once while intentionally stale (before a restart) and once immediately after a restart, showing it flips to MATCH.
+
+STEP 3 — Alert on stale-after-deploy, don't just log it
+- If the drift check finds a mismatch that persists past a threshold (your call on threshold, state your reasoning — suggest 15 min after any git push to main), fire the existing Telegram alert path once (not per-job, not repeating spam).
+- Negative control: prove the alert does NOT fire when commit hashes match.
+
+STEP 4 — Live proof, not simulation
+- Make a real trivial commit, push it, and show (with raw output) the drift check catching the running process as stale BEFORE you restart it — then restart and show it clears.
+- This must be a real push/restart cycle on the actual scheduler process, not a described/simulated scenario.
+
+EVIDENCE BAR (standing, same as always):
+- Raw command output only — no narrative claims of "added"/"confirmed"/"working" without the output attached
+- sha256 before/after for every changed file
+- git diff --stat
+- Raw grep for any code-location claim
+- If any part can't be evidenced, say so in one line — don't pad
+
+Once this closes cleanly, write the permanent record file per the standing rule (/docs/verification/commit-hash-on-boot-FINAL.md), including the exact query/command Joel or Claude can run in the future to answer "is this process running what's on disk" in one shot.

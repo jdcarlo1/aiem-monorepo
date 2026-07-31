@@ -1,0 +1,32 @@
+# Directive: Sale-Readiness Priority — 2026-07-30
+
+Execute in this order. Do not start the next item until the prior one has raw evidence pasted per the standing checklist below.
+
+## 1. FIRST — Task #96: Prediction grader consecutive failures
+- Root-cause why the grader has been failing on consecutive runs — is it silent (no error logged) or surfaced?
+- Confirm whether any calibration/conviction-scoring numbers were computed on bad/missing grades during the failure window — flag exact date range affected.
+- Fix, then re-run the grader against a known period and show it grading correctly.
+- State plainly whether any previously-reported accuracy/performance numbers need correction because of this bug.
+
+## 2. SECOND — Task #94: Phase B, wire live data into /oe-dashboard/
+- Wire real data into all 6 built pages (auth, live-decisions, decisions, positions, why-trade, calibration, status) — no placeholder/mock values anywhere.
+- For each page, confirm the specific live source (API route / DB query) feeding it.
+- Screenshot or screen-recording proof of each page rendering real data.
+
+## 3. LAST — Task #95: Scheduler false-error logging
+- First confirm whether this is the SAME bug already reported fixed this session (schedule_integrity_check success=TRUE column) or a DIFFERENT scheduler logging issue — state which, with grep proof.
+- If already fixed, close as duplicate. If different, fix and confirm the false log stops firing.
+
+---
+
+## Standing checklist (required for every item above)
+- Raw terminal output for every claim — no paraphrasing, no narrative-only "fixed"/"confirmed"
+- Raw grep/sed output for any code-location or behavior claim
+- Before/after sha256 for every changed file
+- Raw SQL + full result set for any DB claim
+- No deletion/overwrite of any row/file without prior approval
+- Run through verified_run.sh, validate with verify_chain.sh, paste output
+- sha256 cross-check of tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh against current canonical
+- If #96 involves grading/scoring math: state the formula/reference before testing, independent known-answer test vectors, mutation check
+- "PASS" only if fully verified with nothing deferred — otherwise use "cleared to proceed" / "partial" / "closed via accepted-risk"
+- Permanent record file for any item that fully closes: /docs/verification/{item}-FINAL.md

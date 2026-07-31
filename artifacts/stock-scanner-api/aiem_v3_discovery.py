@@ -176,11 +176,19 @@ def score_candidate(row: Dict, history: List[float]) -> Dict:
     trend_pts = 0.0
     if has_hist:
         sma20 = _sma(closes, 20)
-        sma50 = _sma(closes, min(50, len(closes)))
         mom5  = _momentum(closes, min(5,  len(closes) - 1))
         mom20 = _momentum(closes, min(20, len(closes) - 1))
         if sma20 and close > sma20: trend_pts += 8.0
-        if sma50 and close > sma50: trend_pts += 8.0
+        # Task #92 fix 2026-07-30: replaced sma50 check (was identical to sma20 with
+        # _HISTORY_DAYS=28 → min(50,20)=20 bars → same average → duplicate +8pt signal).
+        # Replacement: "price in upper half of 10-day range" — genuinely independent from
+        # the SMA20 cross; measures trend continuation via range position rather than level.
+        # Works within any window ≥2 bars; requires no extra data pull.
+        if len(closes) >= 2:
+            _hi10 = max(closes[-10:]) if len(closes) >= 10 else max(closes)
+            _lo10 = min(closes[-10:]) if len(closes) >= 10 else min(closes)
+            _mid10 = (_hi10 + _lo10) / 2.0
+            if close > _mid10: trend_pts += 8.0
         if mom5  and mom5  > 0:    trend_pts += 5.0
         if mom20 and mom20 > 2.0:  trend_pts += 4.0
     else:

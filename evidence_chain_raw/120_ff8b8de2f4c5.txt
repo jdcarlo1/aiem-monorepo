@@ -1,0 +1,18 @@
+=== Formula test vectors ===
+  PASS  entry=100.0 exit=110.0 -> ret=0.1 win=True
+  PASS  entry=100.0 exit=90.0 -> ret=-0.1 win=False
+  PASS  entry=50.0 exit=50.0 -> ret=0.0 win=False
+  PASS  entry=25.0 exit=26.5 -> ret=0.06 win=True
+  PASS  entry=200.0 exit=150.0 -> ret=-0.25 win=False
+
+=== Mutation check (wrong-sign variant) ===
+  PASS  mutant=-0.1 != correct=0.1
+  PASS  mutant=0.1 != correct=-0.1
+
+=== DB round-trip test (insert -> grade -> verify -> clean) ===
+  DB row: pred_date=2026-07-23 ticker=_TESTONLY_GRADER t1_return=0.075 entry=100.0 t1_price=107.5 win_t3=True graded_at=2026-07-30 23:09:31.088
+  PASS  t1_return=0.0750 == 0.0750
+  PASS  win_t3=True == True
+  PASS  cleanup: deleted 1+1 test rows, 0 remain
+
+SUMMARY: 10 PASS  0 FAIL

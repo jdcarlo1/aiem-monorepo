@@ -1,0 +1,29 @@
+# Directive_CommitHashOnBoot_EvidenceGaps_2026-07-30
+
+Your STALE→MATCH test was real. Everything else you wrote around it was narrative, not proof. This is not a PASS. Close these 5 items with raw output only — no summaries, no "confirmed," no restating what you already claimed.
+
+## 1. Raw code for every behavior claim
+Paste raw `grep -n` or `sed -n` output for:
+- the exact line(s) implementing `if _dsk != _BOOT_COMMIT:` in the drift check
+- the exact line(s) implementing the 15-min grace threshold and `_tg()` call
+- the exact line(s) implementing `_DRIFT_ALERT_SENT` and how it prevents repeat sends
+
+No paraphrasing. If a line doesn't say what you claimed it says, say so.
+
+## 2. Run everything through the evidence chain
+Re-run the STALE and MATCH checks through `verified_run.sh`. Paste `verify_chain.sh` output confirming the chain validates. If you ran the original tests outside the wrapper, that's on you — redo them.
+
+## 3. sha256 cross-check
+Paste raw `sha256sum` for `tools/verified_run.sh` and `artifacts/stock-scanner-api/verify_chain.sh`. State plainly whether each matches the last canonical on file. If either doesn't match, stop and say so — do not proceed past a mismatch.
+
+## 4. Raw SQL, not formatted text
+Paste the actual `SELECT` query and full raw result set for the `process_lifecycle_log` row (id=35). A formatted "id=35 name=... pid=..." block is not raw output.
+
+## 5. Prove the negative control, don't assert it
+On a MATCH run, show the actual log/output proving the drift-alert branch was skipped — not just "exit=0 therefore it didn't fire." If there's no direct evidence of the skip, say that explicitly.
+
+## Rules
+- One item closed at a time is fine. A claim with no raw output attached is rejected, not accepted with a caveat.
+- If you cannot produce evidence for something, say "cannot produce evidence for X" — do not pad around it with confidence language.
+- Do not touch/delete/overwrite anything without approval first, per standing data immutability rule.
+- Once all 5 are closed with raw evidence, write the permanent record to `/docs/verification/commit-hash-on-boot-FINAL.md` — until then, no permanent record file.

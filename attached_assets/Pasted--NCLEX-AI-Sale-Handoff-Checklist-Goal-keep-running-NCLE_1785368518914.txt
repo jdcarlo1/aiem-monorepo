@@ -1,0 +1,46 @@
+# NCLEX AI — Sale Handoff Checklist
+
+Goal: keep running NCLEX AI live on your own site/server as-is until a buyer is found. Prep the standalone package now so handoff is just a copy/transfer once you sell.
+
+---
+
+## Phase 1 — Code extraction (do this now, doesn't affect your live site)
+
+- [ ] Extract NCLEX-only code from the shared codebase into its own repo (via `git filter-repo` or `git subtree split`) — keeps history, drops the other 3 products
+- [ ] Copy over any genuinely shared modules (auth, shared UI, utils) as standalone files in the new repo — no live dependency back on your other products' code
+- [ ] Strip all references/imports/env vars tied to AIEM, StockScanner AI, or Options Engine
+- [ ] Spin up a *test* deployment of the extracted repo (separate from your live site) to confirm it builds and runs standalone, looks identical
+- [ ] Fix any broken imports/missing files found during that test run
+- [ ] Delete/tear down the test deployment once confirmed working — no need to keep it running
+
+## Phase 2 — Package for buyer (prep now, don't send yet)
+
+- [ ] Finalize the extracted repo as the "buyer copy" — keep it updated periodically if your live site changes
+- [ ] Write a short setup README listing:
+  - Required env vars/secrets by NAME only (Stripe key, DB connection string, etc.) — never actual live values
+  - Node/runtime version, build command, start command
+  - Any external services the app depends on (Stripe, email provider, etc.)
+- [ ] Confirm the security matrix / testing framework docs (already in progress) are attached alongside the code
+
+## Phase 3 — Data (only if buyer wants existing users/content)
+
+- [ ] Decide: does the sale include existing user accounts/customer data, or fresh start for buyer?
+- [ ] If included: prepare a one-time DB export (SQL dump or equivalent) — not a live connection to your DB
+- [ ] Confirm no PII gets handed over carelessly — sanitize/redact if needed depending on what's agreed
+
+## Phase 4 — At time of sale (only once you have a buyer)
+
+- [ ] Hand over the repo — either transfer GitHub ownership or provide a zip export, buyer's choice
+- [ ] Domain: initiate transfer through your registrar (they submit a transfer request, you approve — or hand over registrar login if simpler)
+- [ ] Give buyer the DB export (if included) — one-time file, not ongoing access
+- [ ] Confirm buyer has successfully deployed and it's live on their own server
+- [ ] Only THEN: shut down your own NCLEX deployment and remove/repoint your DNS
+
+## What you never hand over
+- Live Stripe keys, DB credentials, or any active secrets — buyer generates their own
+- Access to your other products' code or infrastructure
+- Ongoing access to your systems after the DNS/domain cutover
+
+---
+
+**Current status:** keep running NCLEX AI live on your own infrastructure as normal. Nothing above requires touching your live site — Phase 1–2 can be done entirely in parallel, ready to execute the moment a buyer is found.

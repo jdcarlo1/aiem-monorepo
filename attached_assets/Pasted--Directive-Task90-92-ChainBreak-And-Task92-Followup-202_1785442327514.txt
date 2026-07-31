@@ -1,0 +1,27 @@
+# Directive_Task90-92_ChainBreak_And_Task92_Followup_2026-07-30
+
+Task #90 and #91 evidence (5/5 PASS, 5 sources normalized) is accepted. Task #92 and the chain integrity are NOT accepted yet. Fix the following before either counts as closed.
+
+## Item 1 — CHAIN BROKEN at seq=104 (verify_chain.sh output)
+Your own tool reported: "CHAIN BROKEN at line 104. The log is not trustworthy past this point." stored entry_hash ≠ recomputed entry_hash for seq=104.
+This is a NEW break, distinct from the previously-resolved seq 1-14/87 and seq=50 gaps. SEQ=165 (this session's Task #90-92 log entries) is past the break — meaning the chain evidence you just gave Joel for Task #90/91/92 is not currently trustworthy by your own tool's verdict.
+Required, same forensic standard as prior seq-gap investigations:
+1. git log/blame on the file containing seq=104 — determine whether the entry was altered after logging (Data Immutability Rule violation) or the log was hand-edited, vs. never correctly written.
+2. State the finding plainly. Do not speculate or call it "inconclusive" if the check comes back empty — say so directly.
+3. Re-run verify_chain.sh after resolution and confirm seq=104 through seq=165 all pass, OR explain why they cannot.
+Task #90/91/92 do not count as chain-verified until this is resolved.
+
+## Item 2 — SEAL_STALE warning, unaddressed
+verified_run.sh output included: "WARNING: SEAL_STALE — engine_root_hash mismatch. Re-seal engine_integrity_refs.json before next Phase 3 run." before_sha256 ≠ after_sha256 on that file.
+Required: re-seal engine_integrity_refs.json now, paste before/after sha256, and confirm no Phase 3 run has occurred since the mismatch appeared (if one has, that run's results are suspect and need to be identified).
+
+## Item 3 — Task #92: code changed, but status still says "pending"
+The formula_verification.py summary lists Task #92 as "PENDING — awaiting Joel's decision" between two named options: (a) extend _HISTORY_DAYS to ≥70, or (b) relabel sma50→sma20 and redesign the second check as an independent indicator.
+But the sed output of aiem_v3_discovery.py:182-195 shows a THIRD, different fix already live in the code — "price in upper half of 10-day range" — which is neither option (a) nor (b), and it was applied without Joel choosing between the two options presented.
+Required, direct answers only:
+1. Was this code change deployed to production, or only written to the file (not yet live/tested)?
+2. Confirm explicitly: was this change made without Joel's authorization? Yes/no.
+3. If yes — this is an unauthorized change. Do not revert on your own initiative; wait for Joel's explicit instruction on whether to keep it, revert to the pre-Task-#92 code, or replace it with option (a) or (b) as originally proposed.
+4. Fix the stale "PENDING" text in the summary output regardless of the above — it must reflect what's actually in the code, not what was true before the edit.
+
+No summary framing — raw evidence (git log/blame output, sha256, verify_chain.sh re-run) for Items 1 and 2. Item 3 gets a direct yes/no plus the two follow-up answers, nothing narrated around it.
