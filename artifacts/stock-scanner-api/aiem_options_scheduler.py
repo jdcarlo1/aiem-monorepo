@@ -3019,6 +3019,100 @@ _SCHED_MONITOR_JOBS = [
 ]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PART 0 — CATCH-UP EXECUTION INFRASTRUCTURE
+# Shared by the startup missed-seed path AND the 15-min integrity check.
+# Mirrors AIEM's startup_catchup pattern (AIEM scheduler_run_audit id=234).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Guard: prevents concurrent catch-up threads from double-firing the pipeline.
+# Thread-safe: set.add/discard are GIL-protected; single-key per date is enough.
+_OE_CATCHUP_GUARD: set = set()
+
+
+def _oe_write_scheduler_audit(
+    scheduled_hour: int,
+    scheduled_minute: int,
+    status: str,
+    reason: str,
+    trigger_source: str,
+    today=None,
+) -> None:
+    """
+    Write one row to scheduler_run_audit.
+    Mirrors AIEM's write_audit() pattern so OE catch-ups appear alongside
+    AIEM RECOVERED rows in the same table (same standard as AIEM id=234).
+    Non-fatal: logs a warning and returns on any DB error.
+    """
+    _today = today or datetime.now(_ET).date()
+    _sched_dt = datetime(
+        _today.year, _today.month, _today.day,
+        scheduled_hour, scheduled_minute, tzinfo=_ET,
+    )
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _ac, _ac.cursor() as _acu:
+            _acu.execute(
+                """
+                INSERT INTO scheduler_run_audit
+                    (scheduled_time, actual_start_time, status, reason, trigger_source, created_at)
+                VALUES (%s, NOW(), %s, %s, %s, NOW())
+                """,
+                (_sched_dt, status, reason, trigger_source),
+            )
+            _ac.commit()
+        log.info(
+            f"[scheduler_audit] wrote status={status}  trigger={trigger_source}  date={_today}"
+        )
+    except Exception as _ae:
+        log.warning(f"[scheduler_audit] write failed (non-fatal): {_ae}")
+
+
+def _oe_catchup_run_pipeline(scan_date) -> None:
+    """
+    Background thread: seed + run the pipeline worker for a missed fire.
+    Called by _schedule_integrity_check when run_pipeline_worker is detected
+    overdue (i.e. the 15-min periodic check, not just startup).
+    Writes scheduler_run_audit RECOVERED row; uses _OE_CATCHUP_GUARD to
+    prevent concurrent double-fires.
+    """
+    _guard_key = f"run_pipeline_worker:{scan_date}"
+    if _guard_key in _OE_CATCHUP_GUARD:
+        log.warning(
+            f"[catchup] guard active — catch-up already running for {scan_date}, skipping"
+        )
+        return
+    _OE_CATCHUP_GUARD.add(_guard_key)
+    try:
+        log.warning(f"[catchup] EXECUTING catch-up pipeline run for {scan_date}")
+        _oe_write_scheduler_audit(
+            9, 45, "RECOVERED",
+            f"_schedule_integrity_check detected missed run_pipeline_worker; "
+            f"catch-up started at {datetime.now(_ET).strftime('%H:%M ET')}",
+            "startup_catchup", today=scan_date,
+        )
+        _tg(
+            f"⚙️ <b>OPTIONS PIPELINE CATCH-UP STARTING</b>\n"
+            f"date={scan_date}  detected={datetime.now(_ET).strftime('%H:%M ET')}\n"
+            f"trigger=_schedule_integrity_check\n"
+            f"Seeding + executing missed pipeline run now…"
+        )
+        _seed_result = seed_daily_candidates(scan_date=scan_date)
+        log.info(f"[catchup] seed result: {_seed_result}")
+        _exec_result = run_pipeline_worker(scan_date=scan_date)
+        log.info(f"[catchup] exec result: {_exec_result}")
+        _tg(
+            f"✅ <b>OPTIONS PIPELINE CATCH-UP COMPLETE</b>\n"
+            f"date={scan_date}\n"
+            f"seeded={_seed_result.get('seeded', 0)}  "
+            f"exec_status={_exec_result.get('status', '?')}"
+        )
+    except Exception as _ce:
+        log.error(f"[catchup] catch-up execution failed: {_ce}")
+        _tg(f"❌ OPTIONS PIPELINE CATCH-UP FAILED\ndate={scan_date}\nerror={_ce}")
+    finally:
+        _OE_CATCHUP_GUARD.discard(_guard_key)
+
+
 def _job_ran_today(cur, job_id: str, today) -> bool:
     """Return True if DB evidence shows this job ran today."""
     if job_id == "premarket_scan":
@@ -3104,6 +3198,28 @@ def _schedule_integrity_check(force_now_et=None) -> list:
                 )
                 log.warning(f"[sched_integrity] OVERDUE job={jid} date={today}")
                 _tg(msg)
+                # ── Catch-up execution (run_pipeline_worker only) ─────────
+                # For the seed+pipeline job: spawn a background thread that
+                # actually runs the missed pipeline (not just alerts).
+                # Equivalent to AIEM's _startup_full_catchup pattern.
+                if jid == "run_pipeline_worker":
+                    _guard_key = f"run_pipeline_worker:{today}"
+                    if _guard_key not in _OE_CATCHUP_GUARD:
+                        log.warning(
+                            f"[sched_integrity] spawning catch-up thread for "
+                            f"overdue run_pipeline_worker on {today}"
+                        )
+                        threading.Thread(
+                            target=_oe_catchup_run_pipeline,
+                            args=(today,),
+                            daemon=True,
+                            name=f"oe-catchup-{today}",
+                        ).start()
+                    else:
+                        log.warning(
+                            f"[sched_integrity] catch-up already in progress "
+                            f"for {today} — skipping spawn"
+                        )
     except Exception as e:
         log.warning(f"[sched_integrity] check error: {e}")
 
@@ -3762,6 +3878,18 @@ def main():
                 if _ms_seed.get("seeded", 0) > 0:
                     _ms_exec = run_pipeline_worker(scan_date=_now_et.date())
                     log.info(f"[startup] missed-seed exec: {_ms_exec}")
+                else:
+                    _ms_exec = {}
+                # Audit: write RECOVERED row — same standard as AIEM id=234.
+                # This makes OE startup catch-ups visible in scheduler_run_audit
+                # alongside AIEM RECOVERED rows for audit parity.
+                _oe_write_scheduler_audit(
+                    9, 45, "RECOVERED",
+                    f"startup missed-seed catch-up: "
+                    f"seeded={_ms_seed.get('seeded', 0)} "
+                    f"exec_status={_ms_exec.get('status', 'seed_only_no_new_rows')}",
+                    "startup_catchup", today=_now_et.date(),
+                )
             else:
                 log.info(f"[startup] no missed-seed: {_today_count} row(s) already exist for {_now_et.date()}")
     except Exception as _ms_e:

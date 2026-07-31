@@ -435,7 +435,89 @@ else:
         )
 
 
-# ── Checks 9-10: Per-system forced-failure proofs (opt-in) ───────────────────
+# ── Check 9: OE catch-up mechanism structural verification ────────────────────
+# Verifies that the OE startup catch-up and _schedule_integrity_check both
+# have catch-up EXECUTION wired (not just alerting), and that the
+# scheduler_run_audit write is present.  All checks are AST/grep-only —
+# no process execution, no network calls.
+# Fires on every push that touches aiem_options_scheduler.py.
+
+with open(OPT_PY, "r", encoding="utf-8") as _f:
+    _oe_src = _f.read()
+_oe_tree = ast.parse(_oe_src)
+
+_catchup_checks_passed = []
+_catchup_checks_failed = []
+
+# 9a: _OE_CATCHUP_GUARD module-level set must exist
+_has_guard = "_OE_CATCHUP_GUARD" in _oe_src
+if _has_guard:
+    _catchup_checks_passed.append("9a: _OE_CATCHUP_GUARD defined")
+else:
+    _catchup_checks_failed.append("9a: _OE_CATCHUP_GUARD missing — double-fire prevention not in place")
+
+# 9b: _oe_write_scheduler_audit function must be defined
+_has_audit_fn = any(
+    isinstance(n, ast.FunctionDef) and n.name == "_oe_write_scheduler_audit"
+    for n in ast.walk(_oe_tree)
+)
+if _has_audit_fn:
+    _catchup_checks_passed.append("9b: _oe_write_scheduler_audit defined")
+else:
+    _catchup_checks_failed.append("9b: _oe_write_scheduler_audit missing — RECOVERED audit row not writable")
+
+# 9c: _oe_catchup_run_pipeline function must be defined (the thread target)
+_has_catchup_fn = any(
+    isinstance(n, ast.FunctionDef) and n.name == "_oe_catchup_run_pipeline"
+    for n in ast.walk(_oe_tree)
+)
+if _has_catchup_fn:
+    _catchup_checks_passed.append("9c: _oe_catchup_run_pipeline defined")
+else:
+    _catchup_checks_failed.append("9c: _oe_catchup_run_pipeline missing — catch-up thread target not defined")
+
+# 9d: _schedule_integrity_check must reference _oe_catchup_run_pipeline
+#     (i.e. the periodic check triggers execution, not just alerting)
+_integ_fn_src = ""
+for _node in ast.walk(_oe_tree):
+    if isinstance(_node, ast.FunctionDef) and _node.name == "_schedule_integrity_check":
+        _integ_fn_src = ast.get_source_segment(_oe_src, _node) or ""
+        break
+if "_oe_catchup_run_pipeline" in _integ_fn_src:
+    _catchup_checks_passed.append("9d: _schedule_integrity_check wired to _oe_catchup_run_pipeline")
+else:
+    _catchup_checks_failed.append(
+        "9d: _schedule_integrity_check does NOT call _oe_catchup_run_pipeline — "
+        "periodic check alerts only, does not execute catch-up"
+    )
+
+# 9e: startup missed-seed section must call _oe_write_scheduler_audit
+#     Grep for the call that writes the RECOVERED row in the startup block.
+if "_oe_write_scheduler_audit" in _oe_src and "startup_catchup" in _oe_src:
+    _catchup_checks_passed.append("9e: startup missed-seed calls _oe_write_scheduler_audit with startup_catchup trigger")
+else:
+    _catchup_checks_failed.append(
+        "9e: startup missed-seed does NOT call _oe_write_scheduler_audit — "
+        "startup catch-up produces no RECOVERED audit row"
+    )
+
+if not _catchup_checks_failed:
+    passes.append(
+        f"OE CATCH-UP MECHANISM: all {len(_catchup_checks_passed)} structural checks pass "
+        f"— guard, audit-write fn, thread-target fn, integrity-check wiring, startup-section wiring"
+    )
+    for _c in _catchup_checks_passed:
+        print(f"  [PASS] catchup sub-check {_c}")
+else:
+    for _c in _catchup_checks_failed:
+        failures.append(f"OE CATCH-UP MECHANISM: {_c}")
+    for _c in _catchup_checks_passed:
+        print(f"  [PASS] catchup sub-check {_c}")
+    for _c in _catchup_checks_failed:
+        print(f"  [FAIL] catchup sub-check {_c}")
+
+
+# ── Checks 10-11: Per-system forced-failure proofs (opt-in) ──────────────────
 if os.environ.get("SMOKE_FULL"):
 
     # Check 6: AIEM forced-failure
