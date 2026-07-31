@@ -87,6 +87,27 @@ def main():
                         help="Approver name — must be passed explicitly; no default accepted")
     args = parser.parse_args()
 
+    # ── TTY gate — block non-interactive (automated/agent) issuance ──────────
+    # sys.stdin.isatty() returns False when this script is called from a
+    # subprocess, ShellExec, pipe, or any automated context. An agent running
+    # in a Replit session cannot write to stdin interactively, so it cannot
+    # bypass this check.  This prevents the agent from self-issuing approvals
+    # by passing --approved-by without a human physically present at a terminal.
+    #
+    # If you are a human at a non-TTY terminal (e.g. piped stdin), run:
+    #   python3 tools/issue_tla.py --approved-by "Name" < /dev/tty
+    if not sys.stdin.isatty():
+        print(
+            "\nERROR: issue_tla.py must be run interactively by a human operator "
+            "at a terminal.\n"
+            "       Non-interactive / subprocess invocations are rejected to prevent\n"
+            "       self-authorization. This is a structural control — it cannot be\n"
+            "       bypassed by passing arguments or environment variables.\n"
+            "       Run this script directly in a shell session.\n",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     repo_root = get_repo_root()
     approvals_path = os.path.join(repo_root, "tools", "trading_logic_approvals.jsonl")
 

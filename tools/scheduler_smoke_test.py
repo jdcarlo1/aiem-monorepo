@@ -45,6 +45,9 @@ OE_MODULE_TARGET_FNS = [
     "recover_stale_jobs",
     "_schedule_integrity_check",
     "_polygon_canary_check",
+    # Lambda target (classification_integrity_sweep): added to _OE_MODULE_JOB_TARGETS
+    # so the startup self-check catches a rename/deletion before the scheduler fires.
+    "_validate_and_fix_pipeline_run_classifications",
 ]
 
 # ── Canonical list of late-defined targets in main.py ────────────────────────
