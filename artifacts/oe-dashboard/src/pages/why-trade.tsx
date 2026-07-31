@@ -15,9 +15,9 @@ import { formatCurrency, formatPercent } from '@/lib/utils';
 
 interface IndicatorSnapshot {
   canonical_id: string;
-  normalized_value: number;
-  contribution_score: number;
-  weight: number;
+  normalized_value: number | null;
+  contribution_score: number | null;
+  weight: number | null;
   quality_status: string;
   signal_direction: string;
 }
@@ -72,16 +72,32 @@ export default function WhyTradePage() {
     enabled: !!traceId,
   });
 
-  const sortedIndicators = indicators
-    ? [...indicators].sort((a, b) => b.contribution_score - a.contribution_score)
-    : [];
+  // All rows — used for the indicator details table (normalized_value IS populated)
+  const allIndicators = indicators ?? [];
 
-  const chartData = sortedIndicators.map((ind) => ({
+  // Gap 2 fix: only rows with a computed contribution_score feed the bar chart.
+  // The pipeline currently records snapshots for all indicators but has not yet
+  // backfilled contribution_score for any row (0 scored rows in production as of
+  // 2026-07-31). Raw-data indicators (POLY_CLOSE_PRICE, OSS_SPOT, …) never
+  // receive a score by design; model-scored indicators (MTF_*, EI_*, …) will
+  // populate this column when the pipeline's scoring pass runs.
+  // Rendering null-score bars as 0-height is misleading — exclude them.
+  const scoredIndicators = allIndicators
+    .filter((ind) => ind.contribution_score !== null && ind.contribution_score !== undefined)
+    .sort((a, b) => (b.contribution_score as number) - (a.contribution_score as number));
+
+  const chartData = scoredIndicators.map((ind) => ({
     name: ind.canonical_id,
-    contribution: ind.contribution_score,
+    contribution: ind.contribution_score as number,
     normalized: ind.normalized_value,
     quality: ind.quality_status,
   }));
+
+  // Table uses ALL indicators so raw-data rows are still visible with their
+  // normalized_value and quality_status even when contribution_score is null.
+  const tableIndicators = allIndicators.sort((a, b) =>
+    (a.canonical_id ?? '').localeCompare(b.canonical_id ?? '')
+  );
 
   if (indicatorsLoading) {
     return (
@@ -143,8 +159,15 @@ export default function WhyTradePage() {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div className="h-64 flex items-center justify-center">
-            <p className="text-muted-foreground">No indicator data found</p>
+          <div className="h-40 flex flex-col items-center justify-center gap-2 text-center px-8">
+            <p className="text-muted-foreground text-sm font-medium">
+              Contribution scores not yet computed
+            </p>
+            <p className="text-muted-foreground text-xs max-w-md">
+              The pipeline captures indicator snapshots ({allIndicators.length} recorded for this trace)
+              but has not yet run the scoring pass that assigns weighted contribution values.
+              Raw indicator values are available in the table below.
+            </p>
           </div>
         )}
       </div>
@@ -152,9 +175,16 @@ export default function WhyTradePage() {
       {/* Indicator Details Table */}
       <div className="border border-border rounded-lg bg-card overflow-hidden">
         <div className="p-4 border-b border-border">
-          <h2 className="font-semibold">Indicator Details</h2>
+          <h2 className="font-semibold">
+            Indicator Details
+            {allIndicators.length > 0 && (
+              <span className="ml-2 text-xs text-muted-foreground font-normal font-mono">
+                {allIndicators.length} rows — {scoredIndicators.length} scored
+              </span>
+            )}
+          </h2>
         </div>
-        {sortedIndicators.length > 0 ? (
+        {tableIndicators.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -167,7 +197,7 @@ export default function WhyTradePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedIndicators.map((indicator, idx) => (
+              {tableIndicators.map((indicator, idx) => (
                 <TableRow key={idx} data-testid={`row-indicator-${idx}`}>
                   <TableCell className="font-mono text-xs">
                     {indicator.canonical_id}
