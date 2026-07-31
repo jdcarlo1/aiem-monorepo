@@ -1,0 +1,60 @@
+# Directive: Close 4 Gaps From Break/Revert Verification Cycle (2026-07-31)
+
+Standing rule applies: raw output only, no narrative, sha256 before/after for anything touched.
+
+---
+
+## Gap 1 — Telegram alert: prove delivery, not just HTTP 200
+
+Problem: `curl` returning 200 only proves the request didn't error. It does not prove the message reached Joel.
+
+Fix steps:
+1. Run: `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getChat?chat_id=$TELEGRAM_CHAT_ID"`
+   — paste raw JSON response. Confirms the chat_id is valid and reachable.
+2. Trigger one real test alert manually (not via CI), same code path used in the smoke test failure branch.
+3. Paste a screenshot or raw `getUpdates` response showing the message actually landed in the chat (timestamp must match the trigger time in step 2).
+4. If `getUpdates` genuinely can't confirm delivery (bot-message limitation), say so explicitly and propose an alternative confirmation method (e.g. a second bot/webhook that echoes receipt) — do not label the current check "success" going forward. Rename the CI step output to "HTTP 200 (delivery unconfirmed)" until a real confirmation method exists.
+
+---
+
+## Gap 2 — Missing sha256 before/after on break/revert commits
+
+Problem: commits `ec6f1b5`, `05e8cef`, `f8c4ff9`, `81ff491` (or `81ff491`/`05e8cef` — confirm exact hashes from this session) have no hash record.
+
+Fix steps:
+1. For each of the 4 commits above, run:
+   `git show <commit>:main.py | sha256sum`
+   `git show <commit>~1:main.py | sha256sum`
+   (repeat for `aiem_options_scheduler.py` on the OE commits)
+2. Paste all 8 before/after hash pairs, labeled by commit hash and file.
+3. Confirm final state matches originals: the session already claims `main.py sha256 = 0538dca...` and `aiem_options_scheduler.py sha256 = 8b5b926...` post-revert — paste the FULL untruncated 64-char values for both, not the truncated `...` versions shown in chat.
+
+---
+
+## Gap 3 — AIEM-1 / AIEM-2 blocked, not tested (0 of 2 core-path functions actually exercised)
+
+Problem: "4 PASS, 2 BLOCKED, 0 FAIL" is being read as clean. 2 of 6 core functions were never run.
+
+Fix steps:
+1. AIEM-1 (`_aiem_paper_pick_candidates`): list the exact 8 module-level globals blocking isolation (already named: `_rg_pcb`, `_fred_macro`, `_econ_is_high_impact_day`, `_psycopg2`, `_DB_URL`, `_drift_mult`, `_aiem_tool_scan_market_for_setups`, `_aiem_tool_save_daily_predictions`).
+2. For each global, one line: current type (module singleton / DB connection / imported function) and whether it can be passed as a function parameter without touching unrelated code.
+3. Do NOT refactor yet. Just paste this inventory + a rough diff-size estimate (lines touched) for the DI refactor.
+4. AIEM-2 (`_run_aiem_independent_scan`): confirm whether adding a single `dry_run: bool = False` parameter (short-circuit before the Polygon call) is sufficient — paste the exact function signature and the line where the live API call happens.
+5. Send both inventories back before any code changes — Joel decides whether the refactor happens now or stays documented-blocked.
+
+---
+
+## Gap 4 — TLA auto-approval defect (4 repeat instances: `2f206c50`, `b1e1133b`, `b1e0a0a6`, `1498a293`)
+
+Problem: `--approved-by` silently defaults to "Joel" when the script runs with no arguments. This has been flagged before and is still happening.
+
+Fix steps:
+1. Open `tools/issue_tla.py`, find the `--approved-by` argument definition, paste the raw line via `grep -n "approved-by" tools/issue_tla.py`.
+2. Remove the hardcoded default. Change to `required=True` (script must fail/exit with an error if `--approved-by` is not explicitly passed) OR add an interactive prompt if run with zero args — pick ONE, note which.
+3. Test: run `python3 tools/issue_tla.py` with no arguments. Paste raw output proving it now errors/prompts instead of silently issuing a TLA.
+4. Grep the full codebase for every other place `issue_tla.py` gets called (cron jobs, other scripts) to confirm none of them rely on the silent default: `grep -rn "issue_tla" --include="*.py" --include="*.sh" --include="*.yml"` — paste raw output.
+5. State plainly: are the 4 already-issued TLAs above still valid, or do they need to be reissued with explicit approval now that the defect is fixed?
+
+---
+
+Do not mark any of these 4 items "PASS" until raw output for every step above is pasted. "Cleared to proceed" or "partial" only, per standing rule.
