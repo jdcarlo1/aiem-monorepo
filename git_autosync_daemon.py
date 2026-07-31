@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-git_autosync_daemon.py — Keeps origin/dev in sync with local HEAD.
+git_autosync_daemon.py — Keeps origin/main in sync with local HEAD.
 
 Every 60 seconds:
-  1. git fetch origin dev          — update remote-tracking ref
-  2. Compare local HEAD vs origin/dev
-  3. If local is ahead  → git push origin HEAD:dev
-  4. If local is behind → git pull --ff-only origin dev
+  1. git fetch origin main         — update remote-tracking ref
+  2. Compare local HEAD vs origin/main
+  3. If local is ahead  → git push origin HEAD:main
+  4. If local is behind → git pull --ff-only origin main
   5. If diverged        → log warning, do nothing (requires manual reconcile)
   6. If equal           → no-op
 

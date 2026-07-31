@@ -6321,6 +6321,16 @@ try:
     def _run_aiem_independent_scan_job():
         try:
             import threading as _aisj_thr
+            import time as _aisj_time
+            # _run_aiem_independent_scan is defined at line ~44449 — after
+            # _MODULE_FULLY_LOADED is set (line 73159). If the scheduler fires
+            # while the module is still loading (e.g. server restarted seconds
+            # before 9:20 AM), the name lookup fails with NameError. Wait up to
+            # 300 s for full load before starting the thread.
+            for _aisj_w in range(30):
+                if globals().get("_MODULE_FULLY_LOADED"):
+                    break
+                _aisj_time.sleep(10)
             _aisj_thr.Thread(target=_run_aiem_independent_scan, daemon=True).start()
             record_job_success("aiem_independent_scan")
         except Exception as e:
