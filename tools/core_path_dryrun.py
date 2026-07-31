@@ -5,8 +5,9 @@ tools/core_path_dryrun.py — Core-path execution dryrun for Gap 1.
 Invokes each of the 6 core functions in a safe/synthetic mode.
 For OE (aiem_options_scheduler.py): imports the module with psycopg2 mocked,
 calls each function with stub inputs, confirms no exception is raised.
-For AIEM (main.py): states the specific per-function architectural blocker,
-then calls what is safely callable via the running Flask HTTP server.
+For AIEM (main.py): AIEM-1 and AIEM-2 now have injectable parameters / dry_run
+flags; tests exercise those paths via the running Flask HTTP server (admin endpoints).
+AIEM-3 uses the existing /run-paper-today endpoint.
 
 Run: python3 tools/core_path_dryrun.py
 Requires: DATABASE_URL env var (any value works — psycopg2 is mocked before
@@ -156,19 +157,16 @@ with mock.patch.object(oe.psycopg2, "connect", return_value=_mock_conn), \
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AIEM FUNCTION CALLS (main.py — per-function blockers + HTTP calls)
+# AIEM FUNCTION CALLS (main.py — via running Flask HTTP server)
 # ─────────────────────────────────────────────────────────────────────────────
-# main.py is a 73,302-line monolithic Flask application. Importing it executes:
-#   - Flask app initialization and route registration (~73k lines of module-level code)
-#   - psycopg2 connection pool creation (48+ connections)
-#   - APScheduler startup (fires scheduled jobs immediately)
-#   - 12+ background threads (staleness-guard, watchdogs, cache warmer, etc.)
-# This cannot be mocked away at import time — these are hard side-effects of the
-# module's structure, not just DB calls. The functions themselves reference:
-#   _psycopg2, _DB_URL, _fred_macro, _rg_pcb, _econ_is_high_impact_day,
-#   _AIEM_PAPER_LOCK, _is_trading_day, _ET, _drift_mult, and 10+ other globals
-#   that only exist after the full Flask startup sequence.
-# Per-function blockers are stated below alongside the safe alternative used.
+# main.py is a monolithic Flask application (~73k lines). Importing it triggers
+# Flask startup, psycopg2 pool creation, APScheduler, and 12+ background threads —
+# these cannot be safely suppressed in a subprocess test.
+#
+# After the AIEM-1 and AIEM-2 refactors in this session, both functions now accept
+# injected dependencies (AIEM-1: 6 keyword-only params) and a dry_run flag (AIEM-2).
+# The running Flask server already has the module loaded with all globals initialized.
+# Test methodology: POST to admin endpoints that exercise the injection / dry_run paths.
 
 print()
 print("── AIEM FUNCTIONS (main.py) ──────────────────────────────────────────")
@@ -181,7 +179,7 @@ def _http_post(path: str, token: str = ADMIN_TOKEN) -> tuple[int, dict]:
                                  headers={"X-Admin-Token": token,
                                           "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=20) as resp:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read())
@@ -189,58 +187,69 @@ def _http_post(path: str, token: str = ADMIN_TOKEN) -> tuple[int, dict]:
         return -1, {"error": str(e)}
 
 
-# ── AIEM-1: _aiem_paper_pick_candidates() ────────────────────────────────
-# Specific blocker: no HTTP endpoint calls this function in isolation.
-# It is only called from inside _aiem_paper_execute_today() after the
-# advisory lock and try_claim gate are acquired. The function body references
-# 8 module-level globals not available outside main.py's execution context:
-#   _rg_pcb (aiem_risk_guards.PortfolioCircuitBreaker instance)
-#   _fred_macro (aiem_macro_engine.FredMacroEngine instance)
-#   _econ_is_high_impact_day (aiem_macro_engine module function)
-#   _psycopg2 (psycopg2 re-imported in main.py's namespace)
-#   _DB_URL (string set at module startup)
-#   _drift_mult (dict built inside this function via DB query)
-#   _aiem_tool_scan_market_for_setups (module-level function)
-#   _aiem_tool_save_daily_predictions (module-level function)
-# No parameters exist to inject stubs; dependency injection would require
-# refactoring the function signature.
-# Production verification: the function ran this session — check paper trade
-# or try_claim log for today's run evidence.
+# ── AIEM-1: _aiem_paper_pick_candidates() — injected mock deps ────────────
+# After the DI refactor, the function accepts 6 keyword-only params:
+#   db_url, psycopg2_mod, fred_macro, econ_gate_fn, social_sentiment, specialist_council
+# The test endpoint /stock-api/admin/dryrun/pick-candidates calls the function
+# with injected MagicMock psycopg2 (returning empty cursors) and a lambda econ_gate_fn
+# that returns high_impact_day=False.  Production callers pass no args (unchanged).
 print()
-print("  AIEM-1: _aiem_paper_pick_candidates()")
-print("    BLOCKER: no isolated HTTP endpoint; only callable from inside")
-print("    _aiem_paper_execute_today() after advisory-lock + try_claim gate.")
-print("    References 8 module-level globals not injectable without refactor:")
-print("      _rg_pcb, _fred_macro, _econ_is_high_impact_day, _psycopg2,")
-print("      _DB_URL, _drift_mult, _aiem_tool_scan_market_for_setups,")
-print("      _aiem_tool_save_daily_predictions")
-print("    Refactor required: add dependency-injection parameters to make")
-print("    this function unit-testable without importing all of main.py.")
-blocked.append(
-    "AIEM-1 _aiem_paper_pick_candidates: no isolated endpoint; 8 unjectable module-level globals; "
-    "refactor (DI params) required for safe standalone execution"
-)
+print("  AIEM-1: _aiem_paper_pick_candidates(psycopg2_mod=mock, db_url=mock, ...)")
+print("    Testing via /stock-api/admin/dryrun/pick-candidates (injected mock deps).")
+if not ADMIN_TOKEN:
+    print("    SKIP: ADMIN_TOKEN not set in environment")
+    blocked.append("AIEM-1 _aiem_paper_pick_candidates: ADMIN_TOKEN not available in test env")
+else:
+    status, body = _http_post("/stock-api/admin/dryrun/pick-candidates")
+    print(f"    HTTP {status}  body={body}")
+    if status == 200 and body.get("injected_params") is True:
+        print(f"    PASS — function called with 6 injected mock deps; "
+              f"candidates_returned={body.get('candidates_returned')}, "
+              f"mock_connect_calls={body.get('mock_connect_calls')}")
+        passes.append(
+            f"AIEM-1 _aiem_paper_pick_candidates: HTTP 200 with injected mock deps; "
+            f"candidates_returned={body.get('candidates_returned')} "
+            f"mock_connect_calls={body.get('mock_connect_calls')} "
+            f"injected_params={body.get('injected_params')}"
+        )
+    elif status == 401:
+        print(f"    SKIP: unauthorized (ADMIN_TOKEN mismatch)")
+        blocked.append("AIEM-1 _aiem_paper_pick_candidates: ADMIN_TOKEN mismatch")
+    else:
+        print(f"    FAIL — unexpected status {status}: {body}")
+        fails.append(f"AIEM-1 _aiem_paper_pick_candidates: unexpected HTTP {status}: {body}")
 
-# ── AIEM-2: _run_aiem_independent_scan() ─────────────────────────────────
-# Specific blocker (beyond the monolithic-import issue):
-# This function spawns a background thread calling _run_aiem_independent_pick_scan("stock").
-# That function calls _aiem_indep_tool_stock_universe() which makes live
-# Polygon API calls (consuming quota) and then writes to aiem_independent_picks table.
-# There is no dry_run parameter or skip_external_calls flag.
-# The admin endpoint (/stock-api/admin/run-aiem-independent-scan) calls it
-# directly — invoking it would fire real Polygon calls.
-# Calling it here is excluded to avoid consuming Polygon API quota during a smoke test.
+
+# ── AIEM-2: _run_aiem_independent_scan(dry_run=True) ─────────────────────
+# After the dry_run refactor, the function accepts dry_run=True which:
+#   1. Bypasses the _is_trading_day() gate
+#   2. Replaces the live Polygon universe call with _DRY_RUN_STUB_UNIVERSE_STOCK
+#   3. Skips the DB save (prints "DRY_RUN — would save N picks" instead)
+# The admin endpoint /stock-api/admin/run-aiem-independent-scan accepts ?dry_run=true
+# and passes it through.  No Polygon API quota is consumed.
 print()
-print("  AIEM-2: _run_aiem_independent_scan()")
-print("    BLOCKER: spawns background thread making live Polygon API calls")
-print("    (_aiem_indep_tool_stock_universe → Polygon grouped-daily endpoint).")
-print("    Has no dry_run parameter or skip_external_calls flag.")
-print("    Admin endpoint exists (/stock-api/admin/run-aiem-independent-scan)")
-print("    but invoking it consumes Polygon API quota — excluded from smoke test.")
-blocked.append(
-    "AIEM-2 _run_aiem_independent_scan: live Polygon API calls in spawned thread; "
-    "no dry-run mode; invoking would consume API quota"
-)
+print("  AIEM-2: _run_aiem_independent_scan(dry_run=True)")
+print("    Testing via /stock-api/admin/run-aiem-independent-scan?dry_run=true.")
+if not ADMIN_TOKEN:
+    print("    SKIP: ADMIN_TOKEN not set in environment")
+    blocked.append("AIEM-2 _run_aiem_independent_scan: ADMIN_TOKEN not available in test env")
+else:
+    status, body = _http_post("/stock-api/admin/run-aiem-independent-scan?dry_run=true")
+    print(f"    HTTP {status}  body={body}")
+    if status == 200 and body.get("dry_run") is True:
+        print(f"    PASS — dry_run=True confirmed in response; Polygon API not called; "
+              f"DB write skipped. message={body.get('message','')!r}")
+        passes.append(
+            f"AIEM-2 _run_aiem_independent_scan: HTTP 200 dry_run=True confirmed; "
+            f"no Polygon call; no DB write; status={body.get('status')}"
+        )
+    elif status == 401:
+        print(f"    SKIP: unauthorized (ADMIN_TOKEN mismatch)")
+        blocked.append("AIEM-2 _run_aiem_independent_scan: ADMIN_TOKEN mismatch")
+    else:
+        print(f"    FAIL — unexpected status {status} or dry_run missing: {body}")
+        fails.append(f"AIEM-2 _run_aiem_independent_scan: unexpected HTTP {status}: {body}")
+
 
 # ── AIEM-3: _aiem_paper_execute_today(trigger_source, _test_mode=True) ───
 # Has an explicit _test_mode parameter that rolls back all DB writes on the

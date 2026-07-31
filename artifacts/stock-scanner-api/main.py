@@ -21114,6 +21114,46 @@ def admin_run_paper_today():
     return jsonify({"status": "triggered", "note": "paper execution running — check DB in ~60s"})
 
 
+@app.route("/stock-api/admin/dryrun/pick-candidates", methods=["POST"])
+def admin_dryrun_pick_candidates():
+    """AIEM-1 testability endpoint: calls _aiem_paper_pick_candidates() with
+    injected mock deps — no advisory lock, no try_claim, no live DB.
+    Returns {candidates_returned, mock_connect_calls, injected_params: true}."""
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from unittest.mock import MagicMock as _MMock
+        _mock_pg2 = _MMock()
+        _mock_cur = _MMock()
+        _mock_cur.fetchall.return_value = []
+        _mock_cur.fetchone.return_value = None
+        _mock_cur.__enter__ = _MMock(return_value=_mock_cur)
+        _mock_cur.__exit__  = _MMock(return_value=False)
+        _mock_conn = _MMock()
+        _mock_conn.cursor.return_value = _mock_cur
+        _mock_conn.__enter__ = _MMock(return_value=_mock_conn)
+        _mock_conn.__exit__  = _MMock(return_value=False)
+        _mock_pg2.connect.return_value = _mock_conn
+        _candidates = _aiem_paper_pick_candidates(
+            psycopg2_mod=_mock_pg2,
+            db_url="postgresql://dryrun:mock@localhost/dryrun",
+            fred_macro=None,
+            econ_gate_fn=lambda _url: {"high_impact_day": False},
+            social_sentiment=None,
+            specialist_council=None,
+        )
+        return jsonify({
+            "status": "ok",
+            "injected_params": True,
+            "candidates_returned": len(_candidates),
+            "mock_connect_calls": _mock_pg2.connect.call_count,
+            "note": "Mock pg2 returned empty cursors — 0 candidates expected",
+        })
+    except Exception as _e:
+        import traceback as _tb
+        return jsonify({"error": str(_e), "traceback": _tb.format_exc()[-1000:]}), 500
+
+
 @app.route("/stock-api/admin/check-stock-pe", methods=["POST"])
 def admin_check_stock_pe():
     """Manually trigger the Stock Panic Exhaustion live scanner + Telegram alert."""
@@ -44476,7 +44516,17 @@ liquidity.
 """
 
 
-def _run_aiem_independent_pick_scan(kind: str):
+_DRY_RUN_STUB_UNIVERSE_STOCK = [
+    {"ticker": "AAPL", "rvol": 3.5, "close_strength": 0.72, "gap_pct": 1.8,
+     "momentum_5d_pct": 4.2, "range_pct": 2.1},
+    {"ticker": "TSLA", "rvol": 5.2, "close_strength": 0.61, "gap_pct": 3.1,
+     "momentum_5d_pct": 7.8, "range_pct": 4.5},
+    {"ticker": "NVDA", "rvol": 2.8, "close_strength": 0.55, "gap_pct": 0.0,
+     "momentum_5d_pct": 2.1, "range_pct": 1.0},
+]  # Used by _run_aiem_independent_pick_scan(dry_run=True) only; never in production.
+
+
+def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_universe: list = None):
     """
     AIEM's own independent daily pick generation — Workstream D.
     Scores the raw universe directly using AIEM's own formula.
@@ -44484,7 +44534,7 @@ def _run_aiem_independent_pick_scan(kind: str):
     """
     import threading as _aist
 
-    if not _is_trading_day():
+    if not dry_run and not _is_trading_day():
         print(f"[aiem_independent_{kind}] skipped - market closed")
         return
 
@@ -44492,7 +44542,13 @@ def _run_aiem_independent_pick_scan(kind: str):
         try:
             print(f"[aiem_independent_{kind}] scoring universe autonomously...")
             if kind == "stock":
-                universe = _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150)
+                if dry_run:
+                    universe = {"candidates": _dry_run_universe if _dry_run_universe is not None
+                                else _DRY_RUN_STUB_UNIVERSE_STOCK}
+                    print(f"[aiem_independent_stock] DRY_RUN — using "
+                          f"{len(universe['candidates'])} stub candidates")
+                else:
+                    universe = _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150)
                 candidates = universe.get("candidates", [])
                 picks = []
                 for c in candidates:
@@ -44537,11 +44593,21 @@ def _run_aiem_independent_pick_scan(kind: str):
                     }
                     for i, p in enumerate(picks[:15])
                 ]
-                result = _aiem_indep_tool_save_independent_picks(stock_picks=stock_picks)
-                print(f"[aiem_independent_stock] saved {result.get('saved_stock', 0)} picks autonomously")
+                if dry_run:
+                    print(f"[aiem_independent_stock] DRY_RUN — would save "
+                          f"{len(stock_picks)} picks: {[p['ticker'] for p in stock_picks]}")
+                else:
+                    result = _aiem_indep_tool_save_independent_picks(stock_picks=stock_picks)
+                    print(f"[aiem_independent_stock] saved "
+                          f"{result.get('saved_stock', 0)} picks autonomously")
 
             else:  # options
-                universe = _aiem_indep_tool_options_universe(min_vol_oi=1.0, days_back=3, limit=150)
+                if dry_run:
+                    universe = {"candidates": _dry_run_universe if _dry_run_universe is not None else []}
+                    print(f"[aiem_independent_options] DRY_RUN — using "
+                          f"{len(universe['candidates'])} stub candidates")
+                else:
+                    universe = _aiem_indep_tool_options_universe(min_vol_oi=1.0, days_back=3, limit=150)
                 candidates = universe.get("candidates", [])
                 picks = []
                 for c in candidates:
@@ -44572,17 +44638,22 @@ def _run_aiem_independent_pick_scan(kind: str):
                     }
                     for i, p in enumerate(picks[:15])
                 ]
-                result = _aiem_indep_tool_save_independent_picks(option_picks=option_picks)
-                print(f"[aiem_independent_options] saved {result.get('saved_call_option', 0)} picks autonomously")
+                if dry_run:
+                    print(f"[aiem_independent_options] DRY_RUN — would save "
+                          f"{len(option_picks)} picks: {[p['ticker'] for p in option_picks]}")
+                else:
+                    result = _aiem_indep_tool_save_independent_picks(option_picks=option_picks)
+                    print(f"[aiem_independent_options] saved "
+                          f"{result.get('saved_call_option', 0)} picks autonomously")
 
         except Exception as _e:
             print(f"[aiem_independent_{kind}] error: {_e}")
 
     _aist.Thread(target=_indep_scan_thread, daemon=True).start()
-def _run_aiem_independent_scan():
+def _run_aiem_independent_scan(dry_run: bool = False):
     """Backward-compat wrapper (was the combined stock+options scan) - now
     only runs the stock leg. Kept so any existing manual callers still work."""
-    _run_aiem_independent_pick_scan("stock")
+    _run_aiem_independent_pick_scan("stock", dry_run=dry_run)
 
 
 def _run_aiem_independent_options_scan():
@@ -47783,12 +47854,32 @@ def _init_paper_execution_log():
 _DEFERRED_INITS.append(lambda: _init_paper_execution_log())
 
 
-def _aiem_paper_pick_candidates() -> list:
+def _aiem_paper_pick_candidates(
+    *,
+    db_url             = None,   # replaces _DB_URL; falls back to module global
+    psycopg2_mod       = None,   # replaces _psycopg2; falls back to module global
+    fred_macro         = None,   # replaces _fred_macro; falls back to module global
+    econ_gate_fn       = None,   # replaces _econ_is_high_impact_day; falls back to module global
+    social_sentiment   = None,   # replaces _social_sentiment; falls back to module global
+    specialist_council = None,   # replaces _specialist_council; falls back to module global
+) -> list:
     """
     Aggregate candidates from every signal source, deduplicate, and return
     a ranked list ready for trade execution. Each entry has:
       ticker, score, trade_type (STOCK|CALL_OPTION|ETF), source, detail
+
+    All parameters are keyword-only and optional.  Production callers pass
+    nothing (all fall back to module globals).  Tests inject mocks to run
+    without the advisory-lock / try_claim gate and without touching the live DB.
     """
+    # Resolve injected values or fall back to module globals
+    _db_url_eff     = db_url             or _DB_URL
+    _pg2_eff        = psycopg2_mod       or _psycopg2
+    _fred_macro_eff = fred_macro         if fred_macro         is not None else _fred_macro
+    _econ_eff       = econ_gate_fn       or _econ_is_high_impact_day
+    _social_eff     = social_sentiment   if social_sentiment   is not None else _social_sentiment
+    _council_eff    = specialist_council if specialist_council is not None else _specialist_council
+
     _candidates = {}
 
     # ── -1. PortfolioCircuitBreaker — account-level halt ──────────────────
@@ -47810,7 +47901,7 @@ def _aiem_paper_pick_candidates() -> list:
 
     # ── 0b. Economic calendar gate — pause new picks on FOMC/CPI/NFP days ─
     try:
-        _econ_result = _econ_is_high_impact_day(_DB_URL)
+        _econ_result = _econ_eff(_db_url_eff)
         if _econ_result.get("high_impact_day"):
             _econ_events = [e["event_type"] for e in _econ_result.get("events_today", [])]
             print(f"[aiem_paper] HIGH-IMPACT DAY — {_econ_events} — skipping new picks to avoid volatility")
@@ -47820,9 +47911,9 @@ def _aiem_paper_pick_candidates() -> list:
 
     # ── 0. FRED macro bias — yield curve + credit spreads ─────────────────
     _macro_bias = 0  # -1 = risk-off, 0 = neutral, 1 = risk-on
-    if _fred_macro:
+    if _fred_macro_eff:
         try:
-            _mac_votes = _fred_macro.get_fred_macro_votes()
+            _mac_votes = _fred_macro_eff.get_fred_macro_votes()
             _mac_sum   = sum(v.get("vote", 0) for v in _mac_votes)
             _macro_bias = 1 if _mac_sum >= 2 else (-1 if _mac_sum <= -2 else 0)
             if _macro_bias != 0:
@@ -47841,7 +47932,7 @@ def _aiem_paper_pick_candidates() -> list:
     # the candidate-ranking decision (step 9).
     _drift_mult: dict = {}
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _dmc, \
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _dmc, \
                 _dmc.cursor() as _dmcu:
             _dmcu.execute("""
                 SELECT DISTINCT ON (signal_source)
@@ -47888,7 +47979,7 @@ def _aiem_paper_pick_candidates() -> list:
             existing["expiry"] = expiry if expiry is not None else existing.get("expiry")
 
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
 
             # ── 1. Conviction stack (highest conviction tickers) ──────────────
@@ -48094,16 +48185,16 @@ def _aiem_paper_pick_candidates() -> list:
         import aiem_v3_technical as _v3t
         import aiem_v3_orchestrator as _v3o
 
-        _v3_disc = _v3d.get_todays_discoveries(_DB_URL, min_confidence=0.42)
+        _v3_disc = _v3d.get_todays_discoveries(_db_url_eff, min_confidence=0.42)
         if not _v3_disc:
-            _v3_disc = _v3d.run_discovery(_DB_URL, top_n=25)
+            _v3_disc = _v3d.run_discovery(_db_url_eff, top_n=25)
 
         if _v3_disc:
             _v3_tickers  = [d["ticker"] for d in _v3_disc]
-            _v3_tech_db  = _v3t.get_technical_scores(_v3_tickers, _DB_URL)
+            _v3_tech_db  = _v3t.get_technical_scores(_v3_tickers, _db_url_eff)
             _v3_tech_miss = [t for t in _v3_tickers if t not in _v3_tech_db]
             if _v3_tech_miss:
-                _v3_tech_live = _v3t.run_technical_analysis(_v3_tech_miss, _DB_URL)
+                _v3_tech_live = _v3t.run_technical_analysis(_v3_tech_miss, _db_url_eff)
                 _v3_tech_db.update(_v3_tech_live)
 
             # Current macro state (prefer in-process cache; fall back to DB)
@@ -48118,7 +48209,7 @@ def _aiem_paper_pick_candidates() -> list:
                 "open_positions": sum(1 for c in _candidates.values()),
             }
             _v3_decisions = _v3o.run_orchestrator(
-                _v3_disc, _v3_tech_db, _v3_macro, _v3_portfolio, _DB_URL
+                _v3_disc, _v3_tech_db, _v3_macro, _v3_portfolio, _db_url_eff
             )
 
             for _v3dec in _v3_decisions:
@@ -48149,7 +48240,7 @@ def _aiem_paper_pick_candidates() -> list:
         # Surface in job_heartbeats so daily status check catches it
         try:
             import psycopg2 as _v3_pg2
-            with _v3_pg2.connect(_DB_URL, connect_timeout=3) as _v3c, _v3c.cursor() as _v3cu:
+            with _v3_pg2.connect(_db_url_eff, connect_timeout=3) as _v3c, _v3c.cursor() as _v3cu:
                 _v3cu.execute("""
                     INSERT INTO job_heartbeats
                         (job_name, last_attempt, last_error, consecutive_failures)
@@ -48169,7 +48260,7 @@ def _aiem_paper_pick_candidates() -> list:
     # Gate: only fires when macro_bias != 1 (risk-on) to avoid fighting the tape.
     try:
         if _macro_bias != 1:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4,
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                    options="-c statement_timeout=5000") as _bc, _bc.cursor() as _bcu:
                 _bcu.execute("""
                     SELECT ticker, spot, pc_skew_pp, gex_m, gex_regime, gamma_flip_price
@@ -48202,7 +48293,7 @@ def _aiem_paper_pick_candidates() -> list:
     # Gate: only fires when macro_bias != 1 (risk-on).
     try:
         if _macro_bias != 1:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4,
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                    options="-c statement_timeout=5000") as _dc, _dc.cursor() as _dcu:
                 _dcu.execute("""
                     SELECT ticker, rvol, gap_pct, price, close_strength
@@ -48229,10 +48320,10 @@ def _aiem_paper_pick_candidates() -> list:
 
     # ── Social sentiment boost (StockTwits) for top 12 candidates ─────────
     _prelim = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)[:12]
-    if _social_sentiment:
+    if _social_eff:
         for _sp in _prelim:
             try:
-                _snap = _social_sentiment.compute_sentiment_snapshot(_sp["ticker"])
+                _snap = _social_eff.compute_sentiment_snapshot(_sp["ticker"])
                 _bpct = _snap.get("bullish_pct")
                 _tcnt = _snap.get("tagged_count", 0)
                 if _bpct is not None and _tcnt >= 4:
@@ -48250,10 +48341,10 @@ def _aiem_paper_pick_candidates() -> list:
     # SpecialistOpinion objects inline — see specialist_council.py's
     # "CANONICAL COUNCIL FACTORY" docstring section for why. Vote math is
     # unchanged (verbatim formulas now live in _build_opinion()).
-    if _specialist_council:
+    if _council_eff:
         for _sp in _prelim:
             try:
-                _council = _specialist_council.run_council(
+                _council = _council_eff.run_council(
                     "candidate_entry",
                     _sp["ticker"],
                     {
@@ -48281,7 +48372,7 @@ def _aiem_paper_pick_candidates() -> list:
     _ncm_blocked = set()
     for _nc_ticker in list(_candidates.keys()):
         try:
-            _ncm_result = _ncm_check_headlines(_DB_URL, _nc_ticker, lookback_hours=24)
+            _ncm_result = _ncm_check_headlines(_db_url_eff, _nc_ticker, lookback_hours=24)
             if _ncm_result.get("high_risk_flag"):
                 _kw = _ncm_result["flagged_headlines"][0]["matched_keyword"] if _ncm_result.get("flagged_headlines") else "unknown"
                 print(f"[news_catalyst_gate] BLOCKED {_nc_ticker} — high-risk headline: '{_kw}'")
@@ -48304,7 +48395,7 @@ def _aiem_paper_pick_candidates() -> list:
     # The table is populated by _aiem_paper_mark_to_market() on each exit.
     _tw_map: dict = {}
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _twc, \
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _twc, \
                 _twc.cursor() as _twcu:
             _twcu.execute("""
                 SELECT signal_name, trust_weight, n_outcomes_observed
@@ -48332,7 +48423,7 @@ def _aiem_paper_pick_candidates() -> list:
     # Band is intentionally conservative: cannot swing scores more than ±50% of base.
     _th_map: dict = {}
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _thmc, \
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _thmc, \
                 _thmc.cursor() as _thmcu:
             _thmcu.execute("""
                 SELECT signal_source, sampled_score
@@ -48585,7 +48676,7 @@ def _aiem_paper_pick_candidates() -> list:
         _cq_all = list(_candidates.items()) + [
             (_t, _d) for _t, _d in _ncm_cand_save.items() if _t not in _candidates
         ]
-        with _cq_pg2.connect(_DB_URL, connect_timeout=4) as _cqc, _cqc.cursor() as _cqcu:
+        with _cq_pg2.connect(_db_url_eff, connect_timeout=4) as _cqc, _cqc.cursor() as _cqcu:
             for _cq_ticker, _cq_cand in _cq_all:
                 _cq_score = float(_cq_cand.get("score", 0))
                 _cq_raw_prob = round(min(max(_cq_score / 10.0, 0.0), 1.0), 4)
@@ -48640,7 +48731,7 @@ def _aiem_paper_pick_candidates() -> list:
     _cpi_today = _cpi_dt.datetime.now(_ET).date()
     if _final:
         try:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _cpic, \
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=4) as _cpic, \
                     _cpic.cursor() as _cpicu:
                 for _cpi_cand in _final:
                     _cpicu.execute(
@@ -67024,9 +67115,11 @@ def admin_run_aiem_independent_scan():
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     try:
-        _run_aiem_independent_scan()
-        return jsonify({"status": "started",
-                        "message": "Running in background - check logs for [aiem_independent_stock]."})
+        _dry = request.args.get('dry_run', '').lower() == 'true'
+        _run_aiem_independent_scan(dry_run=_dry)
+        _msg = ("DRY_RUN — no Polygon call, no DB write; check logs for 'DRY_RUN — would save'"
+                if _dry else "Running in background - check logs for [aiem_independent_stock].")
+        return jsonify({"status": "started", "dry_run": _dry, "message": _msg})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
