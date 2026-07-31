@@ -1,0 +1,40 @@
+# Directive: Full Morning Live Verification — 2026-07-31
+
+Purpose: first real morning with all new monitoring live AND unattended. Verify both trading systems executed correctly AND every new safety mechanism actually worked in real conditions — not forced tests.
+
+## Part A — Did AIEM actually trade?
+- Confirm scheduled_942 cron fired on time, not via fallback/watchdog/manual.
+- Show candidate intake → run_full_cycle() completion — raw row, not narrative.
+- If picks_count>0: show the actual trade record (oe_shadow_positions or equivalent).
+- If zero trades: show why — real gate rejections vs a failure. State plainly which.
+
+## Part B — Did the Options Engine actually trade?
+- Confirm the pipeline run fired at its scheduled time (~9:40-9:45 ET), status did NOT get stuck at SCHEDULED/NULL.
+- Show daily_pipeline_runs row for today — status, candidates, timestamps.
+- If zero trades: same requirement — real gate rejections vs failure, stated plainly.
+
+## Part C — Did the misfire catch-up actually fire (if needed)?
+- If no misfire occurred: state that plainly, nothing to prove.
+- If a job WAS stuck today: show the catch-up trigger firing live and the job completing as a result — this is the piece that has never been proven live, only tested early/pre-window.
+
+## Part D — Did morning_diagnostic.py run and report correctly?
+- Pull today's actual 10:00 AM ET run output — raw, not summarized.
+- Confirm: all 4 checks (schedule integrity, commit drift, API canary, classification sweep) reported real live status, not test/forced values.
+- If anything shows FAIL: that's today's real root cause — state it plainly, don't reframe as expected/acceptable.
+
+## Part E — Did the individual mechanisms fire correctly?
+- _schedule_integrity_check: confirm it ran on its 15-min cycle today, pull any alerts fired.
+- _polygon_canary_check: confirm both 07:45 and 09:30 ET runs happened, pull results.
+- classification_integrity_sweep: confirm it ran, 0 misclassified expected — confirm.
+
+## Part F — Regression checks tied to known prior bugs
+- Confirm the running scheduler process's loaded commit hash == current git HEAD (not just "commit drift reported clean" — paste both hashes). This is the exact stale-code bug that caused run id=216's mislabeling on Jul 30.
+- If any Options Engine job was gate-rejected today: confirm it's logged as NO_TRADE_GATES, not FAILED. State explicitly — this is the status this stale-code bug broke last time.
+- Reconcile seeded candidate count vs the count actually shown/evaluated downstream (the 5→4 unexplained drop seen in run id=216). If they don't match, say so plainly.
+- For AIEM: confirm Stage 11 (aiem_v3_discovery) actually produced candidates today, or state the specific non-error reason if it produced zero — this stage previously failed silently via a swallowed exception.
+
+## Standing requirement
+Raw query/log output only, timestamped today (2026-07-31). No "this was proven correct on a past test" as a substitute — today's live behavior only. If ANY part shows an unexpected result, state it directly and do not soften or reframe it as fine.
+
+## Why this matters
+This is the first morning everything built over the past few days runs together, unattended, live. This is the actual test of whether today's problem is solved — not another forced/simulated proof.
