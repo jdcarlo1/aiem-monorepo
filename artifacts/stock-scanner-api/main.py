@@ -44562,7 +44562,7 @@ def _run_aiem_independent_options_scan():
     _run_aiem_independent_pick_scan("options")
 
 
-def _run_aiem_morning_scan_CI_BREAK():
+def _run_aiem_morning_scan():
     """
     Daily forward-looking scan. Runs 9:05 AM ET Mon-Fri.
     Scanner data flows directly to AIEM — scored by AIEM's own formula,
