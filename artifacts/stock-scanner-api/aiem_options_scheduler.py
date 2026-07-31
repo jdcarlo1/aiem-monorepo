@@ -3418,7 +3418,7 @@ def _polygon_canary_check(force_fail: bool = False) -> dict:
 # GRADE OUTCOMES (4:46 PM job — stages 9-10)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def grade_outcomes_job_CI_BREAK() -> dict:
+def grade_outcomes_job() -> dict:
     try:
         import aiem_options_pipeline as _pipe
         result = _pipe.grade_options_outcomes(days_back=30)
