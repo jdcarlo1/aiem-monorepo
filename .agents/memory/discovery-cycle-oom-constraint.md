@@ -21,6 +21,13 @@ The AIEM discovery cycle with `_TRAIN_START="2024-07-22"` through today (~3M row
 ## Critical governance rule
 Never commit reduced/hardcoded date-window constants without Joel's explicit approval. A hardcoded past `_TEST_END` is a functional regression (OOS validation permanently stale), not a memory fix. `_TEST_END` must always be a rolling expression (`_de_dt.date.today().isoformat()`), not a literal string.
 
+## Fix implemented (2026-07-31)
+**Subprocess isolation** — `_discovery_cycle_job` in main.py now spawns `run_discovery_cycle_subprocess.py` as a child process instead of calling `run_cycle()` inline. The child owns all memory-heavy work (run_cycle + run_tiered_wl_cycle); the parent reads the result from `/tmp/dc_result_{run_id}.json` and runs M3–M7 (lightweight). If the child OOMs, the kernel kills it; Flask is unaffected. Dev restart confirmed clean load.
+
+**What still runs in parent (main.py):** Module 2 Thompson ranking (DB query, no row data), M3 SGD update, M4 adversarial critique, M5 promotion check, M7 feedback loop, discovery_cycle_log update, Telegram M8 alerts.
+
+**What runs in subprocess:** `run_cycle()` (loads train+test universes), `run_tiered_wl_cycle()`.
+
 ## Verified
 2026-07-25: admin-trigger with full constants → crash after 6min. Standalone 6-month split → 47.11s, total_templates=10, clean completion.
-2026-07-25: Unauthorized constants reverted. Current production: `_TRAIN_START="2024-07-22"`, `_TEST_END` rolling. verify script PASS=19 FAIL=0 (SHA=e856ad7f). Full-window cron run Monday 17:30 ET is expected to OOM unless Option B backfill runs first or Joel approves a reduced window.
+2026-07-31: Production OOM crash confirmed (RSS 2640MB, vm_pressure=93.3% at 21:31 UTC). Subprocess fix deployed to dev — stock-api restarted cleanly, no errors.

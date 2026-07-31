@@ -3140,38 +3140,97 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
     except Exception as _e:
         print(f"[discovery_cycle] log insert error: {_e}")
 
-    # ── Run the discovery engine (with Module 2 template ranking) ───────────
+    # ── Run the discovery engine in a memory-isolated subprocess ────────────
+    # run_cycle() loads 1.3M+ rows into Python dicts, spiking process memory
+    # by ~1.2 GB.  Running it in a child process means an OOM kill takes out
+    # only the child — the Flask server (parent) stays alive.
+    # Module 3–7 post-processing is lightweight (DB queries on small result
+    # dicts) and runs in the parent after the subprocess exits.
     result    = {}
     error_msg = None
+    _dc_tmpl_file   = f"/tmp/dc_templates_{run_id}.json"
+    _dc_result_file = f"/tmp/dc_result_{run_id}.json"
     try:
         import aiem_discovery_engine as _de
-        # Module 2: Thompson-rank the template pool before handing to run_cycle
+        import subprocess as _dc_sp
+        import json as _dc_json
+
+        # Module 2: Thompson-rank the template pool (lightweight — DB query only,
+        # no row data loaded here).
         _dc_all_templates = list(_de._HYPOTHESIS_TEMPLATES)
         _dc_ranked        = _dc_module2_rank_templates(_dc_all_templates)
-        result = _de.get_discovery_engine().run_cycle(templates=_dc_ranked)
+
+        # Serialize ranked templates for the subprocess to read
+        with open(_dc_tmpl_file, "w") as _dc_f:
+            _dc_json.dump(_dc_ranked, _dc_f, default=str)
+
+        # Spawn the isolated subprocess — inherits DATABASE_URL and all env vars
+        _dc_script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "run_discovery_cycle_subprocess.py",
+        )
+        print(f"[discovery_cycle] spawning subprocess run_id={run_id}")
+        _dc_proc = _dc_sp.Popen(
+            [sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
+            stdout=_dc_sp.PIPE,
+            stderr=_dc_sp.STDOUT,
+        )
+        try:
+            _dc_stdout, _ = _dc_proc.communicate(timeout=900)  # 15-min ceiling
+        except _dc_sp.TimeoutExpired:
+            _dc_proc.kill()
+            _dc_proc.communicate()
+            raise RuntimeError("discovery subprocess timed out after 900s")
+
+        # Surface subprocess stdout into our own log stream
+        _dc_child_log = (_dc_stdout or b"").decode(errors="replace")
+        for _dc_line in _dc_child_log.splitlines():
+            if _dc_line.strip():
+                print(f"[discovery_cycle][child] {_dc_line}")
+
+        if _dc_proc.returncode not in (0, 1):
+            # returncode -9 / 137 = OOM kill; let this surface as an error so
+            # discovery_cycle_log records the failure without taking down Flask.
+            raise RuntimeError(
+                f"discovery subprocess killed (exit {_dc_proc.returncode}) — "
+                f"likely OOM"
+            )
+
+        # Read result written by the subprocess
+        if not os.path.exists(_dc_result_file):
+            raise RuntimeError(
+                f"discovery subprocess exited {_dc_proc.returncode} "
+                f"but wrote no result file"
+            )
+        with open(_dc_result_file) as _dc_rf:
+            _dc_sub_out = _dc_json.load(_dc_rf)
+
+        result      = _dc_sub_out.get("cycle", {})
+        _dc_wl_res  = _dc_sub_out.get("wl", {})
+        print(f"[discovery_cycle] WL cycle: {_dc_wl_res}")
+
         # Part 2 silent-failure fix: surface early-return "aborted_no_data"
-        # status so discovery_cycle_log.error_msg is never silently NULL when
-        # the engine aborted before running any templates.  A clean zero-result
-        # run has run_status="completed" and error_msg=NULL — distinguishable.
         if result.get("run_status") == "aborted_no_data":
             error_msg = result.get("error", "no backtest data loaded")
-        print(f"[discovery_cycle] run_id={run_id} done — "
-              f"proposed={result.get('proposed',0)} "
-              f"rejected={result.get('rejected',0)} "
-              f"total={result.get('total_templates',0)} "
-              f"status={result.get('run_status','completed')}")
+        print(
+            f"[discovery_cycle] run_id={run_id} done — "
+            f"proposed={result.get('proposed', 0)} "
+            f"rejected={result.get('rejected', 0)} "
+            f"total={result.get('total_templates', 0)} "
+            f"status={result.get('run_status', 'completed')}"
+        )
+
     except Exception as _e:
         error_msg = str(_e)
         print(f"[discovery_cycle] run_id={run_id} engine error: {_e}")
-
-    # WL cycle: per-tier win/loss indicator testing against labeled mover data
-    # Runs after run_cycle() so the two sub-cycles share the same scheduler slot.
-    # Non-fatal: WL failure never blocks Module 3 SGD or Module 4 critique.
-    try:
-        _wl_result = _de.get_discovery_engine().run_tiered_wl_cycle()
-        print(f"[discovery_cycle] WL cycle: {_wl_result}")
-    except Exception as _wl_e:
-        print(f"[discovery_cycle] WL cycle error (non-fatal): {_wl_e}")
+    finally:
+        # Clean up temp files regardless of outcome
+        for _dc_tf in [_dc_tmpl_file, _dc_result_file]:
+            try:
+                if os.path.exists(_dc_tf):
+                    os.unlink(_dc_tf)
+            except Exception:
+                pass
 
     # Module 3: SGD weight update from this cycle's OOS results
     if result and not error_msg:
