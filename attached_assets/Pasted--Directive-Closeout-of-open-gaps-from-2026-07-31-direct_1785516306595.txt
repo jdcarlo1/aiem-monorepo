@@ -1,0 +1,23 @@
+# Directive — Closeout of open gaps from 2026-07-31 directive
+
+Standing checklist applies: raw grep/sed output, sha256 before/after every changed file, no paraphrase, Data Immutability Rule. PASS only if fully closed — otherwise state PARTIAL/OPEN plainly.
+
+## Item B — Missing sha256 evidence
+Provide sha256 before/after for the file changed in the independent_scan fix. Not paraphrased, not "already sent" — paste both hashes and the file path in this response.
+
+## Item E — Redo: this was not answered
+You reported job_heartbeats only stores current state, so you could not prove the race theory across full history. Do this instead:
+1. `grep -n` (or DB query) for any table that logs individual job run attempts (not just current state) — job execution logs, cron logs, application logs, anything. State plainly if none exists.
+2. If no attempt-log table exists: state that as the root gap — recommend building one now (job_name, attempt_time, status, error) so this question is answerable going forward. Do not re-attempt the correlation without it.
+3. Separately: last_success for independent_scan now shows 2026-07-30 (yesterday) succeeded, contradicting the original directive's premise that this job had never succeeded. Explain why — did Item B's fix change this, and when did the first success actually occur? Show the raw evidence (deploy timestamp vs first success timestamp).
+
+## Item A.4 — Startup self-check not shown as built
+The directive required: at scheduler startup, verify every registered job's target name resolves in `globals()` before accepting fires; if not, log CRITICAL and block that job's registration. This must run at actual runtime startup, not just in CI.
+1. Build this in BOTH systems (AIEM main.py/stock-api scheduler startup, and aiem_options_scheduler.py startup).
+2. Show the code added, file+line, for each system.
+3. Prove it works: force one job's target to not resolve, restart the scheduler, show the CRITICAL log and confirm that job's registration was blocked (not just detected). Do this separately for each system. Then revert and show clean startup.
+4. sha256 before/after for each file changed.
+
+## Item F — Two pieces missing from the smoke-test suite
+1. Core-path smoke test (F.2.c): add a stage that runs the actual trade/candidate-generation functions in dry-run/safe mode for BOTH AIEM and Options Engine, confirms no exceptions. Show it as a distinct passing check, not folded into the existing 6.
+2. Forced-failure proof must be per-system, not one combined test: break something in AIEM on purpose, show CI catches it, revert, show green. Then separately break something in Options Engine on purpose, show CI catches it, revert, show green. Two separate before/after proofs.
