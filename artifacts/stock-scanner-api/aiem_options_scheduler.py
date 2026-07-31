@@ -346,6 +346,30 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
                     SET last_attempt=NOW(), last_error=%s,
                         consecutive_failures=job_heartbeats.consecutive_failures + 1
                 """, (_HEARTBEAT_JOB_NAME, error or "unknown", error or "unknown"))
+            # Append-only attempt history — mirrors the job_attempt_log pattern
+            # in main.py record_job_success/failure so OE scheduler heartbeats
+            # are also queryable across time (not just current state).
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS job_attempt_log (
+                        id           BIGSERIAL    PRIMARY KEY,
+                        job_name     VARCHAR(120) NOT NULL,
+                        attempt_time TIMESTAMP    NOT NULL DEFAULT NOW(),
+                        status       VARCHAR(20)  NOT NULL
+                                     CHECK (status IN ('success', 'failure')),
+                        error_text   TEXT
+                    )
+                """)
+                cur.execute("""
+                    INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
+                    VALUES (%s, NOW(), %s, %s)
+                """, (
+                    _HEARTBEAT_JOB_NAME,
+                    'success' if success else 'failure',
+                    None if success else (error or "unknown"),
+                ))
+            except Exception as _jal_e:
+                log.debug(f"[heartbeat] job_attempt_log write skipped: {_jal_e}")
             conn.commit()
     except Exception as e:
         log.warning(f"[heartbeat] write failed: {e}")
@@ -384,11 +408,15 @@ def _compute_chain_hash(job_id: int, ticker: str, scan_date, trace_id: str,
 # this to verify each name is still in globals() before the scheduler starts.
 # If a function is renamed/deleted, the job is removed so it cannot NameError.
 _OE_MODULE_JOB_TARGETS: dict[str, str] = {
-    "grade_outcomes":         "grade_outcomes_job",
-    "stale_recovery":         "recover_stale_jobs",
-    "sched_integrity_check":  "_schedule_integrity_check",
-    "polygon_canary_preopen": "_polygon_canary_check",
-    "polygon_canary_preseed": "_polygon_canary_check",
+    "grade_outcomes":              "grade_outcomes_job",
+    "stale_recovery":              "recover_stale_jobs",
+    "sched_integrity_check":       "_schedule_integrity_check",
+    "polygon_canary_preopen":      "_polygon_canary_check",
+    "polygon_canary_preseed":      "_polygon_canary_check",
+    # Lambda target — classification_integrity_sweep calls this function directly.
+    # Adding it here ensures the startup self-check catches a rename/deletion
+    # before the scheduler starts accepting fires.
+    "classification_integrity_sw": "_validate_and_fix_pipeline_run_classifications",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

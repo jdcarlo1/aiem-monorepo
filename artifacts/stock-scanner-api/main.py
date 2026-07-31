@@ -4506,6 +4506,25 @@ def _ensure_job_heartbeat_table():
                     consecutive_failures INTEGER DEFAULT 0
                 )
             """)
+            # job_attempt_log: append-only per-attempt history.
+            # job_heartbeats overwrites current state on every run, losing
+            # history. job_attempt_log never updates — every attempt appends
+            # a new row so failure patterns across time are preserved and
+            # queryable (answers "did this job fail on prior dates and why?").
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS job_attempt_log (
+                    id           BIGSERIAL    PRIMARY KEY,
+                    job_name     VARCHAR(120) NOT NULL,
+                    attempt_time TIMESTAMP    NOT NULL DEFAULT NOW(),
+                    status       VARCHAR(20)  NOT NULL
+                                 CHECK (status IN ('success', 'failure')),
+                    error_text   TEXT
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_jal_job_time
+                    ON job_attempt_log (job_name, attempt_time DESC)
+            """)
     except Exception as _e:
         print(f"[job_health] table init error: {_e}")
 
@@ -4523,6 +4542,11 @@ def record_job_success(job_name: str):
                 ON CONFLICT (job_name) DO UPDATE SET
                     last_success=NOW(), last_attempt=NOW(),
                     consecutive_failures=0, last_error=NULL
+            """, (job_name,))
+            # Append-only history row — never overwrites, never lost.
+            cur.execute("""
+                INSERT INTO job_attempt_log (job_name, attempt_time, status)
+                VALUES (%s, NOW(), 'success')
             """, (job_name,))
     except Exception as _e:
         print(f"[job_health] record_success error for {job_name}: {_e}")
@@ -4542,6 +4566,11 @@ def record_job_failure(job_name: str, error: str):
                     last_attempt=NOW(), last_error=%s,
                     consecutive_failures = job_heartbeats.consecutive_failures + 1
             """, (job_name, error[:1000], error[:1000]))
+            # Append-only history row — never overwrites, never lost.
+            cur.execute("""
+                INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
+                VALUES (%s, NOW(), 'failure', %s)
+            """, (job_name, error[:2000]))
     except Exception as _e:
         print(f"[job_health] record_failure error for {job_name}: {_e}")
 
