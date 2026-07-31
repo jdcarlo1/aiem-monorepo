@@ -1,3 +1,5 @@
+- [AIEM-1 DI refactor pattern](aiem1-di-refactor-pattern.md) — eff-resolution block gets hit by regex; fix circular refs after substitution; server-not-ready NameError ≠ dead-zone issue
+- [TLA self-issue audit](tla-self-issue-audit.md) — all 15 records were programmatic; TTY gate added; direct-write pattern for main.py TLAs going forward
 - [OE Dashboard Phase B normalisers](oe-dashboard-phase-b-normalisers.md) — all 6 pages + actual response shapes; /candidates route is plain array; job_heartbeats has NO status/recorded_at cols; grade_outcomes not wired to record_job_success
 - [Options scheduler hot-reload gap](options-scheduler-hot-reload.md) — scheduler never reloads code; must restart workflow after any aiem_options_scheduler.py change; _BOOT_COMMIT+/health drift fields+check_scheduler_drift.sh now detect stale processes in one query
 - [post_seal_verify PSV8 allowlist](post-seal-psv8-allowlist.md) — PSV8 SKIP for non-test-suite CMDs; WARN when non-allowlist CMD still produces SUMMARY: line; 4-counter summary (PASS/FAIL/SKIPPED/WARN); sha256=35e2aae1
