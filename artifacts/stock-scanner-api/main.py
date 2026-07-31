@@ -4730,6 +4730,63 @@ try:
         executors={"default": _APThreadPool(max_workers=4)},
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 600},
     )
+
+    # ── Late-reference guard ──────────────────────────────────────────────────
+    # When _scheduler.start() fires a job that was registered early in module
+    # load (lines ~4737-8189), the module may still be loading — functions
+    # defined after line 8189 are NOT yet in globals(). Any wrapper that calls
+    # a late-defined function via Thread(target=<name>) will hit NameError.
+    #
+    # Pattern (proven on aiem_independent_scan, 2026-07-31): wrap the Thread
+    # start with _wait_for_module_load(). This blocks the scheduler thread for
+    # at most timeout_s seconds until _MODULE_FULLY_LOADED=True (line 73174).
+    # All at-risk wrappers in this file call this before Thread.start().
+    def _wait_for_module_load(timeout_s: int = 300) -> bool:
+        """Block until _MODULE_FULLY_LOADED is set or timeout_s seconds elapse.
+        Returns True if module loaded in time, False if timed out."""
+        import time as _wfml_t
+        for _ in range(timeout_s // 10):
+            if globals().get("_MODULE_FULLY_LOADED"):
+                return True
+            _wfml_t.sleep(10)
+        print(f"[WARN] _wait_for_module_load: timed out after {timeout_s}s — "
+              f"proceeding; target function may not be in globals yet")
+        return False
+
+    # Registry: job_id → late-defined function name it references.
+    # Post-load self-check (near _MODULE_FULLY_LOADED=True) iterates this dict
+    # to verify every target resolved. A CRITICAL log line here means a new
+    # wrapper was wired without the _wait_for_module_load() guard.
+    _SCHEDULER_LATE_REFS: dict = {
+        "aiem_morning_scan":             "_run_aiem_morning_scan",
+        "aiem_independent_grade":        "_run_aiem_independent_grade",
+        "aiem_independent_scan":         "_run_aiem_independent_scan",
+        "aiem_independent_options_scan": "_run_aiem_independent_options_scan",
+        "aiem_prediction_grader":        "_run_aiem_prediction_grader",
+        "aiem_research_agent":           "_run_aiem_research_agent",
+        "aiem_continuous_research":      "_run_aiem_continuous_research",
+        "behavioral_scan":               "_run_behavioral_comparison_scan",
+        "gamma_pressure_scan":           "_run_gamma_pressure_scan",
+        "oi_snapshot_eod":               "_run_oi_snapshot",
+        "oi_snapshot_premarket":         "_run_oi_snapshot",
+        "whale_hc_crossover":            "_check_whale_hc_crossover",
+        "morning_gamma_watchlist":       "_send_morning_gamma_watchlist_sms",
+        "bigcat_gap_alert":              "_send_bigcat_gap_email",
+        "daily_price_options_alert":     "_aiem_daily_price_options_alert",
+        "same_day_alert":                "_aiem_same_day_alert",
+        "momentum_two_stage_daily":      "_scan_momentum_coil_daily",
+        "nano_morning_ranking":          "_run_nano_morning_ranking",
+        "nano_morning_outcomes":         "_run_nano_morning_outcomes",
+        "sc_morning_ranking":            "_run_sc_morning_ranking",
+        "sc_morning_outcomes":           "_run_sc_morning_outcomes",
+        "behavioral_template_rebuild":   "_rebuild_templates",
+        "signal_bridge_daily":           "_run_daily_signal_jobs",
+        "eod_accum_email":               "_send_eod_accum_email",
+        "unusual_calls_email":           "_send_unusual_calls_email",
+        "microcap_calls_email":          "_send_microcap_calls_email",
+        "hc_calls_email":                "_send_high_conviction_email",
+    }
+
     # Delay first run of all "interval" jobs by 3 min so they don't burst-compete
     # with Flask startup + health checks right after a restart or fresh deploy.
     _sched_start_delay = _dt_sched.now(_ET) + _td_sched(minutes=3)
@@ -5704,6 +5761,9 @@ try:
     def _run_momentum_two_stage():
         try:
             import threading as _thr_mts
+            # All three targets defined at lines ~66337/66380/66421 — after
+            # _scheduler.start() (line 8189). Guard required.
+            _wait_for_module_load()
             _thr_mts.Thread(target=_scan_momentum_coil_daily,     daemon=True).start()
             _thr_mts.Thread(target=_scan_momentum_breakout_daily, daemon=True).start()
             _thr_mts.Thread(target=_check_momentum_washout_complete, daemon=True).start()
@@ -6013,6 +6073,7 @@ try:
             return
         try:
             import threading as _thr_ea
+            _wait_for_module_load()  # target _send_eod_accum_email @ line ~9632
             _thr_ea.Thread(target=_send_eod_accum_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] EOD accum email error: {e}")
@@ -6047,6 +6108,7 @@ try:
             return
         try:
             import threading as _thr_uc
+            _wait_for_module_load()  # target _send_unusual_calls_email @ line ~14455
             _thr_uc.Thread(target=_send_unusual_calls_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] unusual calls email error: {e}")
@@ -6063,6 +6125,7 @@ try:
             return
         try:
             import threading as _thr_mc
+            _wait_for_module_load()  # target _send_microcap_calls_email @ line ~14613
             _thr_mc.Thread(target=_send_microcap_calls_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] microcap calls email error: {e}")
@@ -6080,6 +6143,7 @@ try:
             return
         try:
             import threading as _thr_dpa
+            _wait_for_module_load()  # target _aiem_daily_price_options_alert @ line ~15491
             _thr_dpa.Thread(target=_aiem_daily_price_options_alert, daemon=True).start()
         except Exception as _e_dpa_s:
             print(f"[scheduler] daily price+options alert error: {_e_dpa_s}")
@@ -6098,6 +6162,7 @@ try:
             return
         try:
             import threading as _thr_sda
+            _wait_for_module_load()  # target _aiem_same_day_alert @ line ~15569
             _thr_sda.Thread(target=_aiem_same_day_alert, daemon=True).start()
         except Exception as _e_sda_s:
             print(f"[scheduler] same-day alert error: {_e_sda_s}")
@@ -6114,6 +6179,7 @@ try:
             return
         try:
             import threading as _thr_hc
+            _wait_for_module_load()  # target _send_high_conviction_email @ line ~14785
             _thr_hc.Thread(target=_send_high_conviction_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] high conviction calls email error: {e}")
@@ -6268,6 +6334,7 @@ try:
     def _run_continuous_research_job():
         try:
             import threading as _crj_thr
+            _wait_for_module_load()  # target _run_aiem_continuous_research @ line ~34739
             _crj_thr.Thread(target=_run_aiem_continuous_research, daemon=True).start()
             record_job_success("aiem_continuous_research")
         except Exception as e:
@@ -6285,6 +6352,7 @@ try:
     def _run_aiem_morning_job():
         try:
             import threading as _amj_thr
+            _wait_for_module_load()  # target _run_aiem_morning_scan @ line ~44471
             _amj_thr.Thread(target=_run_aiem_morning_scan, daemon=True).start()
             record_job_success("aiem_morning_scan")
         except Exception as e:
@@ -6302,6 +6370,7 @@ try:
     def _run_aiem_independent_grade_job():
         try:
             import threading as _aigj_thr
+            _wait_for_module_load()  # target _run_aiem_independent_grade @ line ~26937
             _aigj_thr.Thread(target=_run_aiem_independent_grade, daemon=True).start()
             record_job_success("aiem_independent_grade")
         except Exception as e:
@@ -6349,6 +6418,7 @@ try:
     def _run_aiem_independent_options_scan_job():
         try:
             import threading as _aiso_thr
+            _wait_for_module_load()  # target _run_aiem_independent_options_scan @ line ~44465
             _aiso_thr.Thread(target=_run_aiem_independent_options_scan, daemon=True).start()
             record_job_success("aiem_independent_options_scan")
         except Exception as e:
@@ -6449,6 +6519,7 @@ try:
     def _run_aiem_research_job():
         try:
             import threading as _aiem_rt
+            _wait_for_module_load()  # target _run_aiem_research_agent @ line ~47178
             # Run ML retrain cycle first — train/validate/promote on settled picks
             def _retrain_then_research():
                 try:
@@ -6520,6 +6591,7 @@ try:
     def _run_beh_scan_job():
         try:
             import threading as _bst
+            _wait_for_module_load()  # target _run_behavioral_comparison_scan @ line ~38428
             _bst.Thread(target=_run_behavioral_comparison_scan, daemon=True).start()
         except Exception as _e:
             print(f"[scheduler] behavioral scan error: {_e}")
@@ -6535,8 +6607,11 @@ try:
             )
 
     # ── Template rebuild: every Sunday 5 PM ET (before retrain at 7 PM) ─
+    def _run_rebuild_templates_job():
+        _wait_for_module_load()  # target _rebuild_templates @ line ~38355
+        __import__("threading").Thread(target=_rebuild_templates, daemon=True).start()
     _scheduler.add_job(
-        lambda: __import__("threading").Thread(target=_rebuild_templates, daemon=True).start(),
+        _run_rebuild_templates_job,
         CronTrigger(day_of_week="sun", hour=17, minute=0, timezone=_ET),
         id="behavioral_template_rebuild", replace_existing=True,
     )
@@ -6841,6 +6916,7 @@ try:
             return
         try:
             import threading as _thr_mgw
+            _wait_for_module_load()  # target _send_morning_gamma_watchlist_sms @ line ~22161
             _thr_mgw.Thread(target=_send_morning_gamma_watchlist_sms, daemon=True).start()
         except Exception as _e_mgw:
             print(f"[scheduler] morning gamma watchlist error: {_e_mgw}")
@@ -6864,6 +6940,7 @@ try:
             return
         try:
             import threading as _thr_gps
+            _wait_for_module_load()  # target _run_gamma_pressure_scan @ line ~22303
             _thr_gps.Thread(target=_run_gamma_pressure_scan, daemon=True).start()
         except Exception as _e_gps:
             print(f"[scheduler] gamma pressure scan error: {_e_gps}")
@@ -6893,6 +6970,7 @@ try:
             return
         try:
             import threading as _thr_ois
+            _wait_for_module_load()  # target _run_oi_snapshot @ line ~22546
             _thr_ois.Thread(target=_run_oi_snapshot, daemon=True).start()
         except Exception as _e_ois:
             print(f"[scheduler] OI snapshot error: {_e_ois}")
@@ -6919,6 +6997,7 @@ try:
             return
         try:
             import threading as _thr_pmoi
+            _wait_for_module_load()  # target _run_oi_snapshot @ line ~22546
             _thr_pmoi.Thread(target=_run_oi_snapshot, daemon=True).start()
             print("[scheduler] pre-market OI refresh started (Barchart + Yahoo small-cap universe)")
         except Exception as _e_pmoi:
@@ -6937,6 +7016,7 @@ try:
             return
         try:
             import threading as _thr_bcg
+            _wait_for_module_load()  # target _send_bigcat_gap_email @ line ~22834
             _thr_bcg.Thread(target=_send_bigcat_gap_email, daemon=True).start()
         except Exception as _e_bcg:
             print(f"[scheduler] bigcat_gap error: {_e_bcg}")
@@ -6952,6 +7032,7 @@ try:
             return
         try:
             import threading as _thr_wh
+            _wait_for_module_load()  # target _check_whale_hc_crossover @ line ~9517
             _thr_wh.Thread(target=_check_whale_hc_crossover, daemon=True).start()
         except Exception as _e_wh:
             print(f"[scheduler] whale_hc crossover error: {_e_wh}")
@@ -7317,16 +7398,22 @@ try:
     # stealth accumulation → candidate list. The 9:35 watchlist + 9:45 buy emails
     # are fired by the owner-email scheduler (kinds nano_watch / nano_buy).
     # Stage D (16:10 ET): grade confirmed buys forward (5% stop, winners ride).
-    # Lambdas defer the name lookup (the functions are defined later, module-level)
-    # and run the heavy work on a daemon thread so the scheduler pool isn't blocked.
+    # Named wrappers with _wait_for_module_load() guard replace the original
+    # lambdas — lambdas cannot hold guard code inline.
+    def _run_nano_morning_ranking_job():
+        _wait_for_module_load()  # target _run_nano_morning_ranking @ line ~11137
+        threading.Thread(target=_run_nano_morning_ranking, daemon=True).start()
+    def _run_nano_morning_outcomes_job():
+        _wait_for_module_load()  # target _run_nano_morning_outcomes @ line ~11971
+        threading.Thread(target=_run_nano_morning_outcomes, daemon=True).start()
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_nano_morning_ranking, daemon=True).start()),
+        _run_nano_morning_ranking_job,
         CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=_ET),
         id="nano_morning_ranking",
         replace_existing=True,
     )
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_nano_morning_outcomes, daemon=True).start()),
+        _run_nano_morning_outcomes_job,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
         id="nano_morning_outcomes",
         replace_existing=True,
@@ -7339,14 +7426,20 @@ try:
     # EOD accumulation list → candidate list. The 9:37 watch + 9:47 buy emails are
     # fired by the owner-email scheduler (kinds sc_watch / sc_buy).
     # Stage D (16:12 ET): grade confirmed buys forward (5% stop, winners ride).
+    def _run_sc_morning_ranking_job():
+        _wait_for_module_load()  # target _run_sc_morning_ranking @ line ~13075
+        threading.Thread(target=_run_sc_morning_ranking, daemon=True).start()
+    def _run_sc_morning_outcomes_job():
+        _wait_for_module_load()  # target _run_sc_morning_outcomes @ line ~13768
+        threading.Thread(target=_run_sc_morning_outcomes, daemon=True).start()
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_sc_morning_ranking, daemon=True).start()),
+        _run_sc_morning_ranking_job,
         CronTrigger(day_of_week="mon-fri", hour=8, minute=15, timezone=_ET),
         id="sc_morning_ranking",
         replace_existing=True,
     )
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_sc_morning_outcomes, daemon=True).start()),
+        _run_sc_morning_outcomes_job,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=12, timezone=_ET),
         id="sc_morning_outcomes",
         replace_existing=True,
@@ -7878,6 +7971,7 @@ try:
                 return
             try:
                 import threading as _sbj
+                _wait_for_module_load()  # target _run_daily_signal_jobs @ line ~37363
                 _sbj.Thread(target=_run_daily_signal_jobs, daemon=True).start()
             except Exception as _e:
                 print(f"[scheduler] signal bridge error: {_e}")
@@ -73167,6 +73261,26 @@ def bear_flow():
 # Set AFTER all module-level definitions complete — startup_catchup waits for this flag
 # before calling _aiem_paper_execute_today so all dependencies are guaranteed to exist.
 _MODULE_FULLY_LOADED = True
+
+# ── Startup self-check: verify every scheduler late-ref resolved ───────────
+# Iterates _SCHEDULER_LATE_REFS (built during scheduler setup). Any CRITICAL
+# line here means a wrapper was wired without _wait_for_module_load(), or a
+# function was renamed/deleted without updating the registry.
+try:
+    _sched_check_missing = [
+        (job_id, fn_name)
+        for job_id, fn_name in globals().get("_SCHEDULER_LATE_REFS", {}).items()
+        if fn_name not in globals()
+    ]
+    if _sched_check_missing:
+        for _jid, _fn in _sched_check_missing:
+            print(f"[CRITICAL][startup-selfcheck] job={_jid!r} target={_fn!r} "
+                  f"NOT in globals() after full load — add _wait_for_module_load() guard")
+    else:
+        _n = len(globals().get("_SCHEDULER_LATE_REFS", {}))
+        print(f"[startup-selfcheck] all {_n} scheduler late-refs resolved OK")
+except Exception as _ssc_e:
+    print(f"[startup-selfcheck] error: {_ssc_e}")
 
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
