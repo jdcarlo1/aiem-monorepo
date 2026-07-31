@@ -38,6 +38,15 @@ REPO = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 MAIN_PY = os.path.join(REPO, "artifacts/stock-scanner-api/main.py")
 OPT_PY  = os.path.join(REPO, "artifacts/stock-scanner-api/aiem_options_scheduler.py")
 
+# ── OE module-level targets (mirrors _OE_MODULE_JOB_TARGETS in scheduler) ────
+# These are verified by Check 8 to still exist in aiem_options_scheduler.py.
+OE_MODULE_TARGET_FNS = [
+    "grade_outcomes_job",
+    "recover_stale_jobs",
+    "_schedule_integrity_check",
+    "_polygon_canary_check",
+]
+
 # ── Canonical list of late-defined targets in main.py ────────────────────────
 # A "late-defined target" is a function referenced inside a scheduler wrapper
 # that is defined AFTER _scheduler.start() (line ~8189 in the pre-fix file).
@@ -398,7 +407,35 @@ else:
         failures.append(f"CORE-PATH DRYRUN: OE function missing from AST: {f}")
 
 
-# ── Checks 6-7: Per-system forced-failure proofs (opt-in) ────────────────────
+# ── Check 8: Scheduler-target existence (AST) ─────────────────────────────────
+# Verifies that every name in LATE_REF_TARGETS still exists as a def in main.py,
+# and every function name in OE_MODULE_TARGET_FNS still exists in aiem_options_scheduler.py.
+# Catches the "rename a scheduler target" failure mode that Check 2/4 miss
+# (because those checks look at wrapper references, not function definitions).
+# This is the CI-observable equivalent of the runtime self-check's remove_job() path.
+
+aiem_missing_defs = [t for t in LATE_REF_TARGETS if t not in aiem_defined]
+oe_target_missing = [f for f in OE_MODULE_TARGET_FNS if f not in oe_defined]
+
+if not aiem_missing_defs and not oe_target_missing:
+    passes.append(
+        f"SCHEDULER TARGET EXISTENCE: all {len(LATE_REF_TARGETS)} AIEM late-ref targets + "
+        f"{len(OE_MODULE_TARGET_FNS)} OE module targets verified as defined functions via AST"
+    )
+else:
+    for t in aiem_missing_defs:
+        failures.append(
+            f"SCHEDULER TARGET MISSING IN MAIN.PY: {t} is in LATE_REF_TARGETS but "
+            f"not defined as a function — scheduler self-check would remove its job"
+        )
+    for t in oe_target_missing:
+        failures.append(
+            f"SCHEDULER TARGET MISSING IN OE: {t} is in OE_MODULE_TARGET_FNS but "
+            f"not defined as a function — scheduler self-check would remove its job"
+        )
+
+
+# ── Checks 9-10: Per-system forced-failure proofs (opt-in) ───────────────────
 if os.environ.get("SMOKE_FULL"):
 
     # Check 6: AIEM forced-failure
