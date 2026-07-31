@@ -13,13 +13,21 @@ Checks:
   3. Lambda check — no raw scheduler lambda directly references a late-def target
   4. Options Engine late-ref check — every function referenced in sched.add_job()
      is defined BEFORE sched.start()
-  5. Forced-failure proof (opt-in via SMOKE_FULL=1) — temporarily removes one
-     guard from an in-memory copy and verifies check 2 detects it
+  5. Core-path structural dryrun (F.2.c) — verify core candidate-generation
+     functions exist in both systems via AST; no execution, no side-effects
+     AIEM targets: _aiem_paper_pick_candidates, _run_aiem_independent_scan,
+                   _aiem_paper_execute_today
+     OE targets: seed_daily_candidates, run_pipeline_worker, grade_outcomes_job
+  6-7. Per-system forced-failure proofs (opt-in via SMOKE_FULL=1):
+     6 = AIEM: remove guard from an in-memory copy → check_guard_coverage detects it
+     7 = OE:   inject a missing-target into _OE_MODULE_JOB_TARGETS in-memory copy
+               → options_engine_selfcheck detects it
 
 Exit: 0 = all pass, 1 = at least one failure.
 Run: python3 tools/scheduler_smoke_test.py
-     SMOKE_FULL=1 python3 tools/scheduler_smoke_test.py  (adds forced-failure check)
+     SMOKE_FULL=1 python3 tools/scheduler_smoke_test.py  (adds forced-failure checks)
 """
+import ast
 import hashlib
 import os
 import py_compile
@@ -63,6 +71,27 @@ LATE_REF_TARGETS = [
     "_send_high_conviction_email",
 ]
 
+# ── Core candidate-generation functions verified in check 5 ─────────────────
+AIEM_CORE_FUNCTIONS = [
+    "_aiem_paper_pick_candidates",
+    "_run_aiem_independent_scan",
+    "_aiem_paper_execute_today",
+]
+OE_CORE_FUNCTIONS = [
+    "seed_daily_candidates",
+    "run_pipeline_worker",
+    "grade_outcomes_job",
+]
+
+# ── Module-level OE targets (mirrors _OE_MODULE_JOB_TARGETS in the scheduler) ─
+OE_MODULE_TARGETS = {
+    "grade_outcomes":         "grade_outcomes_job",
+    "stale_recovery":         "recover_stale_jobs",
+    "sched_integrity_check":  "_schedule_integrity_check",
+    "polygon_canary_preopen": "_polygon_canary_check",
+    "polygon_canary_preseed": "_polygon_canary_check",
+}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -84,9 +113,20 @@ def check_syntax(path: str) -> tuple[bool, str]:
 
 
 def find_scheduler_start(lines: list[str]) -> int | None:
-    """Return 1-based line number of the first sched[uler].start() call."""
+    """Return 1-based line number of the first sched[uler].start() STATEMENT.
+
+    Only matches lines where sched.start() is the actual Python statement
+    (possibly indented), not inside a comment or string literal.
+    Specifically: the line must not start with '#' after stripping whitespace,
+    and sched.start() must appear at the start of the non-whitespace content
+    (not buried inside a larger expression like a log message or docstring).
+    """
     for i, ln in enumerate(lines):
-        if re.search(r'\bsched(?:uler)?\.start\(\)', ln):
+        stripped = ln.strip()
+        if stripped.startswith("#"):
+            continue  # skip comment lines
+        # Match only when sched.start() is at the beginning of the statement
+        if re.match(r'^\s*sched(?:uler)?\.start\(\)', ln):
             return i + 1
     return None
 
@@ -183,42 +223,93 @@ def options_engine_check(path: str) -> tuple[int | None, list[tuple[str, int]]]:
     return sched_start, bad
 
 
-def forced_failure_proof() -> bool:
+def ast_defined_functions(path: str) -> set[str]:
+    """Return the set of all function names defined in the file (via AST)."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        source = f.read()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    return {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+
+
+def options_engine_selfcheck(oe_module_targets: dict[str, str],
+                              oe_defined_fns: set[str]) -> list[tuple[str, str]]:
     """
-    Prove check_guard_coverage is not a no-op by testing it against two
-    in-memory synthetic cases:
-
-      Case A — NO guard  → must be flagged as unguarded (proof of detection)
-      Case B — guard present within window → must NOT be flagged (no false-pos)
-
-    Returns True if both assertions hold (detector works correctly).
+    Simulate the OE runtime self-check: return (job_id, fn_name) pairs where
+    fn_name is NOT in the defined function set.
     """
-    fake_fn = "_run_synthetic_late_function_xyz"
+    return [
+        (jid, fn)
+        for jid, fn in oe_module_targets.items()
+        if fn not in oe_defined_fns
+    ]
 
-    # Case A: scheduler wrapper with NO _wait_for_module_load() call
+
+# ── AIEM per-system forced-failure proof ─────────────────────────────────────
+
+def aiem_forced_failure_proof() -> bool:
+    """
+    AIEM-specific forced-failure proof:
+      Case A — synthetic wrapper WITHOUT guard → check_guard_coverage detects MISSING
+      Case B — synthetic wrapper WITH guard → check_guard_coverage sees PASS
+
+    Returns True if both assertions hold (detector works correctly for AIEM).
+    """
+    fake_fn = "_run_aiem_synthetic_late_target_xyz"
+
+    # Case A: no _wait_for_module_load() guard
     unguarded_lines = [
-        "def _some_scheduler_wrapper():\n",
+        "def _run_aiem_some_scheduler_job():\n",
         "    try:\n",
         "        import threading as _t\n",
-        "        _t.Thread(target=_run_synthetic_late_function_xyz, daemon=True).start()\n",
+        "        _t.Thread(target=_run_aiem_synthetic_late_target_xyz, daemon=True).start()\n",
         "    except Exception as e:\n",
         "        print(e)\n",
     ]
     missing_a = check_guard_coverage(unguarded_lines, [fake_fn])
-    case_a_ok = fake_fn in missing_a  # must be detected as missing
+    case_a_ok = fake_fn in missing_a  # must be caught
 
-    # Case B: same wrapper WITH the guard present
+    # Case B: guard present
     guarded_lines = [
-        "def _some_scheduler_wrapper():\n",
+        "def _run_aiem_some_scheduler_job():\n",
         "    try:\n",
         "        import threading as _t\n",
-        "        _wait_for_module_load()\n",
-        "        _t.Thread(target=_run_synthetic_late_function_xyz, daemon=True).start()\n",
+        "        _wait_for_module_load()  # guard\n",
+        "        _t.Thread(target=_run_aiem_synthetic_late_target_xyz, daemon=True).start()\n",
         "    except Exception as e:\n",
         "        print(e)\n",
     ]
     missing_b = check_guard_coverage(guarded_lines, [fake_fn])
     case_b_ok = fake_fn not in missing_b  # must NOT be flagged
+
+    return case_a_ok and case_b_ok
+
+
+# ── OE per-system forced-failure proof ───────────────────────────────────────
+
+def oe_forced_failure_proof(oe_defined_fns: set[str]) -> bool:
+    """
+    OE-specific forced-failure proof:
+      Case A — _OE_MODULE_JOB_TARGETS with a non-existent function name
+               → options_engine_selfcheck detects MISSING
+      Case B — same dict with real function names → options_engine_selfcheck
+               returns empty (all verified)
+
+    Returns True if both assertions hold (detector works correctly for OE).
+    """
+    # Case A: inject a target that doesn't exist in the OE file
+    bad_targets = dict(OE_MODULE_TARGETS)
+    bad_targets["__oe_smoke_test_job__"] = "_oe_function_that_does_not_exist_xyz"
+
+    missing_a = options_engine_selfcheck(bad_targets, oe_defined_fns)
+    case_a_ok = any(fn == "_oe_function_that_does_not_exist_xyz"
+                    for _, fn in missing_a)  # must be caught
+
+    # Case B: only real targets
+    missing_b = options_engine_selfcheck(OE_MODULE_TARGETS, oe_defined_fns)
+    case_b_ok = len(missing_b) == 0  # all real targets must resolve
 
     return case_a_ok and case_b_ok
 
@@ -281,18 +372,59 @@ else:
         )
 
 
-# Check 5: Forced-failure proof (opt-in)
+# ── Check 5 (F.2.c): Core-path structural dryrun ────────────────────────────
+# Verifies the core candidate-generation functions exist in both systems using
+# AST analysis — no execution, no DB connections, no side-effects.
+# What this confirms: the functions have not been renamed, deleted, or moved to
+# a different module since the guard registry was last updated.
+# What this does NOT confirm: runtime correctness or DB query success.
+aiem_defined = ast_defined_functions(MAIN_PY)
+oe_defined   = ast_defined_functions(OPT_PY)
+
+aiem_core_missing = [f for f in AIEM_CORE_FUNCTIONS if f not in aiem_defined]
+oe_core_missing   = [f for f in OE_CORE_FUNCTIONS   if f not in oe_defined]
+
+if not aiem_core_missing and not oe_core_missing:
+    passes.append(
+        f"CORE-PATH STRUCTURAL DRYRUN: "
+        f"AIEM {len(AIEM_CORE_FUNCTIONS)} core fns + "
+        f"OE {len(OE_CORE_FUNCTIONS)} core fns verified present via AST — "
+        f"no exceptions (no execution required)"
+    )
+else:
+    for f in aiem_core_missing:
+        failures.append(f"CORE-PATH DRYRUN: AIEM function missing from AST: {f}")
+    for f in oe_core_missing:
+        failures.append(f"CORE-PATH DRYRUN: OE function missing from AST: {f}")
+
+
+# ── Checks 6-7: Per-system forced-failure proofs (opt-in) ────────────────────
 if os.environ.get("SMOKE_FULL"):
-    detected = forced_failure_proof()
-    if detected:
+
+    # Check 6: AIEM forced-failure
+    aiem_ok = aiem_forced_failure_proof()
+    if aiem_ok:
         passes.append(
-            "FORCED-FAILURE: synthetic unguarded wrapper detected; "
-            "guarded wrapper correctly passes — check_guard_coverage verified"
+            "AIEM FORCED-FAILURE: unguarded wrapper caught; guarded wrapper passes "
+            "— check_guard_coverage correctly distinguishes both cases"
         )
     else:
         failures.append(
-            "FORCED-FAILURE: check_guard_coverage failed synthetic case — "
-            "missed an unguarded wrapper or flagged a guarded one"
+            "AIEM FORCED-FAILURE: check_guard_coverage failed AIEM synthetic case "
+            "— missed unguarded wrapper or flagged guarded one"
+        )
+
+    # Check 7: OE forced-failure
+    oe_ok = oe_forced_failure_proof(oe_defined)
+    if oe_ok:
+        passes.append(
+            "OE FORCED-FAILURE: missing module-level target caught; all-real dict passes "
+            "— options_engine_selfcheck correctly distinguishes both cases"
+        )
+    else:
+        failures.append(
+            "OE FORCED-FAILURE: options_engine_selfcheck failed OE synthetic case "
+            "— missed non-existent target or flagged real one"
         )
 
 

@@ -377,6 +377,21 @@ def _compute_chain_hash(job_id: int, ticker: str, scan_date, trace_id: str,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SCHEDULER STARTUP SELF-CHECK REGISTRY
+# ─────────────────────────────────────────────────────────────────────────────
+# Maps scheduler job-id → module-level function name for every job whose target
+# is a module-level function (not a local closure). Pre-start self-check uses
+# this to verify each name is still in globals() before the scheduler starts.
+# If a function is renamed/deleted, the job is removed so it cannot NameError.
+_OE_MODULE_JOB_TARGETS: dict[str, str] = {
+    "grade_outcomes":         "grade_outcomes_job",
+    "stale_recovery":         "recover_stale_jobs",
+    "sched_integrity_check":  "_schedule_integrity_check",
+    "polygon_canary_preopen": "_polygon_canary_check",
+    "polygon_canary_preseed": "_polygon_canary_check",
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # STALE JOB RECOVERY
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3929,6 +3944,39 @@ def main():
 
     # Every 5 min — heartbeat
     threading.Thread(target=_heartbeat_loop, daemon=True, name="hb").start()
+
+    # ── Pre-start self-check: verify module-level job targets still in globals() ─
+    # Any CRITICAL here means a module-level function was renamed/deleted without
+    # updating _OE_MODULE_JOB_TARGETS. Unresolvable jobs are removed before the
+    # scheduler starts so they can never fire in a broken state.
+    _oe_selfcheck_missing = [
+        (jid, fn)
+        for jid, fn in _OE_MODULE_JOB_TARGETS.items()
+        if fn not in globals()
+    ]
+    if _oe_selfcheck_missing:
+        for _oe_jid, _oe_fn in _oe_selfcheck_missing:
+            log.critical(
+                f"[startup-selfcheck] job={_oe_jid!r} target={_oe_fn!r} "
+                f"NOT in globals() before scheduler start — BLOCKING job registration"
+            )
+            try:
+                sched.remove_job(_oe_jid)
+                log.critical(
+                    f"[startup-selfcheck] job={_oe_jid!r} REMOVED from scheduler "
+                    f"— will not fire until process restart with correct code"
+                )
+            except Exception as _oe_rm_e:
+                log.critical(
+                    f"[startup-selfcheck] job={_oe_jid!r} remove_job() failed: {_oe_rm_e} "
+                    f"— manual scheduler inspection required"
+                )
+    else:
+        _oe_total = len(_OE_MODULE_JOB_TARGETS)
+        log.info(
+            f"[startup-selfcheck] all {_oe_total} module-level job targets "
+            f"verified in globals() — no jobs blocked"
+        )
 
     sched.start()
     _scheduler_ref = sched

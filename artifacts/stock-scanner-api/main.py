@@ -73266,6 +73266,9 @@ _MODULE_FULLY_LOADED = True
 # Iterates _SCHEDULER_LATE_REFS (built during scheduler setup). Any CRITICAL
 # line here means a wrapper was wired without _wait_for_module_load(), or a
 # function was renamed/deleted without updating the registry.
+#
+# BLOCKING: for any unresolvable target, the job is removed from the scheduler
+# so it can never fire in a broken state. Process restart required to re-enable.
 try:
     _sched_check_missing = [
         (job_id, fn_name)
@@ -73275,10 +73278,21 @@ try:
     if _sched_check_missing:
         for _jid, _fn in _sched_check_missing:
             print(f"[CRITICAL][startup-selfcheck] job={_jid!r} target={_fn!r} "
-                  f"NOT in globals() after full load — add _wait_for_module_load() guard")
+                  f"NOT in globals() after full load — BLOCKING job registration")
+            # Block the job from ever firing: remove it from the live scheduler.
+            # The _wait_for_module_load() guard protects against early fires, but
+            # if the function was deleted/renamed it would NameError on every run.
+            try:
+                _scheduler.remove_job(_jid)
+                print(f"[CRITICAL][startup-selfcheck] job={_jid!r} REMOVED from scheduler "
+                      f"— will not fire until process restart with correct code")
+            except Exception as _rm_e:
+                # Job may not have been registered (ID mismatch) or already removed
+                print(f"[CRITICAL][startup-selfcheck] job={_jid!r} remove_job() failed: {_rm_e} "
+                      f"— manual scheduler inspection required")
     else:
         _n = len(globals().get("_SCHEDULER_LATE_REFS", {}))
-        print(f"[startup-selfcheck] all {_n} scheduler late-refs resolved OK")
+        print(f"[startup-selfcheck] all {_n} scheduler late-refs resolved OK — no jobs blocked")
 except Exception as _ssc_e:
     print(f"[startup-selfcheck] error: {_ssc_e}")
 
