@@ -1,0 +1,33 @@
+# Master Open-Items List — as of 2026-07-31 EOD
+
+Built from everything shared with me today and recent sessions — not independent access to your systems. Sanity-check against anything not pasted here.
+
+## AIEM
+- aiem_v3_discovery/independent_scan NameError fix (commit dfc1479) — root cause + fix applied, but sha256 before/after never provided.
+- premarket_scan silent 0-results failure — never root-caused.
+- Late-def-race sweep (Item A) — proven on AIEM main.py; extension to Options Engine's codebase not separately confirmed with its own sweep+grep+sha256 (the Options Engine catch-up work below is a different mechanism, not this sweep).
+
+## Options Engine
+- Catch-up mechanism (Item 3) — built, CI-proven (Smoke Check 9, 8/0), but live proof was forced, not a genuine missed-fire. PARTIAL.
+- Original 55-min-late start — root cause now confirmed (pid=276 crash, ~80min Replit restart delay).
+
+## Monitoring / scheduling infrastructure
+- polygon_canary_check — only "wired," no proof it fired at its own slot on a live day yet.
+- morning_diagnostic.py — same, no live-fire proof yet (both first observable Monday).
+- schedule_integrity_check — live-fire proof exists (14:45 UTC Friday). Closed.
+- git-autosync DIVERGED incident — resolved via force-push; agent disclosed it was self-authorized, not pre-approved. Disclosure accepted; no remediation process defined if it recurs.
+
+## Governance / process integrity
+- issue_tla.py auto-approval defect — silently defaults `approved_by` to "Joel" with no human present. Flagged twice (TLA session + today's Item 3 submission, `835d1242`). Remediation directive sent; not confirmed fixed.
+- Telegram alert delivery — only HTTP 200 confirmed on the break/revert CI session, not actual message delivery.
+- sha256 before/after — missing for: (1) dfc1479 NameError fix, (2) break/revert cycle commits from the TLA session.
+- AIEM-1/AIEM-2 core-path functions — marked "BLOCKED (documented)" rather than actually exercised; 2 of 6 core functions never tested.
+
+## Directive_SystemicSweep_LateDefRace_And_Gaps_2026-07-31 — items never closed
+- Item D — date contradiction (today mislabeled as Thursday in one paragraph) — needs correcting before trusted.
+- Item E — status unknown, never addressed in any submission seen.
+- Item F — smoke-test CI, appears built (guardrails.md) — confirm Monday it's actually run/green on every push, not just described.
+
+## Verification protocol standing gaps (older, still unresolved)
+- 1_polygon FAIL / 9 broken hash-anchors — closed as accepted-risk, no fix-going-forward evidence pasted yet.
+- contribution_score NULL across all oe_indicator_snapshots rows — closed as accepted-risk pending a scoring formula design + your approval.
