@@ -1,0 +1,25 @@
+# Directive_AIEM12Testability_AutosyncGateGap_2026-07-31
+
+## Item 1 — git-autosync / TLA gate bypass (PRIORITY — resolve first)
+
+Commit 9e50f51 touched two protected files (main.py, aiem_options_scheduler.py) with no TLA gate output in the commit log. Content was correct, but enforcement path under Replit auto-commit is unconfirmed.
+
+Steps:
+1. Determine whether `.git/hooks/pre-commit` actually fires when Replit's auto-commit system commits staged files (not a manual `git commit`). Show the raw evidence — either a live-fire log entry from an auto-commit event, or proof it does NOT fire.
+2. If it does NOT fire: auto-commit is a live bypass route around TLA_APPROVAL_ID for protected files. Report this plainly. Do not patch or work around it yourself — this requires my decision on option (a) accept-and-document vs (b) disable auto-commit for this repo.
+3. If it DOES fire: show the specific auto-commit run where the hook executed and either passed with a valid TLA_APPROVAL_ID or blocked.
+4. No unilateral fix. Wait for my go-ahead before changing hook behavior or auto-commit settings.
+
+## Item 2 — AIEM-1 / AIEM-2 testability (secondary)
+
+`_aiem_paper_pick_candidates` and `_run_aiem_independent_scan` are core paper-trade decision functions, currently untestable in isolation (8 unwrapped module globals, no isolated endpoint, no dry_run flag on the live-API scan).
+
+Steps:
+1. Propose a DI refactor for `_aiem_paper_pick_candidates`: what globals need to become injectable params, and what breaks if you do it — show me the signature before/after, don't just do it.
+2. Propose adding a `dry_run` flag to `_run_aiem_independent_scan` that skips the live Polygon call. Show what the flag would gate.
+3. Do NOT implement either change without my sign-off — this is a proposal step only. I want to see the plan before touching core decision-path code.
+4. Once approved, re-run core_path_dryrun.py and confirm AIEM-1/AIEM-2 move from BLOCKED to PASS with real (not synthetic-only) evidence.
+
+## Standing requirements
+- Raw output only, no reframing, no past-test substitution.
+- If either item can't be resolved cleanly, say so plainly rather than papering over it.
