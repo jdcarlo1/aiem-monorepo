@@ -33,6 +33,7 @@ import json
 import time
 import uuid
 import hashlib
+import hmac
 import logging
 import threading
 import subprocess
@@ -3679,6 +3680,22 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        # ── Auth gate — all POST endpoints are administrative triggers ─────────
+        # X-Admin-Token header must match ADMIN_TOKEN env var (hmac-safe compare).
+        # /run-now fires run_pipeline_worker(); /run-seed fires seed_daily_candidates();
+        # /run-synthetic exercises the full phase2 stack — all are live-trading paths.
+        _tok  = self.headers.get("X-Admin-Token", "") or \
+                self.headers.get("x-admin-token", "")
+        _want = os.environ.get("ADMIN_TOKEN", "")
+        if not (_tok and _want and hmac.compare_digest(_tok, _want)):
+            _abody = b'{"error":"unauthorized"}'
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(_abody)))
+            self.end_headers()
+            self.wfile.write(_abody)
+            return
+
         path = self.path.rstrip('/')
         # /run-synthetic — exercises bootstrap_phase2 + capture_trade_record +
         # options_engine_runs within THIS scheduler process.  All steps logged
