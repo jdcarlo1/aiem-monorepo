@@ -4130,7 +4130,7 @@ def main():
             _spec.loader.exec_module(_mod)
             # Scan last 48 h to cover any gap from a missed run
             _since = (
-                datetime.datetime.utcnow() - datetime.timedelta(hours=48)
+                datetime.utcnow() - timedelta(hours=48)
             ).strftime("%Y-%m-%dT%H:%M:%SZ")
             _result = _mod.run(since=_since, baseline=False)
             log.info(f"[autosync-audit] completed: {_result}")
