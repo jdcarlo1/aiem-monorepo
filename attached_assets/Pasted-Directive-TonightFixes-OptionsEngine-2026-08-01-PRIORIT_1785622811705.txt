@@ -1,0 +1,47 @@
+Directive_TonightFixes_OptionsEngine_2026-08-01
+
+PRIORITY 1 — Auth on /run-now and /run-seed (execution-triggering endpoints)
+
+Note: a prior session already confirmed port 5053 has an ADMIN_TOKEN/hmac auth
+gate in do_POST. Reconcile that against the newer finding that /run-now and
+/run-seed (lines ~3757/3773) have NO auth check. Do this first:
+
+1. Confirm via raw grep whether /run-now and /run-seed sit behind the existing
+   do_POST auth gate or bypass it (different route registration, different
+   server instance, or gate added after these routes existed).
+2. If they bypass it: add the same X-Admin-Token/hmac.compare_digest check
+   used elsewhere, before any pipeline-triggering logic runs.
+3. If they already sit behind it: prove it with curl (unauthenticated → 401,
+   authenticated → 200), not a code-read claim.
+4. Also confirm _TEST_CYCLE_MODE / TEST_SCAN_DATE env vars are still absent
+   in production (re-check, don't assume yesterday's answer still holds).
+
+PRIORITY 2 — Prod redeploy + DB reconciliation
+
+1. Trigger the prod redeploy.
+2. Immediately after, hit the new GET /admin/preflight endpoint on the PROD
+   URL (not dev) and paste the raw JSON, specifically pg_host.
+3. Compare pg_host against the dev pg_host from the earlier preflight check.
+   State plainly: same DB or different DB — no hedging language.
+4. If prod diverges from dev on any job's last_success/heartbeat state,
+   show the raw rows from both, don't reconcile narratively.
+5. Confirm the watchdog Telegram fix is now live on prod (not just dev) —
+   trigger the same stale-job check and show the alert firing on prod.
+
+PRIORITY 3 — Scheduler migration Phase 1 (ONLY if Priority 2 confirms
+prod is a single Reserved VM/GCE deployment with REPLIT_DEPLOYMENT="1")
+
+1. If confirmed: gate _scheduler.start() behind
+   REPLIT_DEPLOYMENT=="1" so only the GCE process runs the scheduler,
+   not workspace workflows.
+2. Show before/after: workspace workflow no longer starts the scheduler,
+   GCE process does, no duplicate-fire risk remains.
+3. If Priority 2 does NOT confirm a single clean deployment target — STOP,
+   do not implement this, report back what's blocking it instead.
+
+NOT for tonight — needs Monday's live run, not more code:
+- Keepalive fire proof (8:35 AM slot claim)
+- Natural end-to-end Monday morning trade/no-trade verdict
+
+Evidence bar: raw curl/grep/JSON output only, full untruncated hashes where
+relevant, no narrative substitution for any of the above.
