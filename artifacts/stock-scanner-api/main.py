@@ -4720,6 +4720,18 @@ def _run_health_watchdog():
     print(f"[job_health] watchdog: {healthy}/{total} jobs healthy, {len(alerts)} alerts")
     if not alerts:
         return
+    # ── Telegram: always fires when alerts exist (independent of OWNER_EMAIL) ─
+    try:
+        _tg_lines = [f"\u26a0\ufe0f <b>Job health alert \u2014 {len(alerts)} issue(s)</b>"]
+        for _a in alerts:
+            _tg_lines.append(f"\u2022 <b>{_a['job']}</b>: {_a['issue']}")
+            if _a.get("last_success"):
+                _tg_lines.append(f"  last OK: {_a['last_success']}")
+        _tg_lines.append(f"Checked: {result['checked_at']} UTC")
+        _tg_send("\n".join(_tg_lines), signal_source="job_health_watchdog")
+        print(f"[job_health] Telegram alert sent ({len(alerts)} issue(s))")
+    except Exception as _tg_e:
+        print(f"[job_health] Telegram alert error: {_tg_e}")
     try:
         from email_alerts import send_email_raw, smtp_configured
         owner = os.environ.get("OWNER_EMAIL", "")
