@@ -1,3 +1,4 @@
+- [OE execution gate calibration](oe-execution-gate-calibration.md) — three bugs blocked every execution for 10+ days: _sinc=5 for $25-$300 stocks, prob threshold 0.35 too high, call_spread never updated from Tradier bid/ask
 - [AIEM-1 DI refactor pattern](aiem1-di-refactor-pattern.md) — eff-resolution block gets hit by regex; fix circular refs after substitution; server-not-ready NameError ≠ dead-zone issue
 - [TLA self-issue audit](tla-self-issue-audit.md) — all 15 records were programmatic; TTY gate added; direct-write pattern for main.py TLAs going forward
 - [OE Dashboard Phase B normalisers](oe-dashboard-phase-b-normalisers.md) — all 6 pages + actual response shapes; /candidates route is plain array; job_heartbeats has NO status/recorded_at cols; grade_outcomes not wired to record_job_success
