@@ -29,8 +29,10 @@ data (this startup run may legitimately find nothing if it happens
 before 10:15 AM that same day - that's expected, not a bug).
 """
 import datetime
+import http.server
 import os
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -61,6 +63,37 @@ def _make_safe_pg_connect(_orig_connect):
     return _safe
 _pg_patch.connect = _make_safe_pg_connect(_pg_patch.connect)
 del _pg_patch, _make_safe_pg_connect
+
+# ── Minimal health server ─────────────────────────────────────────────────────
+# GCE deployment probes GET /health on startup. This process is a pure batch
+# scheduler with no Flask — a lightweight HTTPServer thread satisfies the probe
+# without adding any runtime dependency.
+_HEALTH_PORT = int(os.environ.get("PROB_ENGINE_PORT", "5056"))
+
+
+class _HealthHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b'{"status":"ok","service":"probability-engine-scheduler"}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_a):  # silence access logs
+        pass
+
+
+def _start_health_server() -> None:
+    try:
+        srv = http.server.HTTPServer(("0.0.0.0", _HEALTH_PORT), _HealthHandler)
+        print(f"[daily_scheduler] health server on port {_HEALTH_PORT}", flush=True)
+        srv.serve_forever()
+    except Exception as _he:
+        print(f"[daily_scheduler] health server error: {_he}", flush=True)
+
+
+threading.Thread(target=_start_health_server, daemon=True, name="health-server").start()
 
 from daily_picks import run_daily_job
 from reports import backfill_outcomes

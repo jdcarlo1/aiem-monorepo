@@ -114,3 +114,20 @@ kind = "data-app"
 
   [services.env]
   STRAT_SCHEDULER_PORT = "5054"
+
+  [[services]]
+  name = "probability-engine-scheduler"
+  paths = [ "/prob-engine/" ]
+  localPort = 5056
+
+  [services.development]
+  run = "cd /home/runner/workspace/artifacts/stock-scanner-api/aiem_probability_engine && python3 daily_scheduler.py"
+
+  [services.production]
+  run = "cd /home/runner/workspace/artifacts/stock-scanner-api/aiem_probability_engine && python3 daily_scheduler.py"
+
+  [services.production.health.startup]
+  path = "/health"
+
+  [services.env]
+  PROB_ENGINE_PORT = "5056"
