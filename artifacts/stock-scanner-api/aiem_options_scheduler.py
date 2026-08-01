@@ -4224,3 +4224,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Retroactive TLA approval: 0.35 PoP gate + old _sinc breakpoints confirmed correct per directive 2026-08-01, supersedes self-issued TLA-19cdde04/cb7bd2a1/46eee07b
