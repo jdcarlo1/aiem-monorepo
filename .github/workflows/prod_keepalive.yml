@@ -1,0 +1,69 @@
+name: Prod Keepalive — 8:30–12:00 ET
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PURPOSE
+# APScheduler CronTrigger jobs at 8:35 AM ET (polygon_rvol scan + owner email)
+# miss on any day where the stock-api process boots AFTER their scheduled window
+# (typical cause: mid-day redeploy). misfire_grace_time=600s only covers a
+# ≤10-min delay; a process that boots at 10:57 AM permanently misses the 8:35 job.
+#
+# This workflow hits the prod health endpoint every 5 min from 8:30 AM to
+# 12:00 PM ET on weekdays.  Each GET triggers the Flask before_request hook
+# (_owner_run_due_emails), which claims any due owner-email slots that the
+# APScheduler fire missed.  The dedup is atomic (UNIQUE on owner_email_log):
+# no double-send risk regardless of how many times this hits.
+#
+# CRON SCHEDULE (all UTC, ET equivalence in comment)
+#   */5 12-15 * * 1-5   →  08:00–11:55 AM ET  (8:00 is 30 min early; harmless)
+#   0   16    * * 1-5   →  12:00 PM ET exactly
+#
+# ENDPOINT: GET /stock-api/health  (public, no auth, ~2ms response)
+# AUTH:     none required
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # Every 5 min, 12:00–15:55 UTC (08:00–11:55 AM ET) — Mon-Fri
+    - cron: '*/5 12-15 * * 1-5'
+    # 16:00 UTC = 12:00 PM ET exactly
+    - cron: '0 16 * * 1-5'
+
+  workflow_dispatch: {}   # allow manual trigger for testing
+
+concurrency:
+  group: prod-keepalive
+  cancel-in-progress: true
+
+jobs:
+  keepalive:
+    name: Ping prod health endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: GET /stock-api/health
+        env:
+          REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
+        run: |
+          echo "=== Prod Keepalive ==="
+          echo "UTC  : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Run  : ${{ github.run_id }}"
+          echo "URL  : ${REPLIT_APP_URL}/stock-api/health"
+          echo "=============================="
+
+          HTTP=$(curl -fsS \
+            --max-time 15 \
+            --retry 1 --retry-delay 3 \
+            -o /tmp/health_response.json \
+            -w "%{http_code}" \
+            "${REPLIT_APP_URL}/stock-api/health")
+
+          echo "HTTP status : ${HTTP}"
+          echo "Response    : $(cat /tmp/health_response.json 2>/dev/null || echo '(empty)')"
+
+          if [ "${HTTP}" -ge 200 ] && [ "${HTTP}" -lt 300 ]; then
+            echo "PASS — prod process alive, before_request hook triggered"
+          else
+            echo "WARN — unexpected HTTP ${HTTP}; prod may be restarting"
+            exit 1
+          fi

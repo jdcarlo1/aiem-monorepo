@@ -65,5 +65,6 @@ jobs:
           dispatch "aiem-process-heartbeat.yml"
           dispatch "premarket-backup.yml"
           dispatch "market-hours-watchdog.yml"
+          dispatch "prod_keepalive.yml"
 
           echo "Done — all dispatches sent"
