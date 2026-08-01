@@ -223,6 +223,92 @@ def _startup_metrics():
     return _FlaskResponse(body, status=200, mimetype="text/plain; version=0.0.4; charset=utf-8")
 
 
+@app.route("/stock-api/admin/preflight", methods=["GET"])
+def admin_preflight():
+    """Read-only prod diagnostic endpoint.
+    Returns DB state, heartbeats, lifecycle rows, and boot SHA.
+    Requires header X-Diag-Token matching env DIAG_TOKEN. SELECT-only — no writes."""
+    import hmac as _pf_hmac, os as _pf_os, datetime as _pf_dt, subprocess as _pf_sp
+    _tok = request.headers.get("X-Diag-Token", "")
+    _want = _pf_os.environ.get("DIAG_TOKEN", "")
+    if not _want or not _pf_hmac.compare_digest(
+            _tok.encode("utf-8"), _want.encode("utf-8")):
+        return jsonify({"error": "unauthorized"}), 401
+    out: dict = {}
+    try:
+        import psycopg2 as _pf_pg
+        _url = _pf_os.environ.get("DATABASE_URL", "")
+        with _pf_pg.connect(_url, connect_timeout=5) as _c, _c.cursor() as _cur:
+            # ── Polygon scan dates ────────────────────────────────────────────
+            _cur.execute("SELECT MAX(scan_date)::text FROM polygon_rvol_scan")
+            out["polygon_rvol_max_scan_date"] = (_cur.fetchone() or [None])[0]
+            _cur.execute("SELECT MAX(scan_date)::text FROM polygon_market_daily")
+            out["polygon_market_daily_max_scan_date"] = (_cur.fetchone() or [None])[0]
+            # ── Today's owner_email_log rows ──────────────────────────────────
+            _cur.execute("""
+                SELECT kind, slot, sent_date::text, sent_at::text
+                FROM owner_email_log
+                WHERE sent_date = CURRENT_DATE
+                ORDER BY sent_at
+            """)
+            out["owner_email_log_today"] = [
+                {"kind": r[0], "slot": r[1], "sent_date": r[2], "sent_at": r[3]}
+                for r in _cur.fetchall()
+            ]
+            # ── Job heartbeats ────────────────────────────────────────────────
+            _cur.execute("""
+                SELECT job_name, last_success::text, consecutive_failures
+                FROM job_heartbeats
+                ORDER BY job_name
+            """)
+            out["job_heartbeats"] = [
+                {"job": r[0], "last_success": r[1], "consecutive_failures": r[2]}
+                for r in _cur.fetchall()
+            ]
+            # ── Last 5 process_lifecycle_log rows ─────────────────────────────
+            _cur.execute("""
+                SELECT process_name,
+                       (started_at AT TIME ZONE 'America/New_York')::text AS started_et,
+                       (exited_at  AT TIME ZONE 'America/New_York')::text AS exited_et,
+                       exit_code, git_sha
+                FROM process_lifecycle_log
+                ORDER BY started_at DESC LIMIT 5
+            """)
+            out["process_lifecycle_last5"] = [
+                {"process": r[0], "started_et": r[1], "exited_et": r[2],
+                 "exit_code": r[3], "git_sha": r[4]}
+                for r in _cur.fetchall()
+            ]
+            # ── Latest paper trade ────────────────────────────────────────────
+            _cur.execute("""
+                SELECT ticker, direction, created_at::text, status
+                FROM aiem_paper_trades
+                ORDER BY created_at DESC LIMIT 1
+            """)
+            _pt = _cur.fetchone()
+            out["latest_paper_trade"] = (
+                {"ticker": _pt[0], "direction": _pt[1],
+                 "created_at": _pt[2], "status": _pt[3]} if _pt else None
+            )
+    except Exception as _pf_e:
+        out["db_error"] = str(_pf_e)
+    # ── Boot commit SHA ───────────────────────────────────────────────────────
+    try:
+        _sha = _pf_sp.run(
+            ["git", "-C", "/home/runner/workspace", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=3
+        ).stdout.strip()
+    except Exception:
+        _sha = "unavailable"
+    out["boot_commit_sha"] = _sha
+    # ── Which environment ─────────────────────────────────────────────────────
+    out["is_deployment"] = _pf_os.environ.get("REPLIT_DEPLOYMENT", "0")
+    out["pg_host"] = _pf_os.environ.get("PGHOST", "unknown")
+    out["pg_database"] = _pf_os.environ.get("PGDATABASE", "unknown")
+    out["checked_at_utc"] = _pf_dt.datetime.utcnow().isoformat()
+    return jsonify(out)
+
+
 @app.route("/stock-api/auth/me", methods=["GET"])
 def dashboard_me():
     import hmac as _hmac
