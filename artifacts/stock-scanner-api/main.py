@@ -66306,8 +66306,10 @@ def _polygon_full_market_scan() -> list:
                           _m["high"], _m["low"], _m["vwap"], _m["gap_pct"],
                           _m["volume"], _m["avg_volume"], _m["rvol"], _m["close_strength"]))
             app.logger.info(f"[polygon_rvol] saved {len(top)} rows to DB")
+            record_job_success("polygon_daily_scan")
         except Exception as _e3:
             app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
+            record_job_failure("polygon_daily_scan", str(_e3))
 
         # ── Step 5: Save ALL stocks to polygon_market_daily ──────────────────────────
         try:
