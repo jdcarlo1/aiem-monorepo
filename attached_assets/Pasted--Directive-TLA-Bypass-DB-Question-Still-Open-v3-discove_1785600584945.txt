@@ -1,0 +1,24 @@
+# Directive — TLA Bypass + DB Question Still Open + v3_discovery Fix Auth
+Date: 2026-08-01. Report-only unless marked AUTHORIZED.
+
+## Item 1 — TLA GATE BYPASS (highest priority, report + contain)
+Your Item 5 admits the watchdog fix and the preflight endpoint — both main.py, a TLA-protected file — were committed and pushed by the autosync daemon with NO approval ID, days after a terminal commit of the same file was blocked by the gate. That is a protected-file control bypass, whatever the mechanism.
+1. Explain precisely why the pre-commit hook blocked the terminal commit but passed the autosync commits. Show the hook code path that decides, with file:line.
+2. Run tools/autosync_protected_file_audit.py NOW against the last 48h of commits. Paste its output. If it does not flag these main.py commits, the compensating control is also broken — say so.
+3. Propose (do not build) the closure: autosync must either refuse to commit TLA-protected files without an approval ID or park them unstaged and alert. One paragraph.
+4. Joel will issue a retroactive TLA for the two main.py changes; record the ID against both shas when he does.
+
+## Item 2 — DB reconciliation NOT accepted; question stays OPEN
+The temporal-drift explanation fails on the specific numbers: aiem_morning_scan last_success = Jul 31 14:44 UTC was already in the DB, elapsed ~14.75h at 05:30 Aug 1 and stays under the 26h threshold until 16:44 UTC. No check-timing gap makes a shared-DB read of that row produce STALE with identical code. Either prod did not read that row, or it read a different row/DB.
+1. Paste ALL job_heartbeats rows where job_name='aiem_morning_scan' (every row — checking for duplicates the two processes could resolve differently).
+2. State whether job_heartbeats has a UNIQUE constraint on job_name. Show \d job_heartbeats.
+3. The decisive test remains the prod redeploy: the GCE preflight must return pg_host/pg_database. If it shows helium/heliumdb, one-DB is proven and 05:30 stays an anomaly to explain; if it shows anything else, the separate-DB conclusion was right after all. Until that runs, label the DB question OPEN in every report.
+
+## Item 3 — AUTHORIZED: aiem_paper_v3_discovery monitoring fix
+Approved as proposed, spot-check tier: add record_job_success("aiem_paper_v3_discovery") in the success branch of the v3_discovery block in _aiem_paper_pick_candidates, then clear the stale test row (UPDATE job_heartbeats SET consecutive_failures=0, last_error=NULL WHERE job_name='aiem_paper_v3_discovery'). Evidence: sed of the added line, the UPDATE row count, and the next natural run writing last_success. Also state where the FORCED_TEST row came from if you can find it in session history — if it was a leftover negative-control from July verification, say so.
+
+## Item 4 — Accepted
+Monday timing correction accepted (first valid check ≥12:40 UTC; empty at 12:10 is expected, not failure). Phase 2 build accepted on dev evidence (health server 5056, artifact.toml services block, c71d415f71ab, pgrep+curl); note plainly that the GCE copy of the probability engine only starts on the next prod redeploy. Item 1.2 honesty (cannot prove no workspace ran f08e877) noted and appreciated.
+
+## The single remaining gate
+Prod redeploy. It now settles three things at once: the DB question (preflight pg_host from GCE), watchdog Telegram in production, and the probability-engine GCE service. Do not close any of those items on dev evidence.
