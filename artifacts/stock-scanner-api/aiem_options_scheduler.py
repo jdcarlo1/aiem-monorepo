@@ -3941,7 +3941,7 @@ def main():
         log.warning(f"[startup] missed-seed check error: {_ms_e}")
 
     # ── Step 3: APScheduler ─────────────────────────────────────────────────
-    sched = BackgroundScheduler(timezone=_ET)
+    sched = BackgroundScheduler(timezone=_ET, job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 600})
 
     # 09:40 ET — seed daily candidates
     def _seed_job():

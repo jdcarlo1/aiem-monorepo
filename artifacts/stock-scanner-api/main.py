@@ -6442,7 +6442,7 @@ try:
             import threading as _amj_thr
             _wait_for_module_load()  # target _run_aiem_morning_scan @ line ~44471
             _amj_thr.Thread(target=_run_aiem_morning_scan, daemon=True).start()
-            record_job_success("aiem_morning_scan")
+            # record_job_success moved inside _morning_thread — only fires after save confirms >0 rows
         except Exception as e:
             record_job_failure("aiem_morning_scan", str(e))
             print(f"[scheduler] aiem morning scan error: {e}")
@@ -8456,12 +8456,9 @@ try:
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms, \
                             _c_ms.cursor() as _cur_ms:
                         _cur_ms.execute("""
-                            SELECT 1 FROM job_heartbeats
-                            WHERE job_name = 'aiem_morning_scan'
-                              AND last_success >= (
-                                date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                                AT TIME ZONE 'America/New_York'
-                              ) AT TIME ZONE 'UTC'
+                            SELECT 1 FROM aiem_predictions
+                            WHERE prediction_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                            LIMIT 1
                         """)
                         if _cur_ms.fetchone():
                             _need_ms = False
@@ -8475,7 +8472,7 @@ try:
                         if _ms_fn is not None:
                             import threading as _ms_thr
                             _ms_thr.Thread(target=_ms_fn, daemon=True).start()
-                            record_job_success("aiem_morning_scan")
+                            # record_job_success moved inside _morning_thread — fires only after >0 rows saved
                             print("[startup_catchup] aiem_morning_scan catch-up thread launched")
                         else:
                             print("[startup_catchup] aiem_morning_scan not yet in globals — skipping")
@@ -8493,12 +8490,9 @@ try:
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms2, \
                             _c_ms2.cursor() as _cur_ms2:
                         _cur_ms2.execute("""
-                            SELECT 1 FROM job_heartbeats
-                            WHERE job_name = 'aiem_morning_scan'
-                              AND last_success >= (
-                                date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                                AT TIME ZONE 'America/New_York'
-                              ) AT TIME ZONE 'UTC'
+                            SELECT 1 FROM aiem_predictions
+                            WHERE prediction_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                            LIMIT 1
                         """)
                         if not _cur_ms2.fetchone():
                             _ms_missed_late = True
@@ -26677,17 +26671,20 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
-                SELECT p.ticker, p.rvol, p.price, p.change_pct, p.dollar_volume
+                SELECT p.ticker, p.rvol, p.price, p.open_price, p.volume
                 FROM polygon_rvol_scan p
                 WHERE p.scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
                   AND p.rvol >= %s
                   AND p.price BETWEEN 2 AND %s
-                  AND p.dollar_volume >= 500000
+                  AND p.volume * p.price >= 500000
                 ORDER BY p.rvol DESC LIMIT 80
             """, (min_rvol, max_price))
             rvol_rows = {r[0]: {"rvol": float(r[1]), "price": float(r[2]),
-                                 "change_pct": float(r[3] or 0),
-                                 "dollar_vol_m": round(float(r[4] or 0)/1e6,2)}
+                                 "change_pct": round(
+                                     (float(r[2]) - float(r[3] or r[2])) /
+                                     max(float(r[3] or r[2]), 0.01) * 100, 2),
+                                 "dollar_vol_m": round(
+                                     float(r[4] or 0) * float(r[2]) / 1e6, 2)}
                          for r in _cu.fetchall()}
 
             _cu.execute("""
@@ -44737,9 +44734,16 @@ def _run_aiem_morning_scan():
         try:
             print("[aiem_morning] scanning autonomously...")
             universe = _aiem_tool_scan_market_for_setups()
+            if universe.get("error"):
+                _err_msg = universe["error"]
+                record_job_failure("aiem_morning_scan", _err_msg)
+                _tg_send(f"⚠️ [aiem_morning] scan universe error: {_err_msg}")
+                return
             candidates = universe.get("top_candidates", [])
             if not candidates:
-                print("[aiem_morning] no candidates today")
+                _no_cand_reason = "no candidates returned from scan"
+                print(f"[aiem_morning] {_no_cand_reason}")
+                record_job_failure("aiem_morning_scan", _no_cand_reason)
                 return
             # Score by composite already computed in scan_market_for_setups
             # Add confidence tiers based on sources_confirming
@@ -44772,8 +44776,15 @@ def _run_aiem_morning_scan():
                     "predicted_move":   "breakout_3_5d",
                 })
             result = _aiem_tool_save_daily_predictions(predictions)
-            print(f"[aiem_morning] saved {result.get('saved', 0)} predictions autonomously")
+            _saved = result.get('saved', 0)
+            print(f"[aiem_morning] saved {_saved} predictions autonomously")
+            if _saved > 0:
+                record_job_success("aiem_morning_scan")
+            else:
+                record_job_failure("aiem_morning_scan",
+                                   f"save returned 0 rows (result={result})")
         except Exception as _e:
+            record_job_failure("aiem_morning_scan", str(_e))
             print(f"[aiem_morning] error: {_e}")
 
     _amt.Thread(target=_morning_thread, daemon=True).start()

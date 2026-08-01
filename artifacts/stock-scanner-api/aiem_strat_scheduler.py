@@ -688,10 +688,12 @@ def main():
 
     # 4. Startup kick if today is a market day and it's past 9:40 ET
     now_et = datetime.now(_ET)
-    if _is_market_day() and now_et.hour >= 9 and now_et.minute >= 45:
+    if (now_et.hour, now_et.minute) >= (9, 45) and now_et.hour < 16 and _is_market_day():
         log.info("Startup kick: running missed evaluation pass")
-        threading.Thread(target=_seed_candidates, daemon=True).start()
-        threading.Thread(target=_run_all_pending, daemon=True).start()
+        def _startup_kick_seq():
+            _seed_candidates()
+            _run_all_pending()
+        threading.Thread(target=_startup_kick_seq, daemon=True).start()
 
     _tg(f"🚀 ASE Scheduler started — port {_HEALTH_PORT}, schema {'OK' if ok else 'FAILED'}")
     log.info("Running — waiting for scheduled jobs")
