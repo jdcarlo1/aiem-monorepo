@@ -161,23 +161,24 @@ def get_commits_since(since: str) -> list[dict]:
     return commits
 
 
-def send_telegram_alert(message: str) -> None:
+def send_telegram_alert(message: str) -> dict:
+    """
+    Send a Telegram message.  Returns the raw API response dict on success.
+    Raises on any network or API error (caller is responsible for try/except).
+    """
     token = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_id:
-        print("  [telegram] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set — skipping alert")
-        return
+        raise RuntimeError("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = json.dumps({"chat_id": chat_id, "text": message, "parse_mode": "HTML"}).encode()
     req = urllib.request.Request(url, data=payload,
                                  headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            resp = json.loads(r.read())
-            if not resp.get("ok"):
-                print(f"  [telegram] send failed: {resp}")
-    except Exception as e:
-        print(f"  [telegram] error: {e}")
+    with urllib.request.urlopen(req, timeout=10) as r:
+        resp = json.loads(r.read())
+    if not resp.get("ok"):
+        raise RuntimeError(f"Telegram API returned ok=false: {resp}")
+    return resp
 
 
 def ensure_table(conn) -> None:
@@ -198,7 +199,48 @@ def ensure_table(conn) -> None:
                 alerted             BOOLEAN NOT NULL DEFAULT FALSE
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS autosync_alert_log (
+                id              SERIAL PRIMARY KEY,
+                attempted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                commit_shas     TEXT[] NOT NULL,
+                send_ok         BOOLEAN NOT NULL,
+                send_error      TEXT,
+                telegram_msg_id BIGINT,
+                raw_response    TEXT
+            )
+        """)
     conn.commit()
+
+
+def _persist_alert_attempt(
+    conn,
+    commit_shas: list[str],
+    send_ok: bool,
+    send_error: str | None,
+    raw_response: dict | None,
+) -> None:
+    msg_id = None
+    if raw_response:
+        msg_id = raw_response.get("result", {}).get("message_id")
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO autosync_alert_log
+              (commit_shas, send_ok, send_error, telegram_msg_id, raw_response)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                commit_shas,
+                send_ok,
+                send_error,
+                msg_id,
+                json.dumps(raw_response) if raw_response else None,
+            ),
+        )
+    conn.commit()
+    print(f"  [autosync-audit] alert attempt persisted: send_ok={send_ok} "
+          f"msg_id={msg_id} error={send_error}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -275,17 +317,33 @@ def run(since: str, baseline: bool = False) -> dict:
             lines.append("")
         lines.append("These commits bypassed the TLA pre-commit gate (Replit auto-commit). Review required.")
         msg = "\n".join(lines)
-        print(f"\n[autosync-audit] sending Telegram alert for {len(to_alert)} unapproved commit(s)")
-        send_telegram_alert(msg)
-
-        # Mark as alerted
         shas = [c["sha"] for c in to_alert]
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE autosync_protected_file_log SET alerted=TRUE WHERE commit_sha = ANY(%s)",
-                (shas,),
-            )
-        conn.commit()
+
+        print(f"\n[autosync-audit] sending Telegram alert for {len(to_alert)} unapproved commit(s)")
+        send_ok = False
+        send_error = None
+        raw_resp = None
+        try:
+            raw_resp = send_telegram_alert(msg)
+            send_ok = True
+        except Exception as e:
+            send_error = str(e)
+            print(f"[autosync-audit] TELEGRAM SEND FAILED: {send_error}")
+
+        # Persist attempt regardless of outcome — durable record survives process exit
+        _persist_alert_attempt(conn, shas, send_ok, send_error, raw_resp)
+
+        if send_ok:
+            # Only mark alerted=TRUE when the send actually succeeded
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE autosync_protected_file_log SET alerted=TRUE WHERE commit_sha = ANY(%s)",
+                    (shas,),
+                )
+            conn.commit()
+        else:
+            print(f"[autosync-audit] alerted left FALSE for {len(shas)} commit(s) — send failed; "
+                  f"next run will retry the alert")
 
     conn.close()
 
