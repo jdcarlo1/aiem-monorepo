@@ -1,0 +1,40 @@
+# Directive_OE_SeedDateMismatch_Fixes_2026-08-01
+
+Scope: options_engine_export.zip audit. Separate commit per item.
+
+## Item 1 — CRITICAL: seed fallback inserts jobs under a STALE scan_date (full evidence bar)
+File: aiem_options_scheduler.py, seed_daily_candidates() (~line 619–660).
+Bug: fallback query returns rows with o.scan_date = MAX(scan_date) (an old date). The insert loop does `ticker, sd, _, _, _ = row` and inserts `(ticker, sd)`. run_pipeline_worker/_atomic_claim only claim `scan_date = today`. Result: whenever the fallback engages, Telegram says "seeded=N" but the worker finds 0 jobs — nothing executes, silently. On day 2+ all fallback rows are duplicates → seeded=0 → status NO_CANDIDATES with no alert. This poisons ALL trigger paths (09:40 cron, GH failsafe, startup missed-seed, integrity-check catch-up, /run-seed) since all call this function.
+Fix steps:
+1. In the insert loop, insert under the function parameter, not the row date: change the INSERT params from `(ticker, sd)` to `(ticker, scan_date)`.
+2. Change the log line to `[seed] seeded {ticker} for {scan_date} (source OSS row {sd})`.
+3. One-time report (no deletions): `SELECT id, ticker, scan_date, status, created_at FROM options_pipeline_jobs WHERE status='PENDING' AND scan_date < CURRENT_DATE - 1;` — paste raw rows; Joel decides disposition.
+Evidence required: forced test on a date with no OSS rows for that date — raw log showing fallback engaged, raw options_pipeline_jobs rows showing scan_date = requested date, then run_pipeline_worker for that date claiming them ([worker] claimed lines). sha256 before/after for aiem_options_scheduler.py.
+
+## Item 2 — HIGH: OE scheduler has no misfire grace (spot-check tier)
+File: aiem_options_scheduler.py ~line 3944.
+Fix: `sched = BackgroundScheduler(timezone=_ET, job_defaults={"misfire_grace_time": 600, "coalesce": True})`
+Evidence: diff + restart log showing scheduler started with jobs listed.
+
+## Item 3 — HIGH: strat scheduler startup kick condition wrong (spot-check tier)
+File: aiem_strat_scheduler.py ~line 691.
+Bug: `now_et.hour >= 9 and now_et.minute >= 45` is only true during minutes 45–59 of any hour — a 10:15 restart never kicks.
+Fix steps:
+1. Replace condition with `now_et.hour > 9 or (now_et.hour == 9 and now_et.minute >= 45)` (keep _is_market_day() check).
+2. Run seed then pending sequentially in ONE thread (seed must complete before _run_all_pending starts), not two parallel threads.
+Evidence: diff only.
+
+## Item 4 — MED: nightly autosync audit job crashes on AttributeError (spot-check tier)
+File: aiem_options_scheduler.py, _autosync_audit_job (~line 4128).
+Bug: module does `from datetime import datetime, timedelta`; job calls `datetime.datetime.utcnow()` and `datetime.timedelta(hours=48)` → AttributeError every 23:30 UTC run. The TLA-bypass compensating control has never actually run.
+Fix: change to `datetime.utcnow() - timedelta(hours=48)`.
+Evidence: diff + one forced run showing `[autosync-audit] completed`.
+
+## Item 5 — DIAGNOSIS ONLY (raw query output, no fixes)
+a. `SELECT scan_date, COUNT(*), MAX(updated_at) FROM options_structure_scan WHERE scan_date >= CURRENT_DATE - 12 GROUP BY 1 ORDER BY 1;`
+b. `SELECT run_date, status, candidates_seeded, candidates_executed, candidates_no_trade, candidates_failed, started_at FROM daily_pipeline_runs WHERE run_date >= CURRENT_DATE - 12 ORDER BY run_date;`
+c. `SELECT scan_date, status, COUNT(*) FROM options_pipeline_jobs WHERE created_at >= NOW() - INTERVAL '12 days' GROUP BY 1,2 ORDER BY 1,2;`
+d. State exactly what populates options_structure_scan: repo, function, schedule time — paste the raw scheduler registration line. It is NOT in this export; OE stock-picking is fully dependent on it running before 09:40 ET.
+
+## Item 6 — DATA ONLY: gate-rejection scores
+Paste call_score, put_score, margin for every decision in the last 10 trading days (from the Phase 2 decision records / oe_decision_audit). No threshold or scoring changes — Joel reviews the distribution first.
