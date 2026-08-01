@@ -1587,7 +1587,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         # Strike levels — increment adapts to spot price to match real market
         # strike grids; floor/ceil guarantee put is OTM (below spot) and call
         # is OTM (above spot) for all spot values including sub-$5 tickers.
-        _sinc       = 1.0 if spot < 5 else 2.5 if spot < 25 else 5.0
+        # Strike increment — must be fine-grained enough that ceil/floor of spot*1.025
+        # stays within ~3% OTM for all price ranges.  With _sinc=5 for spot $25-$300,
+        # a $40 stock targets ceil(40*1.025/5)*5=$45 (12.5% OTM → delta≈0.02), which
+        # consistently fails the delta<0.20 and probability<0.25 hard gates and has done
+        # so for every candidate for 10+ trading days.  Correct breakpoints:
+        #   <$100 → $1 increments: $40 → $41 call (2.5% OTM, delta≈0.34)
+        #   $100-$300 → $2.50 increments: $150 → $152.50 (1.7% OTM, delta≈0.34)
+        #   ≥$300 → $5 increments: $320 → $330 (3.1% OTM, delta≈0.26)
+        _sinc       = 1.0 if spot < 100 else 2.5 if spot < 300 else 5.0
         put_strike  = _math.floor(spot * 0.975 / _sinc) * _sinc
         call_strike = _math.ceil(spot * 1.025 / _sinc) * _sinc
         if put_strike >= spot:   # hard OTM guard for exact-multiple edge case
@@ -1655,7 +1663,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     call_oi  = int(_o.get("open_interest") or 0)
                     _cb, _ca = _o.get("bid"), _o.get("ask")
                     if _cb is not None and _ca is not None and float(_cb) > 0 and float(_ca) > 0:
-                        call_mid = round((float(_cb) + float(_ca)) / 2, 2)
+                        # Fix: update bid/ask/spread from live Tradier data, not just mid.
+                        # Without this, call_data["bid_ask_spread_pct"] is always the BS
+                        # ±12% synthetic spread (≈0.24), which permanently fires the >0.20
+                        # hard gate and blocks every execution regardless of actual liquidity.
+                        call_bid    = round(float(_cb), 2)
+                        call_ask    = round(float(_ca), 2)
+                        call_mid    = round((call_bid + call_ask) / 2, 2)
+                        call_spread = (round((call_ask - call_bid) / call_mid, 4)
+                                       if call_mid > 0 else call_spread)
                     if _grk.get("delta") is not None:
                         call_delta_bs        = round(abs(float(_grk["delta"])), 4)
                         call_probability_itm = call_delta_bs
@@ -1664,7 +1680,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     put_oi  = int(_o.get("open_interest") or 0)
                     _pb, _pa = _o.get("bid"), _o.get("ask")
                     if _pb is not None and _pa is not None and float(_pb) > 0 and float(_pa) > 0:
-                        put_mid = round((float(_pb) + float(_pa)) / 2, 2)
+                        # Same fix for put side.
+                        put_bid    = round(float(_pb), 2)
+                        put_ask    = round(float(_pa), 2)
+                        put_mid    = round((put_bid + put_ask) / 2, 2)
+                        put_spread = (round((put_ask - put_bid) / put_mid, 4)
+                                      if put_mid > 0 else put_spread)
                     if _grk.get("delta") is not None:
                         put_delta_bs        = round(float(_grk["delta"]), 4)
                         put_probability_itm = round(abs(float(_grk["delta"])), 4)
