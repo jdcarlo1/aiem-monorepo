@@ -48400,6 +48400,9 @@ def _aiem_paper_pick_candidates(
                          f"v3/{_v3dec['decision']} conf={_v3dec['confidence']:.0f}% | {_v3_detail}")
             _v3_buys = sum(1 for d in _v3_decisions if d["decision"] in ("BUY","SMALL_BUY"))
             print(f"[aiem_paper] v3_discovery: {len(_v3_disc)} candidates → {_v3_buys} BUY/SMALL_BUY")
+        # Write success heartbeat so daily health check shows green.
+        # Placed outside `if _v3_disc:` so it fires even when no candidates were found today.
+        record_job_success("aiem_paper_v3_discovery")
     except Exception as _v3e:
         import traceback as _v3_tb
         _v3_msg = f"{type(_v3e).__name__}: {_v3e}"
