@@ -446,7 +446,7 @@ def verify_options_decision_inputs(
             ("bid_ask_spread_pct",   lambda v: float(v) > 0.20, "bid/ask spread > 20% of mid"),
             ("slippage_pct",         lambda v: float(v) > 0.15, "slippage > 15%"),
             ("delta",                lambda v: abs(float(v)) < 0.20, "delta < 0.20 — lottery strike"),
-            ("probability_estimate", lambda v: float(v) < 0.25, "PoP < 25% — below minimum threshold"),
+            ("probability_estimate", lambda v: float(v) < 0.35, "PoP < 35% — below minimum threshold"),
         ]
         for field, test, reason in checks:
             val = data.get(field)

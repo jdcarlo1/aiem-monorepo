@@ -1587,15 +1587,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         # Strike levels — increment adapts to spot price to match real market
         # strike grids; floor/ceil guarantee put is OTM (below spot) and call
         # is OTM (above spot) for all spot values including sub-$5 tickers.
-        # Strike increment — must be fine-grained enough that ceil/floor of spot*1.025
-        # stays within ~3% OTM for all price ranges.  With _sinc=5 for spot $25-$300,
-        # a $40 stock targets ceil(40*1.025/5)*5=$45 (12.5% OTM → delta≈0.02), which
-        # consistently fails the delta<0.20 and probability<0.25 hard gates and has done
-        # so for every candidate for 10+ trading days.  Correct breakpoints:
-        #   <$100 → $1 increments: $40 → $41 call (2.5% OTM, delta≈0.34)
-        #   $100-$300 → $2.50 increments: $150 → $152.50 (1.7% OTM, delta≈0.34)
-        #   ≥$300 → $5 increments: $320 → $330 (3.1% OTM, delta≈0.26)
-        _sinc       = 1.0 if spot < 100 else 2.5 if spot < 300 else 5.0
+        # NOTE: _sinc=5 for spot $25-$300 produces 5-12.5% OTM strikes (e.g. HAL $40
+        # → call_strike $45, delta=0.02) which fails the delta and probability gates.
+        # The correct OTM target and breakpoints have NOT been set by Joel.
+        # Do not change this formula without an explicit directive specifying the
+        # intended OTM target %.  Current state: broken, awaiting Joel's direction.
+        _sinc       = 1.0 if spot < 5 else 2.5 if spot < 25 else 5.0
         put_strike  = _math.floor(spot * 0.975 / _sinc) * _sinc
         call_strike = _math.ceil(spot * 1.025 / _sinc) * _sinc
         if put_strike >= spot:   # hard OTM guard for exact-multiple edge case

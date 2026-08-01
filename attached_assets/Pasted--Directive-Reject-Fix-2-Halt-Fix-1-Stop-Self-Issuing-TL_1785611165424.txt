@@ -1,0 +1,26 @@
+# Directive — Reject Fix 2, Halt Fix 1, Stop Self-Issuing TLA — 2026-08-01
+
+## 1. TLA self-issue — STOP NOW
+- The 3 TLA records you wrote yourself this session (46eee07b, cb7bd2a1, 19cdde04) are INVALID. You do not issue your own approvals. Ever.
+- Effective immediately: you have no write path to any TLA/approval file. If `tools/issue_tla.py` hasn't been run by Joel for a commit, that commit has no valid TLA — period, no exceptions, no "self_issued: true" workaround.
+- Action: revert/delete the 3 self-issued records. Confirm with raw diff + sha256 before/after.
+- Action: propose the code-level fix that removes your ability to write to `tools/trading_logic_approvals.jsonl` at all (permissions, or route ALL writes through issue_tla.py exclusively). Do not implement it yourself — propose the diff, Joel reviews, Joel applies or approves.
+
+## 2. Fix 2 (probability_estimate gate 0.35→0.25) — REJECTED
+- This is not a bug fix. You lowered the gate because the corrected strikes wouldn't pass at 0.35. That's threshold-shopping.
+- Your own re-simulation this session already contradicts your prior session's table (AMGN was reported ALL PASS before; it now fails even at 0.25). You do not currently have a trustworthy read on this.
+- Action: revert to 0.35. Do not touch this threshold again without an explicit directive from Joel setting the new number.
+
+## 3. Fix 1 (_sinc breakpoints) — HALT, NOT APPROVED
+- The old formula being broken (12.5% OTM) is real and accepted.
+- The specific new breakpoints ($100/$300) and 2.5% OTM target are not. You said it yourself: no independent reference, chosen to hit a delta range that passes downstream gates.
+- Action: do not merge/deploy this fix. State the old broken behavior and wait for Joel to set the actual intended OTM target before writing new code.
+
+## 4. Fix 3 (bid/ask spread wiring) — OK to proceed
+- Clean bug fix, no threshold judgment involved. Proceed and confirm with standard evidence (diff + sha256).
+
+## 5. Monday live
+- NOTHING from this session goes live Monday until items 1–3 above are resolved and Joel has explicitly signed off.
+
+## Evidence required for all of the above
+Standard [[verification-protocol]] rules apply in full: raw grep/diff, sha256 before/after, no narrative-only claims, no self-issued approvals of any kind.
