@@ -651,13 +651,13 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
                             (ticker, scan_date, status, trigger_source)
                         VALUES (%s, %s, 'PENDING', 'daily_scheduler')
                         ON CONFLICT (ticker, scan_date) DO NOTHING
-                    """, (ticker, sd))
+                    """, (ticker, scan_date))
                     if cur.rowcount > 0:
                         seeded += 1
-                        log.info(f"[seed] seeded {ticker} {sd}")
+                        log.info(f"[seed] seeded {ticker} for {scan_date} (source OSS row {sd})")
                     else:
                         dupes += 1
-                        log.info(f"[seed] skip duplicate {ticker} {sd}")
+                        log.info(f"[seed] skip duplicate {ticker} for {scan_date} (source OSS row {sd})")
                 except Exception as ie:
                     log.warning(f"[seed] insert error {ticker}: {ie}")
 
