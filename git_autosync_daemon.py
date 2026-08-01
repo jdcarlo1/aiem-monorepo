@@ -170,88 +170,37 @@ def _check_commits_before_push(
     local_hash: str,
 ) -> tuple[bool, str, str]:
     """
-    Inspect every commit in (remote_hash, local_hash] for TLA compliance.
+    Delegates to tools/check_protected_push.py — single source of truth.
 
-    Algorithm:
-      1. git log --format=%H remote..local  → list of SHAs oldest-first
-      2. For each SHA:
-           a. git diff-tree -r --name-only <sha>  → files changed vs parent
-           b. Filter by PROTECTED_PATTERNS
-           c. If any match → require [TLA-<id>] in commit message
-           d. Look up id in trading_logic_approvals.jsonl; require used=True
-      3. First non-compliant commit → return (False, sha12, reason)
-      4. All pass → return (True, "", "")
+    Previously contained inline logic; extracted so the pre-push hook and
+    daemon use the identical check and cannot silently drift apart.
 
-    This function is the sole decision point. git push is ONLY called when
-    this returns (True, …). There is no --no-verify equivalent here.
+    Returns (ok, blocked_sha_12, reason).  git push is ONLY called when ok=True.
     """
-    rc, out, err = _run(
-        ["git", "log", "--format=%H", f"{remote_hash}..{local_hash}"]
+    import sys as _sys
+    script = os.path.join(REPO_DIR, "tools", "check_protected_push.py")
+    result = subprocess.run(
+        [_sys.executable, script, "--range", f"{remote_hash}..{local_hash}"],
+        cwd=REPO_DIR,
+        capture_output=True,
+        text=True,
     )
-    if rc != 0:
-        return False, local_hash[:12], f"git log failed: {err}"
+    # Forward stdout (pass lines) to daemon log
+    for line in result.stdout.splitlines():
+        log.info("[pre-push-gate] %s", line)
 
-    # Reverse so we iterate oldest-first (git log is newest-first)
-    commit_shas = [ln.strip() for ln in reversed(out.splitlines()) if ln.strip()]
-    if not commit_shas:
-        return True, "", ""   # nothing to check
+    if result.returncode == 0:
+        return True, "", ""
 
-    approvals = _load_approvals()
+    # Parse "BLOCKED  sha=<sha12>  reason=<...>" from stderr
+    import re as _re
+    for line in result.stderr.splitlines():
+        m = _re.search(r"sha=(\S+)\s+reason=(.+)", line)
+        if m:
+            return False, m.group(1), m.group(2).strip()
 
-    for sha in commit_shas:
-        # Files changed in this commit (diff against its first parent)
-        rc_d, diff_out, diff_err = _run(
-            ["git", "diff-tree", "--no-commit-id", "-r", "--name-only", sha]
-        )
-        if rc_d != 0:
-            return False, sha[:12], f"git diff-tree failed: {diff_err}"
-
-        changed = [p.strip() for p in diff_out.splitlines() if p.strip()]
-        protected = [p for p in changed if _is_protected(p)]
-
-        if not protected:
-            log.info("[pre-push-gate] SHA %s: no protected files — pass", sha[:12])
-            continue
-
-        # Protected files found — need valid used TLA token in commit message
-        rc_m, msg, _ = _run(["git", "log", "-1", "--format=%B", sha])
-        if rc_m != 0:
-            return False, sha[:12], "could not read commit message"
-
-        match = _TLA_RE.search(msg)
-        if not match:
-            plist = ", ".join(protected)
-            return (
-                False,
-                sha[:12],
-                f"protected file(s) [{plist}] — no [TLA-<id>] token in commit message",
-            )
-
-        tla_id = match.group(1).lower()
-
-        rec = next(
-            (r for r in approvals if r.get("approval_id", "").lower() == tla_id),
-            None,
-        )
-        if rec is None:
-            return (
-                False,
-                sha[:12],
-                f"[TLA-{tla_id}] not found in trading_logic_approvals.jsonl",
-            )
-        if not rec.get("used"):
-            return (
-                False,
-                sha[:12],
-                f"[TLA-{tla_id}] exists but used=False — gate was bypassed at commit time",
-            )
-
-        log.info(
-            "[pre-push-gate] SHA %s: protected=%s TLA=%s used=True — pass",
-            sha[:12], protected, tla_id,
-        )
-
-    return True, "", ""
+    # Fallback: return raw stderr as reason
+    return False, local_hash[:12], result.stderr.strip() or "check_protected_push.py returned non-zero"
 
 
 # ── Main sync cycle ───────────────────────────────────────────────────────────
