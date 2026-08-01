@@ -4115,6 +4115,35 @@ def main():
             f"run_id={_test_run_id}  scan_date={_test_sd}"
         )
 
+    # 23:30 UTC daily — autosync protected-file audit (compensating control for
+    # Replit auto-commit TLA gate bypass — see GOVERNANCE.md)
+    def _autosync_audit_job():
+        import importlib.util as _ilu, sys as _sys
+        _audit_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..", "..", "tools", "autosync_protected_file_audit.py",
+        )
+        _audit_path = os.path.normpath(_audit_path)
+        try:
+            _spec = _ilu.spec_from_file_location("autosync_protected_file_audit", _audit_path)
+            _mod  = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            # Scan last 48 h to cover any gap from a missed run
+            _since = (
+                datetime.datetime.utcnow() - datetime.timedelta(hours=48)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _result = _mod.run(since=_since, baseline=False)
+            log.info(f"[autosync-audit] completed: {_result}")
+        except Exception as _ae:
+            log.error(f"[autosync-audit] job failed: {_ae}", exc_info=True)
+
+    sched.add_job(
+        _autosync_audit_job,
+        CronTrigger(hour=23, minute=30),
+        id="autosync_protected_file_audit",
+        replace_existing=True,
+    )
+
     # Every 5 min — heartbeat
     threading.Thread(target=_heartbeat_loop, daemon=True, name="hb").start()
 
