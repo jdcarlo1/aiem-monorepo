@@ -73595,3 +73595,7 @@ if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
     # Join it to keep the main thread alive. SIGTERM/SIGKILL will terminate the process.
     _wz_srv_thr.join()
+
+# [TLA-ENFORCED] Commits touching this file require a Trading Logic Approval (TLA).
+# Run: python3 tools/issue_tla.py --approved-by "Name" --note "rationale"
+# Gate enforced by: .git/hooks/pre-commit + git_autosync_daemon.py pre-push check.
