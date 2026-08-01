@@ -97,3 +97,20 @@ kind = "data-app"
 
   [services.env]
   OPTIONS_SCHEDULER_PORT = "5053"
+
+  [[services]]
+  name = "ase-strat-scheduler"
+  paths = [ "/ase-strat/" ]
+  localPort = 5054
+
+  [services.development]
+  run = "python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_strat_scheduler.py"
+
+  [services.production]
+  run = "python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_strat_scheduler.py"
+
+  [services.production.health.startup]
+  path = "/health"
+
+  [services.env]
+  STRAT_SCHEDULER_PORT = "5054"

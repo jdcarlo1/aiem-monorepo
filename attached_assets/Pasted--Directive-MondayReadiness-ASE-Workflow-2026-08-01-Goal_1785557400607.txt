@@ -1,0 +1,39 @@
+# Directive_MondayReadiness_ASE_Workflow_2026-08-01
+
+Goal: the full autonomous pipeline picks stocks and completes end-to-end on Monday 2026-08-03 with zero manual intervention. 10 straight failed mornings ends now.
+
+## Item 1 — Create ASE scheduler workflow (CRITICAL — it has never run)
+`aiem_strat_scheduler.py` has no workflow and no process. Fix exactly:
+1. Add a dedicated workflow to `.replit` named `ase-strat-scheduler` running `python artifacts/stock-scanner-api/aiem_strat_scheduler.py` (match the working directory / venv pattern of `options-pipeline-scheduler`).
+2. Start it. Do not modify aiem_strat_scheduler.py code — the 6282ff6 fix is already correct.
+3. Evidence: (a) raw `.replit` diff showing the new workflow entry, (b) `pgrep -fa aiem_strat_scheduler` output showing the live pid, (c) startup log lines showing scheduler boot + jobs registered, (d) confirm the line-691 fixed condition is what's running: `git rev-parse HEAD` + on-disk grep of line 691.
+4. If it crashes on boot, paste the raw traceback and stop — do not patch code without approval.
+
+## Item 2 — NO forced-failure test Monday
+The proposed forced-failure plan is REJECTED for Monday. Do NOT commit `raise RuntimeError("FORCED_FAILURE_TEST")` or any deliberate failure. Monday is the natural end-to-end proof. The forced-failure test is deferred until after a natural successful Monday run is confirmed; it will be authorized separately.
+
+## Item 3 — Close Item 1 evidence gaps from last report
+1. Paste raw `SELECT MAX(scan_date) FROM polygon_rvol_scan;` — the report said "Friday 2026-08-01"; Aug 1 is Saturday. State plainly which day's rows produced the 32 candidates.
+2. Paste sha256sum of `artifacts/stock-scanner-api/main.py` as it exists now at commit 6282ff6 (before-hash unavailable is acceptable — say so in one line).
+
+## Item 4 — Sunday-night readiness check (run 2026-08-02 evening)
+Paste raw output only:
+1. `pgrep -fa python` — confirm main.py, aiem_options_scheduler.py, aiem_strat_scheduler.py, aiem_process.py all running.
+2. `curl -s localhost:5053/health` — commit_match must be true.
+3. `git rev-parse HEAD` + `git status --porcelain` — must be 6282ff6-or-later and clean.
+4. For each scheduler: the registered job list with next-fire times in ET, confirming Monday-morning jobs are scheduled at the correct ET times.
+5. `SELECT MAX(scan_date) FROM polygon_rvol_scan;` and `SELECT MAX(scan_date) FROM options_structure_scan;` — state whether Monday's pipeline has the upstream data path it needs.
+
+## Item 5 — Monday morning evidence capture (no intervention)
+Do not touch anything Monday morning. After 12:00 ET, paste raw:
+1. `SELECT COUNT(*), MIN(created_at), MAX(created_at) FROM aiem_predictions WHERE prediction_date='2026-08-03';`
+2. `SELECT last_success, last_attempt, last_error, consecutive_failures FROM job_heartbeats WHERE job_name='aiem_morning_scan';` — last_success must reflect real completion, not thread launch.
+3. OE: today's `daily_pipeline_runs` row + candidate/trade counts.
+4. ASE: startup-kick log lines from the new workflow + whatever it seeded/evaluated.
+5. If anything failed: paste the raw traceback/log immediately, change nothing without approval.
+
+## Accepted
+Single squashed commit 6282ff6 for the prior 4 items is accepted as a known git_autosync_daemon limitation. No action.
+
+## Standing rules (apply to all items)
+Raw output only, no narrative claims — grep/sed with line numbers for any code claim, exact SQL + full result set for any DB claim. No deletions/truncations/overwrites of any data without explicit approval. If evidence cannot be produced, say so in one line. TLA gate applies to the .replit change.
