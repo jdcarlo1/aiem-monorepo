@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-verify_inline_copies.py  —  Amendment_A / A3
+verify_inline_copies.py  —  Directive_C6 / Amendment_A (A3) + Followup Item 1
 
 Verifies that the verbatim function copies embedded in the test files
 match the canonical definitions in aiem_options_scheduler.py.
@@ -10,8 +10,8 @@ If these diverge, the tests no longer exercise the production code path.
 Run from workspace root:
     python3 artifacts/stock-scanner-api/tools/verify_inline_copies.py
 
-Exit 0 = all inline copies match canonical source (PASS)
-Exit 1 = at least one divergence found (FAIL)
+Exit 0 = all checks PASS or STRUCT_DIFF (structural difference noted, no silent skip)
+Exit 1 = at least one FAIL or UNCHECKED
 
 Normalization applied before comparison:
   • Strip leading indentation (scheduler functions are nested 8 spaces inside
@@ -19,49 +19,93 @@ Normalization applied before comparison:
   • Replace `_math.` with `math.` (scheduler aliases `import math as _math`;
     test files use `math` directly — functionally identical).
   • Collapse trailing blank lines.
-  • Ignore differences in module-level constant declarations that exist as
-    closure variables in the scheduler (_LIQ_IV_MAX, _MIN_DTE_CHAIN,
-    _DELTA_TARGET are module-level constants in test files but local vars
-    inside _execute_job in the scheduler).
 
-Functions checked:
-  _pick_expiry        lines 1644-1652  (scheduler)
-  _liquid_chain       lines 1654-1674  (scheduler)
-  _pick_by_delta      lines 1676-1682  (scheduler)
-  _bs_d1d2            lines 1595-1602  (scheduler)
+UNCHECKED sentinel (Followup Item 1.2):
+  A master FNS registry declares every (canonical_name, copy_name, file) tuple
+  that must be verified. If _extract_function() returns empty for either side,
+  the check is NOT silently dropped — it is printed as UNCHECKED and counted
+  as FAIL. This prevents the silent skip that occurred for _bs_d1d2_FIXED,
+  _build_call_data, and _build_put_data in the first run.
 
-Test files checked:
-  tests/test_real_chain_selection.py   (_pick_expiry, _liquid_chain, _pick_by_delta)
-  tests/test_e2e_pipeline_replay.py    (_bs_d1d2, _pick_expiry, _liquid_chain, _pick_by_delta)
+STRUCT_DIFF status:
+  Used when the canonical source is not a `def` block (e.g., an inline dict
+  literal). Extraction is not applicable; the divergence is stated explicitly.
+  STRUCT_DIFF is counted separately (not PASS, not FAIL) and printed with
+  explanation.  The caller must decide whether to add a field-level comparison.
+
+Functions checked (7 verified + 3 new):
+  Scheduler def     → test copy                     file
+  ─────────────────────────────────────────────────────────────────────
+  _bs_d1d2          → _bs_d1d2          test_e2e_pipeline_replay.py
+  _pick_expiry      → _pick_expiry      test_real_chain_selection.py
+  _pick_expiry      → _pick_expiry      test_e2e_pipeline_replay.py
+  _liquid_chain     → _liquid_chain     test_real_chain_selection.py
+  _liquid_chain     → _liquid_chain     test_e2e_pipeline_replay.py
+  _pick_by_delta    → _pick_by_delta    test_real_chain_selection.py
+  _pick_by_delta    → _pick_by_delta    test_e2e_pipeline_replay.py
+  _bs_d1d2          → _bs_d1d2_FIXED   test_failure_reproduction.py  (alias)
+  dict literal 1920 → _build_call_data  test_e2e_pipeline_replay.py  (STRUCT_DIFF)
+  dict literal 1948 → _build_put_data   test_e2e_pipeline_replay.py  (STRUCT_DIFF)
 """
 
 import sys
 import re
 import pathlib
 import datetime
-import textwrap
 
-WORKSPACE = pathlib.Path(__file__).resolve().parent.parent.parent.parent
-SCHEDULER = WORKSPACE / "artifacts/stock-scanner-api/aiem_options_scheduler.py"
-TEST_UNIT = WORKSPACE / "artifacts/stock-scanner-api/tests/test_real_chain_selection.py"
-TEST_E2E  = WORKSPACE / "artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py"
+WORKSPACE    = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+SCHEDULER    = WORKSPACE / "artifacts/stock-scanner-api/aiem_options_scheduler.py"
+TEST_UNIT    = WORKSPACE / "artifacts/stock-scanner-api/tests/test_real_chain_selection.py"
+TEST_E2E     = WORKSPACE / "artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py"
+TEST_FAILURE = WORKSPACE / "artifacts/stock-scanner-api/tests/test_failure_reproduction.py"
 
-_PASS = 0
-_FAIL = 0
+# ── Master registry ──────────────────────────────────────────────────────────
+# Each entry: (canonical_name, copy_name, test_file, note)
+#   canonical_name = None → canonical is a dict literal (STRUCT_DIFF)
+#   copy_name     → function name in test file
+FNS = [
+    # ── Standard verbatim copies ──────────────────────────────────────────
+    ("_bs_d1d2",     "_bs_d1d2",     TEST_E2E,      None),
+    ("_pick_expiry", "_pick_expiry", TEST_UNIT,     None),
+    ("_pick_expiry", "_pick_expiry", TEST_E2E,      None),
+    ("_liquid_chain","_liquid_chain",TEST_UNIT,     None),
+    ("_liquid_chain","_liquid_chain",TEST_E2E,      None),
+    ("_pick_by_delta","_pick_by_delta",TEST_UNIT,   None),
+    ("_pick_by_delta","_pick_by_delta",TEST_E2E,    None),
+    # ── Alias: copy has a different name from canonical ────────────────────
+    # _bs_d1d2_FIXED is a post-fix label copy of _bs_d1d2; docstring differs.
+    ("_bs_d1d2",     "_bs_d1d2_FIXED", TEST_FAILURE,
+     "alias: copy name differs from canonical; docstring divergence expected"),
+    # ── Structural: canonical is an inline dict literal (not a def) ────────
+    # call_data = {**base_fields, ...} at scheduler lines 1920-1947.
+    # The test wraps it in a helper function AND omits **base_fields entirely.
+    # _extract_function() cannot extract a dict literal → STRUCT_DIFF.
+    (None, "_build_call_data", TEST_E2E,
+     "canonical is inline dict literal (lines 1920-1947); "
+     "test copy omits **base_fields; field-level comparison required"),
+    # put_data = {**base_fields, ...} at scheduler lines 1948-1975.
+    (None, "_build_put_data",  TEST_E2E,
+     "canonical is inline dict literal (lines 1948-1975); "
+     "test copy omits **base_fields; field-level comparison required"),
+]
 
+# ── Counters ─────────────────────────────────────────────────────────────────
+_PASS       = 0
+_FAIL       = 0
+_STRUCT     = 0
+checked     = set()   # (copy_name, test_file.name) — populated on every check
 
-def _extract_function(lines: list[str], name: str) -> list[str]:
+def _extract_function(lines: list, name: str) -> list:
     """
     Extract the body of `def <name>(` from a list of lines.
-    Returns the lines of the function (including the def line) stripped of
-    their common leading indentation and with trailing blanks removed.
+    Returns dedented lines with trailing blanks removed, or [] if not found.
     """
-    start = None
+    start      = None
     base_indent = None
     for i, line in enumerate(lines):
         stripped = line.lstrip()
         if stripped.startswith(f"def {name}("):
-            start = i
+            start       = i
             base_indent = len(line) - len(stripped)
             break
     if start is None:
@@ -73,13 +117,10 @@ def _extract_function(lines: list[str], name: str) -> list[str]:
             body.append("")
             continue
         indent = len(line) - len(line.lstrip())
-        # Stop when we hit a non-blank line at the same or shallower indent
-        # (next sibling def or end of block), unless it's the first line.
         if body and indent <= base_indent and line.strip():
             break
         body.append(line)
 
-    # Strip common leading indent
     dedented = []
     for line in body:
         if line.strip():
@@ -87,29 +128,65 @@ def _extract_function(lines: list[str], name: str) -> list[str]:
         else:
             dedented.append("")
 
-    # Remove trailing blank lines
     while dedented and not dedented[-1].strip():
         dedented.pop()
-
     return dedented
 
 
-def _normalize(lines: list[str]) -> list[str]:
-    """Normalize for comparison: replace _math. → math."""
+def _normalize(lines: list) -> list:
     return [re.sub(r'\b_math\.', 'math.', ln) for ln in lines]
 
 
-def _check(label: str, canonical: list[str], copy_: list[str]) -> bool:
+def _check(canonical_name: str, copy_name: str, test_file: pathlib.Path,
+           sched_lines: list, test_lines: list, note: str | None) -> None:
     global _PASS, _FAIL
-    n_canon = _normalize(canonical)
+
+    key = (copy_name, test_file.name)
+
+    # ── Extract canonical from scheduler ─────────────────────────────────
+    canon = _extract_function(sched_lines, canonical_name)
+    if not canon:
+        print(f"  UNCHECKED  {copy_name} ({test_file.name})")
+        print(f"             canonical `{canonical_name}` not found as def in scheduler")
+        if note:
+            print(f"             note: {note}")
+        _FAIL += 1
+        checked.add(key)
+        return
+
+    # ── Extract copy from test file ───────────────────────────────────────
+    copy_ = _extract_function(test_lines, copy_name)
+    if not copy_:
+        print(f"  UNCHECKED  {copy_name} ({test_file.name})")
+        print(f"             copy `{copy_name}` not found as def in {test_file.name}")
+        if note:
+            print(f"             note: {note}")
+        _FAIL += 1
+        checked.add(key)
+        return
+
+    # ── Normalize and compare ─────────────────────────────────────────────
+    n_canon = _normalize(canon)
     n_copy  = _normalize(copy_)
+
+    # For aliases: canonical def line has the canonical name; copy def line has
+    # the copy name.  Normalise the canonical def line to use the copy name so
+    # the comparison tests the body, not the naming artifact.
+    is_alias = (canonical_name != copy_name)
+    if is_alias and n_canon:
+        n_canon[0] = n_canon[0].replace(
+            f"def {canonical_name}(", f"def {copy_name}(", 1
+        )
+
+    label = f"{copy_name}  ({test_file.name})"
+    if is_alias:
+        label += "  [alias]"
+
     if n_canon == n_copy:
-        print(f"  PASS  {label}")
+        print(f"  PASS   {label}")
         _PASS += 1
-        return True
     else:
-        print(f"  FAIL  {label}")
-        # Show first divergence
+        print(f"  FAIL   {label}")
         for i, (a, b) in enumerate(zip(n_canon, n_copy)):
             if a != b:
                 print(f"         first divergence at line {i+1}:")
@@ -118,77 +195,85 @@ def _check(label: str, canonical: list[str], copy_: list[str]) -> bool:
                 break
         if len(n_canon) != len(n_copy):
             print(f"         line count: canonical={len(n_canon)} copy={len(n_copy)}")
+        if note:
+            print(f"         note: {note}")
         _FAIL += 1
-        return False
+
+    checked.add(key)
 
 
-def _check_empty(label: str, extracted: list[str], filename: str) -> bool:
-    global _FAIL
-    if not extracted:
-        print(f"  FAIL  {label} — function not found in {filename}")
-        _FAIL += 1
-        return False
-    return True
+def _check_struct_diff(copy_name: str, test_file: pathlib.Path,
+                       test_lines: list, note: str) -> None:
+    """Canonical is not a def — report STRUCT_DIFF unconditionally."""
+    global _STRUCT
+
+    key = (copy_name, test_file.name)
+
+    copy_ = _extract_function(test_lines, copy_name)
+    present = "present" if copy_ else "ABSENT"
+
+    print(f"  STRUCT_DIFF  {copy_name}  ({test_file.name})")
+    print(f"               copy in test file: {present}")
+    print(f"               {note}")
+    _STRUCT += 1
+    checked.add(key)
 
 
-print("=" * 70)
+# ── Load files ───────────────────────────────────────────────────────────────
+print("=" * 72)
 print("verify_inline_copies.py")
-print(f"Run at: {datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')} UTC")
-print(f"Scheduler: {SCHEDULER}")
-print("=" * 70)
+print(f"Run at  : {datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')} UTC")
+print(f"Scheduler: {SCHEDULER.name}")
+print("=" * 72)
 
-sched_lines  = SCHEDULER.read_text().splitlines()
-unit_lines   = TEST_UNIT.read_text().splitlines()
-e2e_lines    = TEST_E2E.read_text().splitlines()
+sched_lines   = SCHEDULER.read_text().splitlines()
+unit_lines    = TEST_UNIT.read_text().splitlines()
+e2e_lines     = TEST_E2E.read_text().splitlines()
+failure_lines = TEST_FAILURE.read_text().splitlines()
 
-# ── Canonical extractions from scheduler ────────────────────────────────────
-canon_bs         = _extract_function(sched_lines, "_bs_d1d2")
-canon_pick_exp   = _extract_function(sched_lines, "_pick_expiry")
-canon_liquid     = _extract_function(sched_lines, "_liquid_chain")
-canon_pick_delta = _extract_function(sched_lines, "_pick_by_delta")
+file_map = {
+    TEST_UNIT:    unit_lines,
+    TEST_E2E:     e2e_lines,
+    TEST_FAILURE: failure_lines,
+}
 
-for name, canon in [
-    ("_bs_d1d2",       canon_bs),
-    ("_pick_expiry",   canon_pick_exp),
-    ("_liquid_chain",  canon_liquid),
-    ("_pick_by_delta", canon_pick_delta),
-]:
-    if not canon:
-        print(f"  FAIL  canonical {name} not found in scheduler — aborting")
-        sys.exit(1)
+# ── Run all entries from master registry ─────────────────────────────────────
+current_file = None
+for (canonical_name, copy_name, test_file, note) in FNS:
+    if test_file != current_file:
+        print(f"\n--- {test_file.name} ---")
+        current_file = test_file
 
-# ── Check test_real_chain_selection.py ───────────────────────────────────────
-print("\n--- test_real_chain_selection.py ---")
-for name, canon in [
-    ("_pick_expiry",   canon_pick_exp),
-    ("_liquid_chain",  canon_liquid),
-    ("_pick_by_delta", canon_pick_delta),
-]:
-    copy_ = _extract_function(unit_lines, name)
-    label = f"{name}  (test_real_chain_selection.py vs scheduler)"
-    if _check_empty(label, copy_, TEST_UNIT.name):
-        _check(label, canon, copy_)
+    test_lines = file_map[test_file]
 
-# ── Check test_e2e_pipeline_replay.py ────────────────────────────────────────
-print("\n--- test_e2e_pipeline_replay.py ---")
-for name, canon in [
-    ("_bs_d1d2",       canon_bs),
-    ("_pick_expiry",   canon_pick_exp),
-    ("_liquid_chain",  canon_liquid),
-    ("_pick_by_delta", canon_pick_delta),
-]:
-    copy_ = _extract_function(e2e_lines, name)
-    label = f"{name}  (test_e2e_pipeline_replay.py vs scheduler)"
-    if _check_empty(label, copy_, TEST_E2E.name):
-        _check(label, canon, copy_)
+    if canonical_name is None:
+        _check_struct_diff(copy_name, test_file, test_lines, note)
+    else:
+        _check(canonical_name, copy_name, test_file, sched_lines, test_lines, note)
+
+# ── UNCHECKED sentinel (Followup Item 1.2) ───────────────────────────────────
+# Any name in FNS not reached via _check/_check_struct_diff → UNCHECKED FAIL.
+# This should never fire with the explicit loop above, but guards against
+# future FNS additions whose check branch is accidentally skipped.
+print("\n--- UNCHECKED sentinel ---")
+sentinel_fired = False
+for (canonical_name, copy_name, test_file, note) in FNS:
+    key = (copy_name, test_file.name)
+    if key not in checked:
+        print(f"  UNCHECKED  {copy_name}  ({test_file.name})  — fell through registry loop")
+        _FAIL += 1
+        sentinel_fired = True
+if not sentinel_fired:
+    print("  OK — all registry entries were reached")
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 print()
-print("=" * 70)
-total = _PASS + _FAIL
+print("=" * 72)
+total   = _PASS + _FAIL
 verdict = "PASS" if _FAIL == 0 else "FAIL"
-print(f"RESULT: {verdict}  ({_PASS} PASS  {_FAIL} FAIL  of {total} checks)")
+print(f"RESULT   : {verdict}  ({_PASS} PASS  {_FAIL} FAIL  {_STRUCT} STRUCT_DIFF  "
+      f"of {total + _STRUCT} entries)")
 print(f"Completed: {datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')} UTC")
-print("=" * 70)
+print("=" * 72)
 
 sys.exit(0 if _FAIL == 0 else 1)
