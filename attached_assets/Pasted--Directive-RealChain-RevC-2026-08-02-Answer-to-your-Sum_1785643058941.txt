@@ -1,0 +1,123 @@
+# Directive_RealChain_RevC_2026-08-02
+
+Answer to your Summary question: **proceed with the build now.** The Item A gate re-runs Monday during trading hours before any commit. Reasoning below.
+
+---
+
+## MY ERROR — Item A withdrawn as designed
+
+Running a liquidity census on a Saturday was my mistake, not yours. `liquid=0` across all 10 is a market-hours artifact and you were right to stop rather than report it as a finding.
+
+Consequence: my Rev A/B framing that "the real chain is mostly dead — every contract has bid 0.0 and `liquid: false`" is **withdrawn**. That was weekend data in Steps 1.2/1.3 and I read it as a liquidity problem. It is not evidence of anything. The open question — whether liquid contracts exist near 0.35 delta at 5 DTE — is unanswered, not answered badly.
+
+---
+
+## ACCEPTED
+
+- **Item B** — resolved cleanly. Line 1643 at indent=8 is `_execute_job` body; `_bs_invert_delta_strike` body is indent=12; 1643 sits after its closing return. Insertion point confirmed. Your correction of your own "no intervening def" phrasing is exactly the right level of precision.
+- **Item D loop direction** — LAST match wins, no `break`. Confirmed from the raw paste.
+- **Item E** — `capture_trade_record` reachable from `_execute_job` via line 2563; 3807 is the synthetic path. So `capital_efficiency = 0.60` is written on every live trade record. `0.8` at lines 1810/1830 has no documented origin. Same status as 0.40/0.85.
+- **Item F** — NEE clarified: real chain carries both 87.5 and 88.0, so the exchange uses $0.50 increments near ATM where the `_sinc` grid applied $1.00. That is a concrete instance of the grid being wrong, independent of everything else. `31efe8df` correctly left unattributed.
+
+---
+
+## DECISION — build now
+
+The selection logic is deterministic and fully testable against fixture data. Writing it Monday during trading hours puts new code and a live market window in the same hour, which is worse. Build and test today; validate against the live chain Monday.
+
+**Rev B Item C opened with "Only if Item A shows liquid contracts exist." That precondition is lifted for the build step only.** Item A returned 0 for a calendar reason, not a data reason, so it is not evidence against building. It still gates the commit.
+
+**Nothing commits until the Monday Item A census passes.** That gate stands.
+
+---
+
+## ITEM H — Build Items C and D, then fixture tests
+
+Build exactly as specified in Rev B Items C and D, with two changes:
+
+**H1.** Make the tie-break deterministic. Replace `_pick_by_delta` with:
+
+```python
+def _pick_by_delta(cands, target):
+    return min(
+        cands,
+        key=lambda c: (abs(abs(c.get("delta") or 0.0) - target),
+                       float(c.get("strike") or 0.0)),
+    )
+```
+
+Without the strike tiebreak, two contracts equidistant from target resolve by list order — non-deterministic across runs.
+
+**H2.** Do **not** use the existing `"liquid"` field for selection. Your Item A paste shows it is `oi >= _MIN_OI and volume >= _MIN_VOLUME and spread_pct <= _MAX_SPREAD and mid > 0`. That embeds tradeability thresholds, which is precisely the gate-awareness the Rev B rules forbid in selection. My predicate tests data validity only. Both stay: mine selects, the existing gates reject. Keep them separate.
+
+**H3.** Write a fixture test suite against a hand-built chain list — no network, runnable today. Put it at `artifacts/stock-scanner-api/tests/test_real_chain_selection.py`. It is a new file, not protected, but do not commit it this round either.
+
+Cases 2–8 test `_liquid_chain` and `_pick_by_delta` directly — call the helpers, assert the return. Straightforward.
+
+Case 1 is different: the fail-closed branch lives inside `_execute_job` and cannot be invoked without a full job context. Do **not** refactor `_execute_job` to make it testable — that is a larger change than this round authorizes. Instead: assert `_liquid_chain([...all bid=0...], "call", exp) == []` as a unit test, then demonstrate the branch with a small standalone harness in the same test file that reproduces the `if not _cc:` block verbatim and asserts `call_strike is None` with no exception. Label it in the output as a harness, not the live path. If the harness and the real block ever diverge the test is worthless, so paste both side by side.
+
+Required cases, each asserted:
+
+| # | Fixture | Expected |
+|---|---|---|
+| 1 | all contracts `bid=0, ask=0` | `_liquid_chain` returns `[]`; harness fail-closed branch sets `call_strike = None`, no exception |
+| 2 | liquid deltas 0.20 / 0.34 / 0.55, target 0.35 | selects 0.34 |
+| 3 | liquid deltas 0.30 / 0.40 (equidistant), target 0.35 | selects the lower strike, and the same one when the input list order is reversed |
+| 4 | put deltas −0.33 / −0.38, target 0.35 | selects −0.33 (abs applied) |
+| 5 | `bid/ask > 0` but `iv = 4.3` | excluded |
+| 6 | `bid/ask > 0` but `delta = 0.0` | excluded |
+| 7 | correct type, wrong `expiration_date` | excluded |
+| 8 | nearest-to-target contract has `open_interest=0` and spread 0.9 | **still selected**, and the downstream gate rejects it — selection must not skip it |
+
+Case 8 is the one that matters. Paste the raw test output, pass/fail per case.
+
+**H4.** `_NO_CAND` remains the only substitution in this build. Bind it to the existing Item 4D no-candidate logging path, do not write a new logger, and paste the binding line plus the signature of the function you bound it to.
+
+**H5.** Do not commit. `aiem_options_scheduler.py` is protected and no Joel-issued TLA exists. Paste the full uncommitted `git diff`.
+
+---
+
+## ITEM I — Two reports
+
+**I1.** Print the values of `_MIN_OI`, `_MIN_VOLUME`, `_MAX_SPREAD` in `aiem_polygon_options_chain.py`, and state whether anything anywhere **filters** the returned chain on the `liquid` field (as opposed to just reading it). If contracts are dropped upstream, selection never sees them and the census is measuring the wrong population.
+
+**I2.** `_bs_invert_delta_strike` contains `return S * 1.025  # fallback: 2.5% OTM` when `sig <= 0 or T <= 0 or S <= 0`. Report: how often did that fallback fire in the last 10 days? It is being deleted with the block, but I want to know whether past recorded strikes came from it. If the logs do not record this, say "not answerable from logs" and stop — do not estimate, infer, or reconstruct it.
+
+**I3.** Save the Item A census as a re-runnable script at `artifacts/stock-scanner-api/tools/liquidity_census.py`, taking the ticker list and min-DTE as arguments and printing the exact Item A output format. Monday's run must be one command, not code written under time pressure at 10 AM. Paste the file.
+
+---
+
+## ITEM J — New finding, sign convention
+
+From your Item D raw paste, lines ~1697–1750:
+
+```
+call_delta_bs = round(abs(float(_grk["delta"])), 4)
+put_delta_bs  = round(float(_grk["delta"]), 4)          # no abs()
+put_probability_itm = round(abs(float(_grk["delta"])), 4)
+```
+
+`call_delta_bs` is stored positive; `put_delta_bs` is stored **signed negative**. `put_probability_itm` takes abs, `put_delta_bs` does not.
+
+Report, do not fix:
+1. Every downstream consumer of `put_delta_bs` — `grep -rn "put_delta_bs"`. Paste raw.
+2. For each, does it compare against a positive threshold or take abs first? A negative delta compared against a `>= 0.35` gate fails unconditionally.
+3. Is this the same reason the put leg has historically failed to trade?
+
+---
+
+## ITEM K — Monday sequence
+
+In this order, during trading hours, before any commit:
+
+1. Re-run Item A census live. Same predicate, same output format. Paste raw.
+2. If liquid contracts exist near 0.35 delta: dry-run the new selection against the live chain for all 5 tickers. Print selected strike, delta, bid, ask, mid, spread per leg. **No commit, no push, no pipeline change.**
+3. Stop and report.
+
+Do not run any of this before 09:30 ET. If it collides with the 09:40 pipeline run, run it after 10:00 instead.
+
+---
+
+## Evidence required
+
+Raw test output for H3. Full uncommitted `git diff` for H. Raw greps for I1 and J. No commits, no TLA self-issue, no push.
