@@ -1,0 +1,36 @@
+{
+  "exception_id": "CHAIN-OVERWRITE-ALERTS-1-25",
+  "created_at": "2026-08-01T00:00:00Z",
+  "status": "ACCEPTED_RISK",
+  "affected_table": "aiem_options_alerts",
+  "affected_rows": "alert_id 1 through 25 (all rows as of 2026-08-01)",
+  "affected_columns": ["stage_hashes.1_polygon", "stage_hashes.2_stock_analysis",
+                       "stage_hashes.3_options_analysis", "stage_hashes.4_risk_gates",
+                       "stage_hashes.5_req6_scoring", "stage_hashes.6_decision"],
+  "what_happened": {
+    "root_cause": "All 25 alerts (created 2026-07-16 to 2026-07-17) were written by a pre-commit version of capture_trade_record() that used pmd schema {close_price, open_price, vwap, close_strength, scan_date} (5 fields). Current pipeline schema uses {scan_date, close, vwap, rvol, close_strength, range_pct} (6 fields). No combination of key names or payload structures reproduced the stored h1 from snapshot data. Original hash inputs are permanently irrecoverable.",
+    "session_a_action": {
+      "commit": "fd2e199d12996e03afc0856ee0c6ebd83675c5e5",
+      "date": "2026-07-30T16:10:11Z",
+      "what": "repair_chain_snapshots.py rewrote stage_hashes[1_polygon through 6_decision] for all 25 alerts using CURRENT polygon_market_daily + options_structure_scan data (not original decision-time data). Stages 7-10 and audit_chain_sha256 left intact.",
+      "then": "Commit a15eca8 (2026-07-30T16:38Z) deleted repair_chain_snapshots.py, added it to .gitignore, reverted pipeline INSERT to ON CONFLICT DO NOTHING"
+    },
+    "session_b_action": {
+      "date": "2026-08-01",
+      "committed": false,
+      "what": "aiem_options_alert_snapshots.polygon_data and oss_data rewritten for all 25 rows using pipeline-exact field structure ({scan_date, close, vwap, rvol, close_strength, range_pct}) read from current polygon_market_daily"
+    }
+  },
+  "verify_chain_sh_status": {
+    "result": "25/25 PASS, 12/12 checks each",
+    "what_pass_means": "Internal self-consistency between Session A's stage_hash rewrite and Session B's snapshot rewrite. PASS does NOT mean original decision-time data is preserved or verifiable.",
+    "what_pass_does_not_mean": "Original 2026-07-16/17 data integrity is not confirmed. polygon_market_daily had no captured_at column at the time; it is impossible to determine whether rows reflect intraday or EOD data."
+  },
+  "does_not_affect": [
+    "aiem_paper_trades (separate table, separate execution path)",
+    "live order execution (none exists)",
+    "stage_hashes keys 7_alert, 8_db_write, 9_learning, 10_audit_chain_final (presence-only checks, not touched)",
+    "audit_chain_sha256 (not touched)"
+  ],
+  "forward_fix": "polygon_market_daily.captured_at TIMESTAMPTZ column added 2026-08-01. All future inserts record exact write time. Existing rows backfilled with sentinel 1970-01-01T00:00:00Z to make the historical gap explicit."
+}

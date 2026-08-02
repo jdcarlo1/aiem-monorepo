@@ -1,0 +1,30 @@
+# Directive: Protected-File Audit System — Raw Evidence Required
+
+Your report (26 rows: 3 NO-TLA / 13 TLA-OK / 10 PRE-GATE, "confirmed complete") is a narrative claim. Nothing is accepted until each item below is backed by raw output.
+
+## 1. Classification logic
+- `grep -n` (not paraphrase) the exact function that computes the ±120s window + file-overlap match against `trading_logic_approvals.jsonl`
+- Negative control: construct one synthetic commit that should NOT match any approval record — show it lands as NO-TLA, not silently TLA-OK
+- Mutation check: temporarily corrupt one known-good approval record's timestamp outside the window — confirm the previously-TLA-OK commit now flips to NO-TLA
+
+## 2. Completeness of the 26-row set
+- Raw `git log --author=agent@replit.com` output (not summarized) for the full 48h window, with row count
+- Raw SQL: `SELECT * FROM autosync_protected_file_log` full result set (all 26 rows), not the summary you already pasted
+- Confirm `ON CONFLICT (commit_sha) DO NOTHING` idempotency: run the script a second time against the same window, paste output showing 0 new rows inserted
+
+## 3. The 3 NO-TLA / baseline=True exemption
+- For each of the 3: raw `git show <sha>` confirming the commit actually is what you claim (scheduler auth gate, subprocess discovery, main.py wiring) — not just the commit message
+- State explicitly why these are exempt vs a 4th future gate-adjacent commit would not be
+
+## 4. Telegram alert claim
+- Raw evidence the alert was actually sent (API response or log line), not just "alert was sent"
+
+## 5. File integrity
+- sha256 before/after for `tools/autosync_protected_file_audit.py` (new — before=n/a), `aiem_options_scheduler.py`, `main.py`
+- `git diff HEAD --stat` output only
+- Cross-check current `tools/verified_run.sh` / `tools/verify_chain.sh` sha256 against pinned canonicals (dce94f6e...826 / 4804b547...e12) — mismatch = reject regardless of chain content
+
+## 6. Data immutability
+- Confirm no existing row/file was deleted or overwritten in building this — if anything was, state what + your approval basis before proceeding
+
+State plainly if any item can't be evidenced — no padding. "PASS" is not to be used unless every item above clears with raw output.

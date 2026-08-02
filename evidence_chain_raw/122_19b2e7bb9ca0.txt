@@ -1,0 +1,8 @@
+9267fee Document TLA enforcement requirement in main.py [TLA-76c2a9b0]
+9ca8324 Initialize git autosync logs file
+3805dc7 Add pre-push TLA gate to autosync daemon
+f406b23 Update trading logic approvals and attach relevant bypass directive documentation
+8fb7c20 Wire record_job_success into aiem_paper_v3_discovery success path [TLA-4c134ce7]
+057f5fc Implement daily scheduler logic and update artifact configuration with migration documentation
+c71d415 Document database environment parity findings in memory logs
+037f09d Implement stock scanner logic and add production database documentation

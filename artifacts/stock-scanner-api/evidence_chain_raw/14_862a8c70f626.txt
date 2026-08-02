@@ -1,0 +1,4 @@
+GATE FIRED: [test_trace_item2] module=chain_data ticker=SIM_TICKER status=MISSING field=atm_iv source_ts=2026-08-02T16:57:12.447129Z — INSUFFICIENT_DATA; aborting job
+Case A atm_iv=None  proceed=False verdict=INSUFFICIENT_DATA
+Case B atm_iv=0.28  proceed=True verdict=PROCEED
+NEGATIVE_CONTROL: PASS

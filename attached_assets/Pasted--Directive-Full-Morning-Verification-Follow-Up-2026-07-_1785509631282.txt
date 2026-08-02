@@ -1,0 +1,25 @@
+# Directive: Full Morning Verification Follow-Up — 2026-07-31
+
+Reviewed your 5-part report. Two real bugs, one unresolved logical contradiction, one unproven claim, one deployment-sync issue. Fix in this order.
+
+## 1. aiem_independent_scan / aiem_v3_discovery — broken, has NEVER once succeeded
+- last_error: `name '_run_aiem_independent_scan' is not defined`
+- last_success = None across its entire lifetime (not just today)
+- This is a dead feature, not a data condition. Fix the broken reference, then prove one real successful run with raw output (function exists, executes, writes a row).
+
+## 2. git-autosync DIVERGED — local ahead of/out of sync with GitHub remote
+- local=9df59b7, remote=30f8191874e7, action=DIVERGED, repeating every 60s since 14:39 UTC
+- This is separate from the commit-hash-on-boot check (which matched fine). Explain root cause of the divergence and show it resolved (autosync back to synced state), not just "still diverging."
+
+## 3. Unresolved contradiction — catch-up fired BEFORE the scheduled time
+- scheduled_time = 13:42 UTC, actual_start = 13:20:38 UTC (22 min *earlier*)
+- A misfire catch-up recovering a run before it's even due doesn't make sense as described. Either the catch-up logic is firing on the wrong condition, or "scheduled_time" here isn't what it claims to be. Explain the actual trigger logic with raw code, don't just restate the timestamps.
+
+## 4. Unproven: schedule_integrity_check / polygon_canary_check / morning_diagnostic.py
+- All three were reportedly built and forced-tested previously, but today's report shows zero live evidence any of them fired on their own schedule (empty/missing tables, no log output).
+- Confirm plainly: are these actually scheduled to run unattended, or only proven via forced tests so far? If scheduled, show the cron/scheduler config wiring them in. If not yet wired in, say so — don't leave it ambiguous.
+
+## Not asking for follow-up on
+- Options Engine's 55-min late start and premarket_scan's silent 0-result failure — same class as the recurring workflow-restart-lag issue already tracked. Add basic error-text logging to premarket_scan next time you're in that file, but no dedicated round needed.
+
+Raw evidence required for items 1-4, per standing protocol.

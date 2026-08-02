@@ -1,0 +1,91 @@
+# STRICT PRODUCTION VERIFICATION — NULL HANDLING & FAIL-SAFE AUDIT
+
+Do NOT answer with assumptions, explanations, estimates, or summaries.
+
+If you CANNOT prove a claim with production evidence, DO NOT answer that item.
+
+Every PASS requires:
+
+• Production code path
+• Source file + function
+• Live terminal execution
+• Production database evidence (if applicable)
+• Full untruncated SHA-256 verification chain
+• Raw evidence only (no narrative)
+• End-to-end traceability
+• Cryptographic evidence chain
+• Independent verification
+• PASS / FAIL / NOT IMPLEMENTED only
+
+No screenshots.
+No mock data.
+No synthetic data.
+No inferred behavior.
+
+--------------------------------------------------------
+
+Verify with live production evidence:
+
+1. When Stage 7 rejects all contracts, does the pipeline terminate cleanly with NO TRADE, or intentionally continue to Stages 8–11?
+
+2. Why are call_strike=None and put_strike=None allowed downstream? Is this intentional design or a software defect?
+
+3. Why does the Risk Engine execute when no executable contract exists?
+
+4. Show the exact production code that caused:
+   None <= int
+
+5. Show the production fix and prove it with before/after execution.
+
+6. Verify that every expected NO TRADE condition completes without exception:
+   • No liquidity
+   • Zero bid/ask
+   • Empty option chain
+   • Missing Greeks
+   • Missing IV
+   • Invalid strike
+   • Stale market data
+
+7. Verify Governance executes correctly for:
+   • BUY
+   • SELL
+   • NO TRADE
+
+8. Explain C5 Rule 4 using production code and prove why it failed to prevent the crash.
+
+9. Search the production codebase for every remaining nullable comparison or arithmetic operation that could produce similar failures.
+
+10. Perform a complete end-to-end production verification proving:
+    Candidate → Market Data → Liquidity → Strike Selection → Greeks → Probability → Risk → Governance → Final Decision
+
+--------------------------------------------------------
+
+Evidence Requirements
+
+Every conclusion must include:
+
+• Source file
+• Function
+• Live execution trace
+• Raw terminal output
+• SQL/DB evidence (if applicable)
+• Full SHA-256 hashes (untruncated)
+• Immutable verification chain
+• Independent evidence for every claim
+
+If any requirement cannot be produced, mark that item:
+
+NOT VERIFIED
+
+Do not estimate.
+Do not infer.
+Do not explain.
+
+Output only:
+
+PASS
+FAIL
+NOT VERIFIED
+NOT IMPLEMENTED
+
+supported by raw production evidence.

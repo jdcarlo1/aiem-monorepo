@@ -1,0 +1,23 @@
+# Directive_Item95_CloseoutProof_2026-07-30
+
+Item #95 (scheduler false-error logging) is NOT PASS. Two things outstanding:
+
+1. Live confirmation was never captured — session ended saying "next integrity check at 23:45 UTC will confirm," not that it did.
+2. The 5 commits with the fix are staged locally only — git push to `main` failed on branch protection. Fix is not in the remote repo.
+
+## Required before Item #95 can be marked PASS or closed
+
+1. Paste the raw 23:45 UTC (or next available) scheduler log line showing the integrity check ran clean — no `status='success'` / no `job_heartbeats.status` error. If it has not run yet, say so explicitly — do not restate PASS until it has.
+2. Resolve the git push: either (a) push to `main` through the correct process (PR, approved merge, whatever `main`'s branch protection requires), or (b) state explicitly why it can't be pushed and what branch/state the fix is actually running from. Confirm the fix is durable across a restart — i.e., the running process's code and the repo's `main` HEAD are NOT out of sync.
+3. `git log -1 --format=%H` on `main` after the push, plus `git status --porcelain` (must be clean).
+4. sha256 of the file(s) actually changed for this fix (job_heartbeats column fix) — before/after.
+5. One raw grep confirming the fixed code (using `last_success`/`last_attempt`/`consecutive_failures`, not `status`) is what's actually running, not just what's committed.
+
+## Standing checklist (applies in full, no abbreviated subset)
+- Raw terminal output only — no narrative "fixed"/"confirmed" claims without pasted evidence
+- sha256 before/after for any changed file this round
+- Raw SQL + full result set for any DB check
+- verified_run.sh / verify_chain.sh sha256 cross-check against canonical, pasted
+- No deletion/truncation of any row/table/file without prior explicit approval
+- Permanent record file required only once this actually closes — not yet
+- "PASS" reserved for nothing-outstanding, fully-verified state only — anything short of that gets labeled "cleared to proceed" or "partial," not PASS

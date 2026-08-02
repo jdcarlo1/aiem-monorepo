@@ -1,0 +1,25 @@
+# Directive — System of Record + Prod DB Visibility + Monday Bridge
+Date: 2026-08-01. Report-only unless marked AUTHORIZED. Every proof from now on must state WHICH DB it hit (dev/prod).
+
+## Item 1 — System of record: which process actually trades? (report only)
+The dev/prod DB split makes this the deciding question. For EACH scheduler (stock-api/main.py, aiem_options_scheduler, aiem_strat_scheduler, aiem-process):
+1. State where it runs: workspace workflow, GCE deployment, or both.
+2. State which DATABASE_URL that process resolves → dev or prod DB.
+3. Prove where trading output lands: `SELECT MAX(created_at) FROM aiem_paper_trades` and latest oe jobs/daily_pipeline_runs rows in the DEV DB, and (once Item 2 exists) the same in PROD. Whichever DB receives new trades is the system of record.
+4. One-sentence conclusion: "Trading system = <process> writing <db>."
+
+## Item 2 — AUTHORIZED: read-only prod diagnostic endpoint
+Prod DATABASE_URL is unreadable from the workspace, so build visibility into the prod app itself:
+1. Add `GET /admin/preflight` to main.py. Require header `X-Diag-Token` matching env DIAG_TOKEN (set a new random token in deployment secrets; never print it in logs).
+2. Endpoint runs read-only queries and returns JSON: MAX(scan_date) from polygon_rvol_scan and polygon_market_daily; today's owner_email_log rows; job_heartbeats (job, last_success); last 5 process_lifecycle_log rows; boot commit sha.
+3. SELECT-only. No writes, no query params that alter SQL.
+4. Evidence: code sed of the route, then after prod redeploy (Item 4 of prior directive) a live curl against stocksai.com showing prod JSON — and the same curl against the dev workflow port for side-by-side dev vs prod state.
+
+## Item 3 — If workflows are the trading system: migration plan (PLAN ONLY)
+Workspace workflows boot mid-day (10:57 AM, 11:39 AM) — they are dead at 8:35 AM unless the workspace is open. If Item 1 concludes trading runs in workflows, that IS the 10-day morning root cause. Deliver a plan (no build without approval): move the schedulers into the Reserved VM deployment (or a Replit Scheduled Deployment), which process hosts which jobs, which DB becomes canonical, migration steps, rollback. Include what happens to the dev DB history.
+
+## Item 4 — Monday bridge (report only)
+State exactly what keeps every required process alive Monday 8:00–12:00 ET as things stand today: the GH keepalive covers the PROD app only — what, if anything, wakes the workspace workflows at 8:35 AM if Joel's workspace is closed? If the honest answer is "nothing," say so plainly; do not improvise a fix without approval.
+
+## Reminder — still pending from prior directive
+Joel runs `python3 tools/issue_tla.py` → hands you the approval ID → commit/push main.py → prod redeploy → prod deployment-log fire showing the Telegram send line. Watchdog Item 1 closes only on that.

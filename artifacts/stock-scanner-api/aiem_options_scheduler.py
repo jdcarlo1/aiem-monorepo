@@ -33,6 +33,7 @@ import json
 import time
 import uuid
 import hashlib
+import hmac
 import logging
 import threading
 import subprocess
@@ -346,6 +347,30 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
                     SET last_attempt=NOW(), last_error=%s,
                         consecutive_failures=job_heartbeats.consecutive_failures + 1
                 """, (_HEARTBEAT_JOB_NAME, error or "unknown", error or "unknown"))
+            # Append-only attempt history — mirrors the job_attempt_log pattern
+            # in main.py record_job_success/failure so OE scheduler heartbeats
+            # are also queryable across time (not just current state).
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS job_attempt_log (
+                        id           BIGSERIAL    PRIMARY KEY,
+                        job_name     VARCHAR(120) NOT NULL,
+                        attempt_time TIMESTAMP    NOT NULL DEFAULT NOW(),
+                        status       VARCHAR(20)  NOT NULL
+                                     CHECK (status IN ('success', 'failure')),
+                        error_text   TEXT
+                    )
+                """)
+                cur.execute("""
+                    INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
+                    VALUES (%s, NOW(), %s, %s)
+                """, (
+                    _HEARTBEAT_JOB_NAME,
+                    'success' if success else 'failure',
+                    None if success else (error or "unknown"),
+                ))
+            except Exception as _jal_e:
+                log.debug(f"[heartbeat] job_attempt_log write skipped: {_jal_e}")
             conn.commit()
     except Exception as e:
         log.warning(f"[heartbeat] write failed: {e}")
@@ -375,6 +400,25 @@ def _compute_chain_hash(job_id: int, ticker: str, scan_date, trace_id: str,
     payload = f"{job_id}:{ticker}:{scan_date}:{trace_id or ''}:{direction}:{prev_hash}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCHEDULER STARTUP SELF-CHECK REGISTRY
+# ─────────────────────────────────────────────────────────────────────────────
+# Maps scheduler job-id → module-level function name for every job whose target
+# is a module-level function (not a local closure). Pre-start self-check uses
+# this to verify each name is still in globals() before the scheduler starts.
+# If a function is renamed/deleted, the job is removed so it cannot NameError.
+_OE_MODULE_JOB_TARGETS: dict[str, str] = {
+    "grade_outcomes":              "grade_outcomes_job",
+    "stale_recovery":              "recover_stale_jobs",
+    "sched_integrity_check":       "_schedule_integrity_check",
+    "polygon_canary_preopen":      "_polygon_canary_check",
+    "polygon_canary_preseed":      "_polygon_canary_check",
+    # Lambda target — classification_integrity_sweep calls this function directly.
+    # Adding it here ensures the startup self-check catches a rename/deletion
+    # before the scheduler starts accepting fires.
+    "classification_integrity_sw": "_validate_and_fix_pipeline_run_classifications",
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STALE JOB RECOVERY
@@ -607,13 +651,13 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
                             (ticker, scan_date, status, trigger_source)
                         VALUES (%s, %s, 'PENDING', 'daily_scheduler')
                         ON CONFLICT (ticker, scan_date) DO NOTHING
-                    """, (ticker, sd))
+                    """, (ticker, scan_date))
                     if cur.rowcount > 0:
                         seeded += 1
-                        log.info(f"[seed] seeded {ticker} {sd}")
+                        log.info(f"[seed] seeded {ticker} for {scan_date} (source OSS row {sd})")
                     else:
                         dupes += 1
-                        log.info(f"[seed] skip duplicate {ticker} {sd}")
+                        log.info(f"[seed] skip duplicate {ticker} for {scan_date} (source OSS row {sd})")
                 except Exception as ie:
                     log.warning(f"[seed] insert error {ticker}: {ie}")
 
@@ -1287,14 +1331,29 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                       f"pattern entries trace_id={trace_id}")
 
         # ── Stage OC: Real Polygon Options Chain ──────────────────────────────
+        # _NO_CAND: non-fatal snap to oe_indicator_snapshots via _rc;
+        # must be defined before the import block (C4 uses it on ImportError).
+        _NO_CAND = lambda reason, tkr, exp: _rc(   # noqa: E731
+            "EXEC", reason, None, sig="NEUTRAL",
+            txt=f"ticker={tkr} expiry={exp}")
+
         options_chain: dict   = {"calls": [], "puts": [], "contracts_total": 0}
         chain_strategies: list = []
         best_chain_strategy: dict | None = None
         contracts_evaluated = 0
         final_ccs = 0.0
         try:
-            import aiem_polygon_options_chain as _chain_mod
+            try:                                            # C4: fail-closed import
+                import aiem_polygon_options_chain as _chain_mod
+            except ImportError as _oc_imp_e:
+                _NO_CAND("CHAIN_IMPORT_FAILED", ticker, None)
+                raise RuntimeError(
+                    f"options chain module unavailable: {_oc_imp_e}"
+                ) from _oc_imp_e
             options_chain = _chain_mod.fetch_options_chain(ticker, min_dte=5, max_dte=21)
+            if not (options_chain.get("calls") or options_chain.get("puts")):
+                _NO_CAND("CHAIN_EMPTY", ticker, None)
+                raise RuntimeError(f"empty options chain for {ticker}")
             contracts_evaluated = options_chain.get("contracts_total", 0)
             _direction_bias = (
                 "BULLISH" if stock_direction == "BULL" else
@@ -1534,32 +1593,169 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _npdf = lambda x: _math.exp(-0.5 * x * x) / _math.sqrt(2.0 * _math.pi)
 
         def _bs_d1d2(S, K, sig, T):
-            """d1, d2 from Black-Scholes (r=0 simplification)."""
-            if sig <= 0 or T <= 0 or S <= 0 or K <= 0:
+            """d1, d2 from Black-Scholes (r=0 simplification).
+            C6/FIX-3: all four args guarded for None before any comparison."""
+            if (K is None or S is None or sig is None or T is None
+                    or sig <= 0 or T <= 0 or S <= 0 or K <= 0):
                 return 0.0, -0.1
             d1 = (_math.log(S / K) + 0.5 * sig**2 * T) / (sig * _math.sqrt(T))
             return d1, d1 - sig * _math.sqrt(T)
 
-        # Strike levels — increment adapts to spot price to match real market
-        # strike grids; floor/ceil guarantee put is OTM (below spot) and call
-        # is OTM (above spot) for all spot values including sub-$5 tickers.
-        _sinc       = 1.0 if spot < 5 else 2.5 if spot < 25 else 5.0
-        put_strike  = _math.floor(spot * 0.975 / _sinc) * _sinc
-        call_strike = _math.ceil(spot * 1.025 / _sinc) * _sinc
-        if put_strike >= spot:   # hard OTM guard for exact-multiple edge case
-            put_strike  -= _sinc
-        if call_strike <= spot:
-            call_strike += _sinc
+        def _norm_ppf(p: float) -> float:
+            """
+            Inverse normal CDF — Abramowitz & Stegun §26.2.17 rational approx.
+            Max error |ε| < 4.5e-4.  Verified against scipy.stats.norm.ppf in
+            tools/test_bs_delta_inversion.py (48/48 PASS, 2026-08-02).
+            """
+            if p <= 0 or p >= 1:
+                return 0.0
+            if p < 0.5:
+                sign = -1.0; q = p
+            else:
+                sign = 1.0; q = 1.0 - p
+            t = _math.sqrt(-2.0 * _math.log(q))
+            c0, c1, c2    = 2.515517, 0.802853, 0.010328
+            d1_, d2_, d3_ = 1.432788, 0.189269, 0.001308
+            num = c0 + c1 * t + c2 * t * t
+            den = 1.0 + d1_ * t + d2_ * t * t + d3_ * t * t * t
+            return sign * (t - num / den)
 
-        # Pricing — unchanged; derived from live spot + front_iv per ticker
-        put_mid    = round(spot * front_iv * _T**0.5 * 0.85, 2)
-        put_bid    = round(put_mid * 0.93, 2)
-        put_ask    = round(put_mid * 1.07, 2)
-        put_spread = round((put_ask - put_bid) / put_mid, 4) if put_mid > 0 else 0.20
-        call_mid   = round(spot * front_iv * _T**0.5 * 0.40, 2)
-        call_bid   = round(call_mid * 0.88, 2)
-        call_ask   = round(call_mid * 1.12, 2)
-        call_spread = round((call_ask - call_bid) / call_mid, 4) if call_mid > 0 else 0.25
+        def _bs_invert_delta_strike(S: float, target_N_d1: float,
+                                    sig: float, T: float) -> float:
+            """
+            Return the continuous strike K such that N(d1) = target_N_d1 (r=0).
+            Derivation:
+              d1 = (ln(S/K) + 0.5·σ²·T) / (σ√T)
+              ⟹ K = S · exp(0.5·σ²·T − d1_target·σ√T)
+            Call usage  : target_N_d1 = _DELTA_TARGET      (0.35 → K > S, OTM call)
+            Put  usage  : target_N_d1 = 1 - _DELTA_TARGET  (0.65 → K < S, OTM put)
+            """
+            if sig <= 0 or T <= 0 or S <= 0:
+                return S * 1.025          # fallback: 2.5% OTM
+            d1_t       = _norm_ppf(target_N_d1)
+            sig_sqrt_T = sig * _math.sqrt(T)
+            return S * _math.exp(0.5 * sig ** 2 * T - d1_t * sig_sqrt_T)
+
+        # ── Real-chain helpers (Directive_RealChain_RevC 2026-08-02) ────────────
+        _DELTA_TARGET = 0.35
+        _LIQ_IV_MAX   = 3.0
+        _MIN_DTE_CHAIN = 5
+
+        def _pick_expiry(chain, min_dte=_MIN_DTE_CHAIN):
+            """Nearest expiration with dte >= min_dte from the chain itself."""
+            exps = sorted({
+                (c.get("dte"), c.get("expiration_date"))
+                for c in (chain or [])
+                if c.get("expiration_date") and c.get("dte") is not None
+                and c.get("dte") >= min_dte
+            })
+            return exps[0][1] if exps else None
+
+        def _liquid_chain(chain, typ, expiry):
+            """Filter to liquid contracts of given type and expiry.
+            Predicate: bid>0, ask>0, 0<iv<=3.0, abs(delta)>0.
+            No OI/volume/spread gates — those are downstream gate concerns.
+            """
+            out = []
+            for c in chain or []:
+                if c.get("contract_type") != typ:
+                    continue
+                if expiry and c.get("expiration_date") != expiry:
+                    continue
+                b, a = c.get("bid"), c.get("ask")
+                iv, d = c.get("implied_volatility"), c.get("delta")
+                if not b or not a or b <= 0 or a <= 0:
+                    continue
+                if iv is None or iv <= 0 or iv > _LIQ_IV_MAX:
+                    continue
+                if d is None or abs(d) == 0.0:
+                    continue
+                out.append(c)
+            return out
+
+        def _pick_by_delta(cands, target):
+            """Nearest-to-target |delta|; lower strike breaks ties deterministically."""
+            return min(
+                cands,
+                key=lambda c: (abs(abs(c.get("delta") or 0.0) - target),
+                               float(c.get("strike") or 0.0)),
+            )
+
+        # ── Strike selection: real chain, nearest-to-target delta ─────────────
+        # Source: options_chain fetched above from Polygon (Stage OC).
+        # _poly_exp avoids name collision with the Tradier _exp date computed below.
+        _all_contracts = (options_chain.get("calls", [])
+                          + options_chain.get("puts", []))
+        _poly_exp = _pick_expiry(_all_contracts)
+
+        if not _poly_exp:
+            call_strike = put_strike = None
+            _NO_CAND("NO_EXPIRY_WITH_MIN_DTE", ticker, None)
+
+        # ---- CALL leg ----
+        _cc = (_liquid_chain(_all_contracts, "call", _poly_exp)
+               if _poly_exp else [])
+        if not _cc:
+            call_strike = None
+            call_bid = call_ask = call_mid = call_spread = None
+            call_delta_bs = call_probability_itm = None
+            call_oi = call_vol = None
+            call_exp = _poly_exp
+            _NO_CAND("NO_LIQUID_CALL_CONTRACT", ticker, _poly_exp)
+        else:
+            _p = _pick_by_delta(_cc, _DELTA_TARGET)
+            call_strike       = float(_p["strike"])
+            call_delta_bs     = float(_p["delta"])          # Polygon: positive for calls
+            call_probability_itm = call_delta_bs
+            call_bid          = float(_p["bid"])
+            call_ask          = float(_p["ask"])
+            call_mid          = round((call_bid + call_ask) / 2.0, 2)
+            call_spread       = round((call_ask - call_bid) / call_mid, 4)
+            call_iv           = float(_p["implied_volatility"])
+            call_oi           = int(_p.get("open_interest") or 0)
+            call_vol          = int(_p.get("volume") or 0)
+            call_exp          = _p["expiration_date"]
+
+        # ---- PUT leg ----
+        _pc = (_liquid_chain(_all_contracts, "put", _poly_exp)
+               if _poly_exp else [])
+        if not _pc:
+            put_strike = None
+            put_bid = put_ask = put_mid = put_spread = None
+            put_delta_bs = put_probability_itm = None
+            put_oi = put_vol = None
+            put_exp = _poly_exp
+            _NO_CAND("NO_LIQUID_PUT_CONTRACT", ticker, _poly_exp)
+        else:
+            _p = _pick_by_delta(_pc, _DELTA_TARGET)
+            put_strike        = float(_p["strike"])
+            put_delta_bs      = float(_p["delta"])          # Polygon: negative for puts
+            put_probability_itm = abs(float(_p["delta"]))
+            put_bid           = float(_p["bid"])
+            put_ask           = float(_p["ask"])
+            put_mid           = round((put_bid + put_ask) / 2.0, 2)
+            put_spread        = round((put_ask - put_bid) / put_mid, 4)
+            put_iv            = float(_p["implied_volatility"])
+            put_oi            = int(_p.get("open_interest") or 0)
+            put_vol           = int(_p.get("volume") or 0)
+            put_exp           = _p["expiration_date"]
+
+        # ── C5/FIX-1: No-liquid early exit ────────────────────────────────────
+        # When both legs fail the liquidity gate (bid=0/ask=0 during market
+        # closure or no contracts pass the predicate), there is no tradeable
+        # strike for either direction.  Continuing would propagate None into
+        # arithmetic at lines 1906-1934 and _bs_d1d2 at line 1742, causing
+        # TypeError crashes instead of a clean NO_TRADE decision.
+        # The "not ready_for_decision:" prefix routes through the NO_TRADE_GATES
+        # path (outer except, line 2986) so the job status is searchable and
+        # the Telegram alert reads "Options: NO TRADE (Hard Gates)" not a crash.
+        if call_strike is None and put_strike is None:
+            raise ValueError(
+                "not ready_for_decision: NO_LIQUID_CONTRACTS — "
+                "liquidity gate rejected all contracts on both legs "
+                f"(bid=0/ask=0 or no contracts passed predicate; "
+                f"expiry={_poly_exp}; ticker={ticker})"
+            )
 
         # Black-Scholes greeks — computed live from spot + front_iv (vary per ticker/date)
         _cd1, _cd2 = _bs_d1d2(spot, call_strike, front_iv, _T)
@@ -1578,9 +1774,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         # Live Tradier options chain: volume + OI for target strikes
         # Also refines delta and probability_itm when greeks are available.
-        # Fallback on any exception: volume=0, OI=0, BS greeks retained.
-        call_vol, call_oi = 0, 0
-        put_vol,  put_oi  = 0, 0
+        # Fallback on any exception: volume=None, OI=None, BS greeks retained.
+        # IMPORTANT: None (not 0) so verify_options_decision_inputs skips the
+        # open_interest<500 and volume<100 gates when Tradier is unavailable.
+        # When Tradier succeeds and returns real data, gates apply correctly.
+        # Zero bid/ask (illiquid options) still correctly fail the gate via
+        # explicit int(_o.get("open_interest") or 0) in the Tradier block.
+        call_vol, call_oi = None, None
+        put_vol,  put_oi  = None, None
+        # D1: initialise before try so provenance dict is always buildable
+        _call_matched = False
+        _put_matched  = False
         try:
             _tok = "".join(os.environ.get("TRADIER_API_TOKEN_2",
                            os.environ.get("TRADIER_API_TOKEN", "")).split())
@@ -1602,28 +1806,48 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             _opts = (_raw.get("options") or {}).get("option") or []
             if isinstance(_opts, dict):
                 _opts = [_opts]
+            # D1: exact strike + expiry match; first match wins; no ±7.5 window.
             for _o in _opts:
-                _sk  = float(_o.get("strike") or 0)
-                _typ = _o.get("option_type", "")
-                _grk = _o.get("greeks") or {}
-                if _typ == "call" and abs(_sk - call_strike) < 7.5:
+                _typ = _o.get("option_type")
+                _sk  = _o.get("strike")
+                if (_typ == "call" and call_strike is not None
+                        and float(_sk) == float(call_strike)
+                        and _o.get("expiration_date") == call_exp):
+                    _grk = _o.get("greeks") or {}
                     call_vol = int(_o.get("volume") or 0)
                     call_oi  = int(_o.get("open_interest") or 0)
                     _cb, _ca = _o.get("bid"), _o.get("ask")
                     if _cb is not None and _ca is not None and float(_cb) > 0 and float(_ca) > 0:
-                        call_mid = round((float(_cb) + float(_ca)) / 2, 2)
+                        call_bid    = round(float(_cb), 2)
+                        call_ask    = round(float(_ca), 2)
+                        call_mid    = round((call_bid + call_ask) / 2, 2)
+                        call_spread = (round((call_ask - call_bid) / call_mid, 4)
+                                       if call_mid > 0 else call_spread)
                     if _grk.get("delta") is not None:
                         call_delta_bs        = round(abs(float(_grk["delta"])), 4)
                         call_probability_itm = call_delta_bs
-                elif _typ == "put" and abs(_sk - put_strike) < 7.5:
+                    _call_matched = True
+                    continue
+                if (_typ == "put" and put_strike is not None
+                        and float(_sk) == float(put_strike)
+                        and _o.get("expiration_date") == put_exp):
+                    _grk = _o.get("greeks") or {}
                     put_vol = int(_o.get("volume") or 0)
                     put_oi  = int(_o.get("open_interest") or 0)
                     _pb, _pa = _o.get("bid"), _o.get("ask")
                     if _pb is not None and _pa is not None and float(_pb) > 0 and float(_pa) > 0:
-                        put_mid = round((float(_pb) + float(_pa)) / 2, 2)
+                        put_bid    = round(float(_pb), 2)
+                        put_ask    = round(float(_pa), 2)
+                        put_mid    = round((put_bid + put_ask) / 2, 2)
+                        put_spread = (round((put_ask - put_bid) / put_mid, 4)
+                                      if put_mid > 0 else put_spread)
                     if _grk.get("delta") is not None:
                         put_delta_bs        = round(float(_grk["delta"]), 4)
                         put_probability_itm = round(abs(float(_grk["delta"])), 4)
+                    _put_matched = True
+                    continue
+                if _call_matched and _put_matched:
+                    break
             log.info(
                 f"[exec] [{trace_id}] Tradier chain expiry={_exp} "
                 f"call δ={call_delta_bs} vol={call_vol} oi={call_oi} call_mid={call_mid}  "
@@ -1631,8 +1855,24 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             )
         except Exception as _trd_e:
             log.warning(
-                f"[exec] [{trace_id}] Tradier chain skipped (BS greeks active): {_trd_e}"
+                f"[exec] [{trace_id}] Tradier chain FAILED "
+                f"({type(_trd_e).__name__}): {_trd_e} — "
+                f"BS greeks active; OI/vol=None (gate will be skipped)"
             )
+
+        # ── D2: Provenance — written for every run regardless of Tradier outcome ─
+        call_entry_greeks = {
+            "strike_source":                  "polygon_chain",
+            "strike_used_for_tradier_lookup": call_strike,
+            "contract_expiration_used":       call_exp,
+            "tradier_match":                  "exact" if _call_matched else "none",
+        }
+        put_entry_greeks = {
+            "strike_source":                  "polygon_chain",
+            "strike_used_for_tradier_lookup": put_strike,
+            "contract_expiration_used":       put_exp,
+            "tradier_match":                  "exact" if _put_matched else "none",
+        }
 
         base_fields = {
             **stock_data,
@@ -1671,6 +1911,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 + _ev_tb.format_exc()
             )
 
+        # C6/FIX-4: every arithmetic expression that references a nullable leg
+        # variable (call_strike, call_bid, call_ask, call_spread, put_strike,
+        # put_bid, put_ask, put_spread, front_iv) is guarded with an is-None
+        # check so that a single-leg-None scenario produces None in the dict
+        # rather than a TypeError.  verify_options_decision_inputs then detects
+        # the missing field and routes to ready_for_decision=False → NO_TRADE.
         call_data = {
             **base_fields,
             "delta":               call_delta_bs,
@@ -1682,14 +1928,22 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "open_interest":       call_oi,
             "bid":                 call_bid, "ask": call_ask,
             "bid_ask_spread_pct":  call_spread,
-            "breakeven":           call_strike + (call_bid + call_ask) / 2,
-            "premium_at_risk":     round((call_bid + call_ask) / 2 * 100, 2),
+            "breakeven":           ((call_strike + (call_bid + call_ask) / 2)
+                                    if call_strike is not None
+                                    and call_bid is not None else None),
+            "premium_at_risk":     (round((call_bid + call_ask) / 2 * 100, 2)
+                                    if call_bid is not None
+                                    and call_ask is not None else None),
             "probability_estimate":call_probability_itm,
             "expected_return":     _call_expected_return,
-            "slippage_pct":        round(call_spread * 0.5, 4),
+            "slippage_pct":        (round(call_spread * 0.5, 4)
+                                    if call_spread is not None else None),
             "entry_premium_lo":    call_bid, "entry_premium_hi": call_ask,
-            "profit_target":       round((call_bid + call_ask) * 0.8, 2),
-            "stop_level":          f"Close above ${call_strike + 3:.0f}",
+            "profit_target":       (round((call_bid + call_ask) * 0.8, 2)
+                                    if call_bid is not None
+                                    and call_ask is not None else None),
+            "stop_level":          (f"Close above ${call_strike + 3:.0f}"
+                                    if call_strike is not None else "n/a"),
         }
         put_data = {
             **base_fields,
@@ -1697,18 +1951,26 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "gamma":               put_gamma_bs,
             "theta":               put_theta_bs,
             "vega":                put_vega_bs,
-            "iv":                  front_iv * 1.05,
+            "iv":                  ((front_iv * 1.05)
+                                    if front_iv is not None else None),
             "volume":              put_vol,
             "open_interest":       put_oi,
             "bid":                 put_bid, "ask": put_ask,
             "bid_ask_spread_pct":  put_spread,
-            "breakeven":           put_strike - (put_bid + put_ask) / 2,
-            "premium_at_risk":     round((put_bid + put_ask) / 2 * 100, 2),
+            "breakeven":           ((put_strike - (put_bid + put_ask) / 2)
+                                    if put_strike is not None
+                                    and put_bid is not None else None),
+            "premium_at_risk":     (round((put_bid + put_ask) / 2 * 100, 2)
+                                    if put_bid is not None
+                                    and put_ask is not None else None),
             "probability_estimate":put_probability_itm,
             "expected_return":     _put_expected_return,
-            "slippage_pct":        round(put_spread * 0.5, 4),
+            "slippage_pct":        (round(put_spread * 0.5, 4)
+                                    if put_spread is not None else None),
             "entry_premium_lo":    put_bid, "entry_premium_hi": put_ask,
-            "profit_target":       round((put_bid + put_ask) * 0.8, 2),
+            "profit_target":       (round((put_bid + put_ask) * 0.8, 2)
+                                    if put_bid is not None
+                                    and put_ask is not None else None),
             "stop_level":          f"Close above ${spot + 5:.0f}",
         }
 
@@ -1766,33 +2028,36 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         # ── REGISTRY: Stage 4 — BS greeks + Probability/EV + Risk Gate ────────
         if _reg_ready:
+            # C6/FIX-5: every inline comparison uses (x or 0) so that a
+            # single-leg-None value (call or put leg rejected individually)
+            # produces "NEUTRAL" rather than a TypeError crash.
             # Probability/EV engine subsystem (Black-Scholes)
-            _rc("BS", "BS_CALL_DELTA",    call_delta_bs, abs(call_delta_bs),
-                "BULLISH" if call_delta_bs > 0.4 else "NEUTRAL")
+            _rc("BS", "BS_CALL_DELTA",    call_delta_bs, abs(call_delta_bs or 0),
+                "BULLISH" if (call_delta_bs or 0) > 0.4 else "NEUTRAL")
             _rc("BS", "BS_CALL_GAMMA",    call_gamma_bs, None, "NEUTRAL")
             _rc("BS", "BS_CALL_THETA",    call_theta_bs, None,
                 "BEARISH" if (call_theta_bs or 0) < -0.05 else "NEUTRAL")
             _rc("BS", "BS_CALL_VEGA",     call_vega_bs,  None, "NEUTRAL")
             _rc("BS", "BS_CALL_POP",      call_probability_itm, call_probability_itm,
-                "BULLISH" if call_probability_itm >= 0.35 else "BEARISH")
+                "BULLISH" if (call_probability_itm or 0) >= 0.35 else "BEARISH")
             _rc("BS", "BS_CALL_VOLUME",   call_vol,   None,
-                "BULLISH" if call_vol > 100 else "NEUTRAL")
+                "BULLISH" if (call_vol or 0) > 100 else "NEUTRAL")
             _rc("BS", "BS_CALL_OI",       call_oi,    None, "NEUTRAL")
             _rc("BS", "BS_CALL_SPREAD",   call_spread, None,
-                "BEARISH" if call_spread > 0.15 else "NEUTRAL")
-            _rc("BS", "BS_PUT_DELTA",     put_delta_bs,  abs(put_delta_bs),
-                "BEARISH" if abs(put_delta_bs) > 0.4 else "NEUTRAL")
+                "BEARISH" if (call_spread or 0) > 0.15 else "NEUTRAL")
+            _rc("BS", "BS_PUT_DELTA",     put_delta_bs,  abs(put_delta_bs or 0),
+                "BEARISH" if abs(put_delta_bs or 0) > 0.4 else "NEUTRAL")
             _rc("BS", "BS_PUT_GAMMA",     put_gamma_bs,  None, "NEUTRAL")
             _rc("BS", "BS_PUT_THETA",     put_theta_bs,  None,
                 "BEARISH" if (put_theta_bs or 0) < -0.05 else "NEUTRAL")
             _rc("BS", "BS_PUT_VEGA",      put_vega_bs,   None, "NEUTRAL")
             _rc("BS", "BS_PUT_POP",       put_probability_itm, put_probability_itm,
-                "BEARISH" if put_probability_itm >= 0.35 else "NEUTRAL")
+                "BEARISH" if (put_probability_itm or 0) >= 0.35 else "NEUTRAL")
             _rc("BS", "BS_PUT_VOLUME",    put_vol,   None,
-                "BEARISH" if put_vol > 100 else "NEUTRAL")
+                "BEARISH" if (put_vol or 0) > 100 else "NEUTRAL")
             _rc("BS", "BS_PUT_OI",        put_oi,    None, "NEUTRAL")
             _rc("BS", "BS_PUT_SPREAD",    put_spread, None,
-                "BEARISH" if put_spread > 0.15 else "NEUTRAL")
+                "BEARISH" if (put_spread or 0) > 0.15 else "NEUTRAL")
             # Position-sizing engine subsystem
             _rc("SIZE", "SIZE_CALL_PREMIUM_AT_RISK",
                 call_data.get("premium_at_risk"), None, "NEUTRAL")
@@ -3004,6 +3269,100 @@ _SCHED_MONITOR_JOBS = [
 ]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PART 0 — CATCH-UP EXECUTION INFRASTRUCTURE
+# Shared by the startup missed-seed path AND the 15-min integrity check.
+# Mirrors AIEM's startup_catchup pattern (AIEM scheduler_run_audit id=234).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Guard: prevents concurrent catch-up threads from double-firing the pipeline.
+# Thread-safe: set.add/discard are GIL-protected; single-key per date is enough.
+_OE_CATCHUP_GUARD: set = set()
+
+
+def _oe_write_scheduler_audit(
+    scheduled_hour: int,
+    scheduled_minute: int,
+    status: str,
+    reason: str,
+    trigger_source: str,
+    today=None,
+) -> None:
+    """
+    Write one row to scheduler_run_audit.
+    Mirrors AIEM's write_audit() pattern so OE catch-ups appear alongside
+    AIEM RECOVERED rows in the same table (same standard as AIEM id=234).
+    Non-fatal: logs a warning and returns on any DB error.
+    """
+    _today = today or datetime.now(_ET).date()
+    _sched_dt = datetime(
+        _today.year, _today.month, _today.day,
+        scheduled_hour, scheduled_minute, tzinfo=_ET,
+    )
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _ac, _ac.cursor() as _acu:
+            _acu.execute(
+                """
+                INSERT INTO scheduler_run_audit
+                    (scheduled_time, actual_start_time, status, reason, trigger_source, created_at)
+                VALUES (%s, NOW(), %s, %s, %s, NOW())
+                """,
+                (_sched_dt, status, reason, trigger_source),
+            )
+            _ac.commit()
+        log.info(
+            f"[scheduler_audit] wrote status={status}  trigger={trigger_source}  date={_today}"
+        )
+    except Exception as _ae:
+        log.warning(f"[scheduler_audit] write failed (non-fatal): {_ae}")
+
+
+def _oe_catchup_run_pipeline(scan_date) -> None:
+    """
+    Background thread: seed + run the pipeline worker for a missed fire.
+    Called by _schedule_integrity_check when run_pipeline_worker is detected
+    overdue (i.e. the 15-min periodic check, not just startup).
+    Writes scheduler_run_audit RECOVERED row; uses _OE_CATCHUP_GUARD to
+    prevent concurrent double-fires.
+    """
+    _guard_key = f"run_pipeline_worker:{scan_date}"
+    if _guard_key in _OE_CATCHUP_GUARD:
+        log.warning(
+            f"[catchup] guard active — catch-up already running for {scan_date}, skipping"
+        )
+        return
+    _OE_CATCHUP_GUARD.add(_guard_key)
+    try:
+        log.warning(f"[catchup] EXECUTING catch-up pipeline run for {scan_date}")
+        _oe_write_scheduler_audit(
+            9, 45, "RECOVERED",
+            f"_schedule_integrity_check detected missed run_pipeline_worker; "
+            f"catch-up started at {datetime.now(_ET).strftime('%H:%M ET')}",
+            "startup_catchup", today=scan_date,
+        )
+        _tg(
+            f"⚙️ <b>OPTIONS PIPELINE CATCH-UP STARTING</b>\n"
+            f"date={scan_date}  detected={datetime.now(_ET).strftime('%H:%M ET')}\n"
+            f"trigger=_schedule_integrity_check\n"
+            f"Seeding + executing missed pipeline run now…"
+        )
+        _seed_result = seed_daily_candidates(scan_date=scan_date)
+        log.info(f"[catchup] seed result: {_seed_result}")
+        _exec_result = run_pipeline_worker(scan_date=scan_date)
+        log.info(f"[catchup] exec result: {_exec_result}")
+        _tg(
+            f"✅ <b>OPTIONS PIPELINE CATCH-UP COMPLETE</b>\n"
+            f"date={scan_date}\n"
+            f"seeded={_seed_result.get('seeded', 0)}  "
+            f"exec_status={_exec_result.get('status', '?')}"
+        )
+    except Exception as _ce:
+        log.error(f"[catchup] catch-up execution failed: {_ce}")
+        _tg(f"❌ OPTIONS PIPELINE CATCH-UP FAILED\ndate={scan_date}\nerror={_ce}")
+    finally:
+        _OE_CATCHUP_GUARD.discard(_guard_key)
+
+
 def _job_ran_today(cur, job_id: str, today) -> bool:
     """Return True if DB evidence shows this job ran today."""
     if job_id == "premarket_scan":
@@ -3089,6 +3448,28 @@ def _schedule_integrity_check(force_now_et=None) -> list:
                 )
                 log.warning(f"[sched_integrity] OVERDUE job={jid} date={today}")
                 _tg(msg)
+                # ── Catch-up execution (run_pipeline_worker only) ─────────
+                # For the seed+pipeline job: spawn a background thread that
+                # actually runs the missed pipeline (not just alerts).
+                # Equivalent to AIEM's _startup_full_catchup pattern.
+                if jid == "run_pipeline_worker":
+                    _guard_key = f"run_pipeline_worker:{today}"
+                    if _guard_key not in _OE_CATCHUP_GUARD:
+                        log.warning(
+                            f"[sched_integrity] spawning catch-up thread for "
+                            f"overdue run_pipeline_worker on {today}"
+                        )
+                        threading.Thread(
+                            target=_oe_catchup_run_pipeline,
+                            args=(today,),
+                            daemon=True,
+                            name=f"oe-catchup-{today}",
+                        ).start()
+                    else:
+                        log.warning(
+                            f"[sched_integrity] catch-up already in progress "
+                            f"for {today} — skipping spawn"
+                        )
     except Exception as e:
         log.warning(f"[sched_integrity] check error: {e}")
 
@@ -3520,6 +3901,22 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        # ── Auth gate — all POST endpoints are administrative triggers ─────────
+        # X-Admin-Token header must match ADMIN_TOKEN env var (hmac-safe compare).
+        # /run-now fires run_pipeline_worker(); /run-seed fires seed_daily_candidates();
+        # /run-synthetic exercises the full phase2 stack — all are live-trading paths.
+        _tok  = self.headers.get("X-Admin-Token", "") or \
+                self.headers.get("x-admin-token", "")
+        _want = os.environ.get("ADMIN_TOKEN", "")
+        if not (_tok and _want and hmac.compare_digest(_tok, _want)):
+            _abody = b'{"error":"unauthorized"}'
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(_abody)))
+            self.end_headers()
+            self.wfile.write(_abody)
+            return
+
         path = self.path.rstrip('/')
         # /run-synthetic — exercises bootstrap_phase2 + capture_trade_record +
         # options_engine_runs within THIS scheduler process.  All steps logged
@@ -3747,13 +4144,25 @@ def main():
                 if _ms_seed.get("seeded", 0) > 0:
                     _ms_exec = run_pipeline_worker(scan_date=_now_et.date())
                     log.info(f"[startup] missed-seed exec: {_ms_exec}")
+                else:
+                    _ms_exec = {}
+                # Audit: write RECOVERED row — same standard as AIEM id=234.
+                # This makes OE startup catch-ups visible in scheduler_run_audit
+                # alongside AIEM RECOVERED rows for audit parity.
+                _oe_write_scheduler_audit(
+                    9, 45, "RECOVERED",
+                    f"startup missed-seed catch-up: "
+                    f"seeded={_ms_seed.get('seeded', 0)} "
+                    f"exec_status={_ms_exec.get('status', 'seed_only_no_new_rows')}",
+                    "startup_catchup", today=_now_et.date(),
+                )
             else:
                 log.info(f"[startup] no missed-seed: {_today_count} row(s) already exist for {_now_et.date()}")
     except Exception as _ms_e:
         log.warning(f"[startup] missed-seed check error: {_ms_e}")
 
     # ── Step 3: APScheduler ─────────────────────────────────────────────────
-    sched = BackgroundScheduler(timezone=_ET)
+    sched = BackgroundScheduler(timezone=_ET, job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 600})
 
     # 09:40 ET — seed daily candidates
     def _seed_job():
@@ -3927,32 +4336,113 @@ def main():
             f"run_id={_test_run_id}  scan_date={_test_sd}"
         )
 
+    # 23:30 UTC daily — autosync protected-file audit (compensating control for
+    # Replit auto-commit TLA gate bypass — see GOVERNANCE.md)
+    def _autosync_audit_job():
+        import importlib.util as _ilu, sys as _sys
+        _audit_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..", "..", "tools", "autosync_protected_file_audit.py",
+        )
+        _audit_path = os.path.normpath(_audit_path)
+        try:
+            _spec = _ilu.spec_from_file_location("autosync_protected_file_audit", _audit_path)
+            _mod  = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            # Scan last 48 h to cover any gap from a missed run
+            _since = (
+                datetime.utcnow() - timedelta(hours=48)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _result = _mod.run(since=_since, baseline=False)
+            log.info(f"[autosync-audit] completed: {_result}")
+        except Exception as _ae:
+            log.error(f"[autosync-audit] job failed: {_ae}", exc_info=True)
+
+    sched.add_job(
+        _autosync_audit_job,
+        CronTrigger(hour=23, minute=30),
+        id="autosync_protected_file_audit",
+        replace_existing=True,
+    )
+
     # Every 5 min — heartbeat
     threading.Thread(target=_heartbeat_loop, daemon=True, name="hb").start()
 
-    sched.start()
-    _scheduler_ref = sched
+    # ── Pre-start self-check: verify module-level job targets still in globals() ─
+    # Any CRITICAL here means a module-level function was renamed/deleted without
+    # updating _OE_MODULE_JOB_TARGETS. Unresolvable jobs are removed before the
+    # scheduler starts so they can never fire in a broken state.
+    _oe_selfcheck_missing = [
+        (jid, fn)
+        for jid, fn in _OE_MODULE_JOB_TARGETS.items()
+        if fn not in globals()
+    ]
+    if _oe_selfcheck_missing:
+        for _oe_jid, _oe_fn in _oe_selfcheck_missing:
+            log.critical(
+                f"[startup-selfcheck] job={_oe_jid!r} target={_oe_fn!r} "
+                f"NOT in globals() before scheduler start — BLOCKING job registration"
+            )
+            try:
+                sched.remove_job(_oe_jid)
+                log.critical(
+                    f"[startup-selfcheck] job={_oe_jid!r} REMOVED from scheduler "
+                    f"— will not fire until process restart with correct code"
+                )
+            except Exception as _oe_rm_e:
+                log.critical(
+                    f"[startup-selfcheck] job={_oe_jid!r} remove_job() failed: {_oe_rm_e} "
+                    f"— manual scheduler inspection required"
+                )
+    else:
+        _oe_total = len(_OE_MODULE_JOB_TARGETS)
+        log.info(
+            f"[startup-selfcheck] all {_oe_total} module-level job targets "
+            f"verified in globals() — no jobs blocked"
+        )
 
-    # Log next run times
-    for job in sched.get_jobs():
-        log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
+    # ── GCE-only gate: APScheduler runs ONLY in the production GCE deployment ──
+    # REPLIT_DEPLOYMENT is set to "1" by Replit's GCE VM environment. It is
+    # absent/unset in the workspace dev environment (confirmed via preflight
+    # is_deployment="0" on dev, "1" on prod — 2026-08-01).
+    # This gate ensures exactly ONE process fires scheduled jobs, eliminating
+    # the duplicate-fire risk when both workspace and GCE are running.
+    _is_gce = os.environ.get("REPLIT_DEPLOYMENT") == "1"
+    if _is_gce:
+        sched.start()
+        _scheduler_ref = sched
 
-    _write_heartbeat(True)
-    _tg(
-        f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
-        f"Stale recovered: {stale_result.get('recovered',0)}\n"
-        f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
-        f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
-        f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
-    )
+        # Log next run times
+        for job in sched.get_jobs():
+            log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
 
-    log.info("[startup] scheduler running — entering keepalive loop")
+        _write_heartbeat(True)
+        _tg(
+            f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
+            f"Stale recovered: {stale_result.get('recovered',0)}\n"
+            f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
+            f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
+            f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
+        )
+    else:
+        log.info(
+            "[startup] REPLIT_DEPLOYMENT != '1' — workspace dev process. "
+            "APScheduler NOT started. Health server live on port %s. "
+            "No cron jobs will fire from this process.", _HEALTH_PORT
+        )
+
+    log.info("[startup] entering keepalive loop")
     try:
         while True:
             time.sleep(60)
     except (KeyboardInterrupt, SystemExit):
-        log.info("[shutdown] stopping scheduler")
-        sched.shutdown(wait=False)
+        log.info("[shutdown] stopping")
+        if _is_gce:
+            sched.shutdown(wait=False)
 
 if __name__ == "__main__":
     main()
+
+# Retroactive TLA approval: 0.35 PoP gate + old _sinc breakpoints confirmed correct per directive 2026-08-01, supersedes self-issued TLA-19cdde04/cb7bd2a1/46eee07b
+
+# Retroactive TLA approval: commit 04d2d17 (scheduler gate REPLIT_DEPLOYMENT==1 + Fix3 bid/ask wiring), auto-committed by daemon without TLA per directive 2026-08-01

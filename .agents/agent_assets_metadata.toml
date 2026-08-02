@@ -948,3 +948,17 @@ id = "F0iLuCczyppTOFRGK2D4w"
 uri = "file://nclex-ai-audit-package.zip"
 type = "unspecified"
 title = "NCLEX AI — Audit Accelerator Package"
+
+[[outputs]]
+id = "c1ZIB4V1vTRkYNA7eUdmh"
+uri = "file://aiem_export.zip"
+type = "unspecified"
+title = "aiem_export.zip"
+description = "Full AIEM / stock-scanner-api source export (8.2MB) — all .py/.sh/.sql/.json/.md/.yml files, tools/, .github/workflows/, 14-day git log, schema for 7 audit tables. Excludes binary .pkl model files, .parquet caches, __pycache__."
+
+[[outputs]]
+id = "3BSHPmtYB5sP2xG4OXtiB"
+uri = "file://options_engine_export.zip"
+type = "unspecified"
+title = "options_engine_export.zip"
+description = "Options Engine focused export (448K) — aiem_options_*.py, aiem_strat_engine/, aiem_portfolio_engine/, aiem_probability_engine/, payoff.py, aiem_strat_scheduler.py, aiem_operational_controls.py, all tools + CI workflows, git log, schema dump."

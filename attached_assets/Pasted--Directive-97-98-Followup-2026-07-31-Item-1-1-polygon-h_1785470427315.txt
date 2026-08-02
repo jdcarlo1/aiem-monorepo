@@ -1,0 +1,30 @@
+# Directive_97_98_Followup_2026-07-31
+
+## Item 1 — 1_polygon hash FAIL: actual root cause required
+This has now been disclosed twice as "pre-existing / not caused by this session" with no supporting evidence. That label is not accepted as a close. Required:
+1. Which trade record(s)/snapshot(s) fail, and since when (first bad run, via evidence_chain.log timestamps).
+2. Root cause: data issue, code issue, or corruption — with diff/query evidence, not a description.
+3. Does this affect live/paper trade integrity, or is it confined to after-hours snapshot data as claimed — prove it, don't assert it.
+4. A real fix (or explicit statement that no fix is possible and why).
+5. Re-run stock-scanner-api/verify_chain.sh and paste raw OVERALL: PASS output.
+6. If verify_chain.sh itself is touched: flag before changing — pinned canonical is 4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12, do not silently re-baseline.
+
+## Item 2 — Gap 2 scoring pipeline root cause (contribution_score NULL, all 3,920 rows)
+The chart fix (honest empty-state) is accepted and does not need to be redone. What's still open:
+1. Why does the scoring pass never run against these rows — is it not wired up, erroring silently, or never triggered on schedule?
+2. Raw grep/sed showing where the scoring pass is supposed to be invoked and why it isn't reaching these rows.
+3. Is this affecting any live trade decision, or purely cosmetic (indicator display only)?
+4. Fix, or an explicit statement of what's blocking a fix and the plan.
+
+## Item 3 — #98 permanent record file
+Confirm whether docs/verification/98-vault-schema-move-FINAL.md (or equivalent) was written. If not, write it now covering: DDL executed, OID-unchanged proof, trigger resolution 10/10, UPDATE/DELETE block confirmation, test-insert-rolled-back note, commit hash.
+
+## Standing checklist (applies to all 3 items)
+- Raw terminal output only — no paraphrased grep, no narrative claims of "fixed/tested/confirmed" without pasted evidence.
+- sha256 before/after for any file actually changed.
+- Raw SQL + full result set for any DB claim.
+- No deletion/truncation/overwrite of any row or file without Joel's explicit prior approval this session.
+- Run evidence-producing commands through verified_run.sh; paste verify_chain.sh output before declaring complete.
+- sha256 cross-check of verified_run.sh (dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826) and verify_chain.sh (4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12) against these pinned canonicals — mismatch invalidates the round.
+- Lean output format: command + raw result only, no headers/prose/restated context.
+- "PASS" only if fully verified with nothing deferred — otherwise use "closed via accepted-risk," "cleared to proceed," or "partial."

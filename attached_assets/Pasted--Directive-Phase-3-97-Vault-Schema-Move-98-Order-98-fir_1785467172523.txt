@@ -1,0 +1,23 @@
+# Directive: Phase 3 (#97) + Vault Schema Move (#98)
+
+Order: #98 first (small, isolated), then #97.
+
+## #98 — vault_immutability_guard() schema move
+
+1. Before touching anything, run: `grep -rn "vault_immutability_guard" .` (full repo, all file types) and paste raw output.
+2. From that grep, list every caller/reference (triggers, functions, migrations, tests) that names `public.vault_immutability_guard` or bare `vault_immutability_guard`.
+3. Write the exact DDL you intend to run (CREATE FUNCTION in `vault` schema, DROP in `public`, and any trigger re-point statements). Do not run it yet — post it first.
+4. State explicitly: does any trigger currently call this function unqualified (relying on search_path)? If yes, "zero downtime" is false — say so and revise the claim.
+5. After running: paste `\df vault.vault_immutability_guard` and confirm `public.vault_immutability_guard` no longer exists.
+6. Confirm the vault-write path that depends on this guard still fires correctly — one live or simulated write test, raw before/after row evidence, not a description.
+
+## #97 — Phase 3: unlock Positions & P&L and Why-This-Trade
+
+1. List the exact 3 missing backend routes by method + path (e.g. `GET /api/oe/positions`). Do not proceed until this list is posted.
+2. For each route, state what table(s)/query it reads from and confirm those tables have real data (row count, raw SQL + output).
+3. Build the routes. No mock/placeholder data — if a field can't be populated from real data, label it explicitly as such, don't fabricate a value.
+4. Wire Positions & P&L and Why-This-Trade pages to the new routes.
+5. Provide: git diff --stat, sha256 before/after on changed files, live curl output for each new route, and screenshot/confirmation both pages render real (non-empty) data.
+6. State any remaining gaps on either page honestly — do not claim "unlocked" if any panel still shows placeholder/empty state.
+
+Both items close only with raw evidence per the standing verification protocol — no narrative-only PASS claims.

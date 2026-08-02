@@ -1,0 +1,115 @@
+Directive_OptionsEngine_MasterOutstanding_2026-08-01
+COMPLETE LIST — nothing outstanding on the Options Engine is omitted here.
+
+=====================================================================
+CONTEXT THE AGENT MUST ACCEPT BEFORE STARTING
+=====================================================================
+Dev and prod are SEPARATE physical databases (confirmed via prod
+preflight):
+  dev  : pg_host=helium              pg_database=heliumdb
+  prod : pg_host=ep-spring-flower... pg_database=neondb
+Prod is a real GCE deployment (is_deployment="1").
+EVERY claim from here on must state which DB it came from. Any
+evidence that does not name its DB is rejected.
+
+=====================================================================
+PRIORITY 4 — Re-verify the 10-day failure diagnosis against PROD
+=====================================================================
+All root-cause work this week (execution-phase failure, seed-date
+mismatch, misfire gaps, heartbeat/watchdog state) was verified against
+DEV. Prod's actual history has never been checked.
+
+BLOCKER TO SOLVE FIRST: dev $ADMIN_TOKEN returns 401 on prod admin
+endpoints, and oe_daily_pipeline_jobs does not exist in dev at all.
+  4.1 State plainly what access path WILL work for reading prod data
+      (prod ADMIN_TOKEN via Replit Secrets on the GCE service, a
+      read-only DIAG-authenticated endpoint, or direct Neon
+      connection string). Propose it, do not implement a new
+      credential path without saying so first.
+  4.2 Once readable, pull from PROD for the last 10 trading days:
+      - oe_daily_pipeline_jobs (seeded vs claimed vs executed vs failed)
+      - oe_decision_records row counts per day
+      - oe_no_trade_candidates row counts per day
+      - job_heartbeats for the OE jobs
+  4.3 State plainly: does PROD show the same failure pattern as dev,
+      or different? Do not assume the dev diagnosis transfers.
+  4.4 Confirm which fixes are actually RUNNING on prod right now.
+      Show git_sha of the live prod process vs the commit shas of:
+      seed-date fix, misfire grace fix, execution-phase fixes,
+      scheduler gate + Fix3 (b5bb2ad). Any fix not in the running
+      prod build is NOT live for Monday — say so explicitly.
+
+=====================================================================
+PRIORITY 5 — Watchdog Telegram alert proven on PROD
+=====================================================================
+Prior proof was dev-only. Prod heartbeats showed several 4-6 day stale
+jobs (aiem_auto_retire, aiem_continuous_research, aiem_research_agent).
+  5.1 After the redeploy, confirm the 30-min prod watchdog cycle fires
+      and sends a Telegram alert originating from the PROD process.
+  5.2 Evidence: prod log line showing the send, plus Joel confirming
+      phone receipt with timestamp. Dev-origin alerts do not count.
+  5.3 If it does not fire within two cycles, root-cause why on prod
+      specifically (OWNER_EMAIL/token/env differences between dev and
+      prod) and report — do not patch blind.
+
+=====================================================================
+FIX 1 and FIX 2 — strike selection and probability gate
+=====================================================================
+STATUS: both reverted. The underlying formula is STILL BROKEN and is
+the most likely reason no trade fires even when infrastructure works.
+Current live state: _sinc = 1.0 if spot<5 else 2.5 if spot<25 else 5.0
+and probability_estimate gate at 0.35.
+
+The prior attempt was rejected because the new breakpoints and the
+lowered 0.25 gate were reverse-engineered to make trades pass, with no
+independent reference. That is threshold-shopping, not a fix. Do not
+repeat it.
+
+REQUIRED APPROACH — diagnosis before any number changes:
+  F1.1 Quantify the actual defect with real data, not narrative: for
+       every candidate in the last 10 trading days, compute the OTM %
+       and delta that the CURRENT formula produces. Show the
+       distribution. Demonstrate concretely how far off intended it is.
+  F1.2 State the INTENDED OTM target as a strategy parameter and where
+       that number comes from — an external reference (options pricing
+       convention, delta target standard, published methodology), NOT
+       "what makes trades pass." If no independent reference exists,
+       say so plainly and present it to Joel as a judgment call with
+       the tradeoffs, rather than picking a number.
+  F1.3 Same for the probability_estimate gate: justify 0.35 (or any
+       proposed value) against an independent standard. If the honest
+       answer is that 0.35 is arbitrary too, say that.
+  F1.4 Show, for each proposed value, how many trades it admits AND
+       what the historical outcome of those trades would have been.
+       A threshold that admits more losing trades is worse, not better.
+  F1.5 STOP at this point. Present findings to Joel. Do NOT commit any
+       threshold change. Joel signs off on strategy parameters, not the
+       agent.
+
+=====================================================================
+ALSO OUTSTANDING (do not close these silently)
+=====================================================================
+  A. Prod redeploy so b5bb2ad (scheduler gate + Fix3) is actually
+     live before Monday 09:40 ET. Confirm with prod preflight
+     showing the new boot_commit_sha.
+  B. Keepalive claiming the 8:35 AM slot — Monday live proof only,
+     cannot be forced. First evidence window 12:35-12:45 UTC Monday.
+  C. Monday end-to-end unattended verdict: did a stock get picked and
+     did the pipeline complete. All-rejected-by-gate = CALIBRATION
+     result, not a failure, but must be reported with the real reason.
+  D. aiem_paper_v3_discovery: success path never calls
+     record_job_success, so consecutive_failures is structurally stuck
+     and last_success never writes. Fix authorized at spot-check tier.
+  E. Forced-failure test for the false-green heartbeat bug (F2),
+     deferred until AFTER a natural Monday run is confirmed.
+  F. The --no-verify push bypass remains open by git design. Any use
+     must be logged as a BYPASS entry in trading_logic_approvals.jsonl.
+     No technical enforcement exists — trust-based only.
+
+=====================================================================
+EVIDENCE BAR (unchanged)
+=====================================================================
+Raw curl/grep/psql/git output only. Full untruncated sha256 where
+relevant. No narrative substitution. Name the DB on every claim.
+Any item you cannot complete: say BLOCKED and why. Do not report
+partial work as done.

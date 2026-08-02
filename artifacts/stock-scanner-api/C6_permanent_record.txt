@@ -1,0 +1,8 @@
+# C6 Permanent Record
+# Created 2026-08-02. Append-only. Do not edit prior entries.
+# ─────────────────────────────────────────────────────────────────────────────
+
+CORRECTION 2026-08-02: commit b5bb2ad message attributes "Fix3 bid ask wiring" to itself.
+Verified false. b5bb2ad diff = _is_gce startup gate only. Fix3 bid/ask assignment lines
+(call_bid/call_ask/call_mid/call_spread/put_bid/put_ask/put_mid/put_spread) were introduced
+in 1fe78da, Aug 1 18:31:52 UTC. b5bb2ad contains Fix3 code by descent, not by its own diff.

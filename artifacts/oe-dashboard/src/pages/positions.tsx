@@ -20,12 +20,13 @@ interface TradeRecord {
   strategy_family: string;
   direction: string;
   entry_price: number;
-  exit_price: number;
+  exit_price: number | null;
+  exit_ts: string | null;
   realized_pnl: number;
   return_pct: number;
-  holding_days: number;
-  exit_reason: string;
-  fill_quality?: string;
+  holding_days: number | null;
+  exit_reason: string | null;
+  fill_quality?: string | null;
 }
 
 interface OptionsMetrics {
@@ -77,7 +78,10 @@ export default function PositionsPage() {
   const { data: trades, isLoading: tradesLoading } = useQuery({
     queryKey: ['trade-records'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/trade-records?limit=50').then(extractRows<TradeRecord>),
+      apiFetch<unknown>('/admin/trade-records?limit=50')
+        .then(extractRows<TradeRecord>)
+        // Gap 1 fix: only show rows where exit_ts is set (genuinely closed trades)
+        .then((rows) => rows.filter((t) => t.exit_ts !== null && t.exit_ts !== undefined)),
   });
 
   const { data: allMetrics } = useQuery({

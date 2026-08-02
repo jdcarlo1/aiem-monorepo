@@ -197,6 +197,91 @@ _MIN_PRICE             = 2.0    # filter sub-penny/illiquid names
 _MAX_RVOL              = 100.0  # filter data anomalies
 _NEXT_DAY_MAX_GAP_DAYS = 5      # next trading day must be within 5 calendar days
 
+# ── Shared SQL for _load_backtest_universe AND _stream_backtest_universe ──────
+# Params (7, positional):
+#   %s buf_start    — start - 45 calendar days (LAG/AVG look-back buffer)
+#   %s end          — window end date
+#   %s start        — actual window start (derived filter)
+#   %s end          — actual window end (derived filter)
+#   %s _MIN_PRICE   — close_price > threshold
+#   %s _MAX_RVOL    — rvol < threshold
+#   %s interval     — next_date <= scan_date + N days (integer cast)
+_BACKTEST_WINDOW_SQL = """
+WITH source AS (
+    SELECT
+        ticker,
+        scan_date,
+        open_price,
+        close_price,
+        volume,
+        gap_pct,
+        rvol,
+        close_strength,
+        range_pct,
+        LAG(close_price) OVER (
+            PARTITION BY ticker ORDER BY scan_date
+        ) AS prev_close_computed,
+        AVG(volume) OVER (
+            PARTITION BY ticker ORDER BY scan_date
+            ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING
+        ) AS avg_vol_30
+    FROM polygon_market_daily
+    WHERE scan_date BETWEEN %s AND %s
+),
+derived AS (
+    SELECT
+        ticker,
+        scan_date,
+        close_price,
+        close_strength,
+        range_pct,
+        COALESCE(
+            gap_pct,
+            CASE WHEN prev_close_computed > 0
+                 THEN (open_price / prev_close_computed) - 1.0
+                 ELSE NULL
+            END
+        ) AS gap_pct,
+        COALESCE(
+            rvol,
+            CASE WHEN avg_vol_30 > 0
+                 THEN volume::numeric / avg_vol_30
+                 ELSE NULL
+            END
+        ) AS rvol
+    FROM source
+    WHERE scan_date BETWEEN %s AND %s
+),
+windowed AS (
+    SELECT
+        ticker,
+        scan_date,
+        gap_pct,
+        rvol,
+        close_strength,
+        range_pct,
+        close_price,
+        LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date) AS next_close,
+        LEAD(scan_date)   OVER (PARTITION BY ticker ORDER BY scan_date) AS next_date
+    FROM derived
+    WHERE gap_pct        IS NOT NULL
+      AND rvol           IS NOT NULL
+      AND close_strength IS NOT NULL
+      AND range_pct      IS NOT NULL
+      AND close_price    > %s
+      AND rvol           < %s
+)
+SELECT
+    ticker, scan_date, gap_pct, rvol, close_strength, range_pct,
+    close_price, next_close,
+    (next_close / NULLIF(close_price, 0) - 1.0) AS next_day_return
+FROM windowed
+WHERE next_close IS NOT NULL
+  AND next_date  <= scan_date + %s
+ORDER BY scan_date, ticker
+"""
+
+
 def _conn():
     return psycopg2.connect(_DB_URL, connect_timeout=5)
 
@@ -426,85 +511,11 @@ def _load_backtest_universe(
         _dt_bu.date.fromisoformat(start) - _dt_bu.timedelta(days=45)
     ).isoformat()
 
-    sql_window = """
-    WITH source AS (
-        SELECT
-            ticker,
-            scan_date,
-            open_price,
-            close_price,
-            volume,
-            gap_pct,
-            rvol,
-            close_strength,
-            range_pct,
-            LAG(close_price) OVER (
-                PARTITION BY ticker ORDER BY scan_date
-            ) AS prev_close_computed,
-            AVG(volume) OVER (
-                PARTITION BY ticker ORDER BY scan_date
-                ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING
-            ) AS avg_vol_30
-        FROM polygon_market_daily
-        WHERE scan_date BETWEEN %s AND %s
-    ),
-    derived AS (
-        SELECT
-            ticker,
-            scan_date,
-            close_price,
-            close_strength,
-            range_pct,
-            COALESCE(
-                gap_pct,
-                CASE WHEN prev_close_computed > 0
-                     THEN (open_price / prev_close_computed) - 1.0
-                     ELSE NULL
-                END
-            ) AS gap_pct,
-            COALESCE(
-                rvol,
-                CASE WHEN avg_vol_30 > 0
-                     THEN volume::numeric / avg_vol_30
-                     ELSE NULL
-                END
-            ) AS rvol
-        FROM source
-        WHERE scan_date BETWEEN %s AND %s
-    ),
-    windowed AS (
-        SELECT
-            ticker,
-            scan_date,
-            gap_pct,
-            rvol,
-            close_strength,
-            range_pct,
-            close_price,
-            LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date) AS next_close,
-            LEAD(scan_date)   OVER (PARTITION BY ticker ORDER BY scan_date) AS next_date
-        FROM derived
-        WHERE gap_pct        IS NOT NULL
-          AND rvol           IS NOT NULL
-          AND close_strength IS NOT NULL
-          AND range_pct      IS NOT NULL
-          AND close_price    > %s
-          AND rvol           < %s
-    )
-    SELECT
-        ticker, scan_date, gap_pct, rvol, close_strength, range_pct,
-        close_price, next_close,
-        (next_close / NULLIF(close_price, 0) - 1.0) AS next_day_return
-    FROM windowed
-    WHERE next_close IS NOT NULL
-      AND next_date  <= scan_date + %s
-    ORDER BY scan_date, ticker
-    """
     rows = []
     try:
         with _conn() as c, c.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(f"SET LOCAL statement_timeout = '{timeout_ms}'")
-            cur.execute(sql_window, (
+            cur.execute(_BACKTEST_WINDOW_SQL, (
                 buf_start, end,   # source range (with 45-day lookback buffer)
                 start, end,       # derived filter (actual requested range)
                 _MIN_PRICE, _MAX_RVOL,
@@ -514,6 +525,169 @@ def _load_backtest_universe(
     except Exception as e:
         print(f"[discovery] load_backtest_universe error ({start}→{end}): {e}")
     return rows
+
+
+def _stream_backtest_universe(
+    start: str,
+    end: str,
+    timeout_ms: int = 900_000,
+    batch_size: int = 10_000,
+):
+    """
+    Server-side (named) psycopg2 cursor — streams polygon_market_daily rows
+    in *batch_size* chunks without materialising the full result set in Python.
+
+    Peak additional RSS per in-flight batch:
+        10,000 rows × 9 fields × ~40 bytes ≈ 3.6 MB
+
+    Two-pass design: call once for the training window, once for the test
+    window.  Each pass makes a single SQL round-trip; rows are processed
+    and discarded batch-by-batch via the accumulator helpers below.
+
+    The connection is kept open for the duration of streaming and is always
+    closed in the finally block — even when the caller breaks early or an
+    exception is raised (GeneratorExit → finally runs).
+
+    Params and SQL are identical to _load_backtest_universe.
+    """
+    import datetime as _dt_s
+    buf_start = (
+        _dt_s.date.fromisoformat(start) - _dt_s.timedelta(days=45)
+    ).isoformat()
+
+    conn = psycopg2.connect(_DB_URL, connect_timeout=5)
+    total_yielded = 0
+    try:
+        # statement_timeout must be set before the named cursor is declared
+        with conn.cursor() as _setup:
+            _setup.execute(f"SET statement_timeout = '{timeout_ms}'")
+        # Named cursor = server-side cursor in psycopg2; rows stay on the
+        # Postgres backend and are transferred in batch_size chunks.
+        with conn.cursor(
+            "dc_stream_cur",
+            cursor_factory=psycopg2.extras.DictCursor,
+        ) as cur:
+            cur.itersize = batch_size
+            cur.execute(
+                _BACKTEST_WINDOW_SQL,
+                (buf_start, end, start, end,
+                 _MIN_PRICE, _MAX_RVOL, _NEXT_DAY_MAX_GAP_DAYS),
+            )
+            while True:
+                batch = cur.fetchmany(batch_size)
+                if not batch:
+                    break
+                yield [dict(r) for r in batch]
+                total_yielded += len(batch)
+        conn.commit()
+        print(
+            f"[discovery] stream_complete: {total_yielded:,} rows ({start}→{end})",
+            flush=True,
+        )
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+# ── Accumulator helpers (used by run_cycle streaming path) ────────────────────
+
+def _make_accumulators(templates: List[Dict]) -> Dict:
+    """
+    Initialise per-template running tallies for one data window (train or test).
+
+    Structure:
+        "_base":         total rows seen + baseline wins (next_day_return > 0)
+        "<template_id>": signal rows + direction-aware wins + sum of returns
+    """
+    return {
+        "_base": {"n": 0, "wins": 0},
+        **{
+            t["template_id"]: {"n": 0, "wins": 0, "sum_ret": 0.0}
+            for t in templates
+        },
+    }
+
+
+def _update_accumulators(
+    accum: Dict,
+    batch: List[Dict],
+    templates: List[Dict],
+) -> None:
+    """
+    Process one batch of rows into *accum* in-place.
+
+    Baseline semantics match _compute_stats exactly:
+      • baseline win = next_day_return > 0  (always long-style, regardless of
+        template direction — same as _compute_stats line 544)
+      • signal win   = direction-aware (long: ret>0, short: ret<0)
+      • signal return = direction-adjusted (short: negated)
+    """
+    for row in batch:
+        ret = row.get("next_day_return") or 0.0
+        accum["_base"]["n"] += 1
+        if ret > 0:
+            accum["_base"]["wins"] += 1
+
+        for tmpl in templates:
+            tid       = tmpl["template_id"]
+            direction = tmpl.get("direction", "long")
+            if _apply_rule(row, tmpl["feature_rule"]):
+                acc = accum[tid]
+                acc["n"] += 1
+                if direction == "short":
+                    if ret < 0:
+                        acc["wins"] += 1
+                    acc["sum_ret"] += -ret
+                else:
+                    if ret > 0:
+                        acc["wins"] += 1
+                    acc["sum_ret"] += ret
+
+
+def _finalize_stats(
+    accum: Dict,
+    templates: List[Dict],
+) -> Dict[str, Dict]:
+    """
+    Convert accumulators into per-template stats dicts whose structure is
+    identical to what _compute_stats returns, so _evaluate() is unchanged.
+
+    Returns: {template_id: {"n", "win_rate", "avg_return", "baseline_wr",
+                             "baseline_n"}}
+    """
+    base_n  = accum["_base"]["n"]
+    base_wr = 100.0 * accum["_base"]["wins"] / base_n if base_n else 0.0
+
+    result: Dict[str, Dict] = {}
+    for tmpl in templates:
+        tid = tmpl["template_id"]
+        a   = accum[tid]
+        n   = a["n"]
+        if n == 0:
+            result[tid] = {
+                "n":           0,
+                "win_rate":    None,
+                "avg_return":  None,
+                "baseline_wr": round(base_wr, 2),
+                "baseline_n":  base_n,
+            }
+        else:
+            result[tid] = {
+                "n":           n,
+                "win_rate":    round(100.0 * a["wins"] / n, 2),
+                "avg_return":  round(a["sum_ret"] / n, 6),
+                "baseline_wr": round(base_wr, 2),
+                "baseline_n":  base_n,
+            }
+    return result
 
 
 def _apply_rule(row: Dict, rule: Dict[str, Tuple[str, float]]) -> bool:
@@ -711,28 +885,28 @@ class DiscoveryEngine:
     def _evaluate(
         self,
         template: Dict[str, Any],
-        train_rows: List[Dict],
-        test_rows: List[Dict],
+        is_stats: Dict[str, Any],
+        oos_stats: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Run one template through IS + OOS backtest and overfitting check.
-        Returns a result dict including status and rejection_reason.
+        Evaluate one template using pre-computed in-sample and out-of-sample
+        statistics (returned by _finalize_stats — same dict structure as
+        _compute_stats).  No raw row data is held in memory here; that is
+        the streaming caller's responsibility.
+
+        Logic is identical to the previous row-list version — only the data
+        source changed (accumulators instead of full row lists).
         """
         cid       = _candidate_id(template)
         direction = template.get("direction", "long")
 
-        is_stats  = _compute_stats(train_rows, template["feature_rule"], direction)
-        oos_stats = _compute_stats(test_rows,  template["feature_rule"], direction)
-
-        # ── Baseline-edge gate (runs BEFORE _check_overfit — faster rejection path) ──
-        # A candidate that does not beat the market's natural daily-up rate by at
-        # least _MIN_EDGE_OVER_BASELINE pp has no signal worth investigating further.
+        # ── Baseline-edge gate (runs BEFORE _check_overfit — faster rejection) ──
         if (oos_stats["win_rate"] is not None
                 and oos_stats["baseline_wr"] is not None):
             _edge_pp = round(oos_stats["win_rate"] - oos_stats["baseline_wr"], 2)
             if _edge_pp < _MIN_EDGE_OVER_BASELINE:
                 return {
-                    "candidate_id":     _candidate_id(template),
+                    "candidate_id":     cid,
                     "template_id":      template["template_id"],
                     "hypothesis_text":  template["hypothesis_text"],
                     "feature_rule":     template["feature_rule"],
@@ -767,23 +941,23 @@ class DiscoveryEngine:
         status = "rejected" if is_overfit else "pending"
 
         return {
-            "candidate_id":    cid,
-            "template_id":     template["template_id"],
-            "hypothesis_text": template["hypothesis_text"],
-            "feature_rule":    template["feature_rule"],
-            "holding_period":  template.get("holding_period", "1d"),
-            "direction":       direction,
-            "is_wr":           is_stats["win_rate"],
-            "oos_wr":          oos_stats["win_rate"],
-            "is_n":            is_stats["n"],
-            "oos_n":           oos_stats["n"],
-            "oos_avg_return":  oos_stats["avg_return"],
-            "baseline_wr":     oos_stats["baseline_wr"],
-            "overfit_gap":     overfit_gap,
-            "status":          status,
+            "candidate_id":     cid,
+            "template_id":      template["template_id"],
+            "hypothesis_text":  template["hypothesis_text"],
+            "feature_rule":     template["feature_rule"],
+            "holding_period":   template.get("holding_period", "1d"),
+            "direction":        direction,
+            "is_wr":            is_stats["win_rate"],
+            "oos_wr":           oos_stats["win_rate"],
+            "is_n":             is_stats["n"],
+            "oos_n":            oos_stats["n"],
+            "oos_avg_return":   oos_stats["avg_return"],
+            "baseline_wr":      oos_stats["baseline_wr"],
+            "overfit_gap":      overfit_gap,
+            "status":           status,
             "rejection_reason": reject_reason or None,
-            "train_window":    f"{_TRAIN_START}→{_TRAIN_END}",
-            "test_window":     f"{_TEST_START}→{_TEST_END}",
+            "train_window":     f"{_TRAIN_START}→{_TRAIN_END}",
+            "test_window":      f"{_TEST_START}→{_TEST_END}",
         }
 
     # ── Main discovery cycle ──────────────────────────────────────────────
@@ -791,32 +965,80 @@ class DiscoveryEngine:
     def run_cycle(self, templates: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
         Run a full discovery cycle over all templates (or a provided subset).
-        Returns a summary of proposed and rejected candidates.
+
+        Memory model (server-side cursor, streaming):
+          Instead of loading the full training and test sets into Python lists
+          (~3 M rows, ~1.2 GB), this method makes two sequential streaming
+          passes (train window → test window).  In each pass, rows arrive in
+          10,000-row batches; each batch is processed into per-template running
+          accumulators and then discarded.  Peak additional RSS is ~4 MB per
+          batch rather than ~1.2 GB for the whole window.
+
+        Algorithm:
+          Pass 1 — train window:
+            accumulate {n_signal, n_wins, sum_ret, n_base, n_base_wins}
+            per template via _update_accumulators; discard each batch.
+          Pass 2 — test window: same.
+          Finalise: _finalize_stats converts accumulators into stats dicts
+            (identical structure to _compute_stats output).
+          Evaluate: _evaluate() receives pre-computed stats — no row data held.
 
         SAFETY: no write to any execution table. Only writes to discovered_candidates.
         """
         with self._lock:
             templates = templates or _HYPOTHESIS_TEMPLATES
-            train_rows, test_rows = self._load_data()
 
-            if not train_rows or not test_rows:
-                # run_status="aborted_no_data" distinguishes this from a
-                # legitimately-empty-but-successful run (run_status="completed")
-                # so discovery_cycle_log.error_msg is never silently NULL
-                # when the engine aborted early.
+            # ── Pass 1: training window ──────────────────────────────────────
+            print(
+                f"[discovery] streaming training window {_TRAIN_START}→{_TRAIN_END}…",
+                flush=True,
+            )
+            train_accum = _make_accumulators(templates)
+            train_n = 0
+            try:
+                for _batch in _stream_backtest_universe(_TRAIN_START, _TRAIN_END):
+                    _update_accumulators(train_accum, _batch, templates)
+                    train_n += len(_batch)
+            except Exception as _te:
+                print(f"[discovery] training stream error: {_te}", flush=True)
+            print(f"[discovery] training rows streamed: {train_n:,}", flush=True)
+
+            # ── Pass 2: test window ──────────────────────────────────────────
+            print(
+                f"[discovery] streaming test window {_TEST_START}→{_TEST_END}…",
+                flush=True,
+            )
+            test_accum = _make_accumulators(templates)
+            test_n = 0
+            try:
+                for _batch in _stream_backtest_universe(_TEST_START, _TEST_END):
+                    _update_accumulators(test_accum, _batch, templates)
+                    test_n += len(_batch)
+            except Exception as _te:
+                print(f"[discovery] test stream error: {_te}", flush=True)
+            print(f"[discovery] test rows streamed: {test_n:,}", flush=True)
+
+            # ── Early exit (matches original aborted_no_data semantics) ──────
+            if train_n == 0 or test_n == 0:
                 return {
                     "run_status": "aborted_no_data",
                     "error":      "no backtest data loaded — check polygon_market_daily",
-                    "train_n":    len(train_rows),
-                    "test_n":     len(test_rows),
+                    "train_n":    train_n,
+                    "test_n":     test_n,
                 }
 
-            results   = []
-            proposed  = []
-            rejected  = []
+            # ── Finalise accumulators → stats dicts ──────────────────────────
+            train_stats = _finalize_stats(train_accum, templates)
+            test_stats  = _finalize_stats(test_accum,  templates)
+
+            # ── Evaluate each template ───────────────────────────────────────
+            results  = []
+            proposed = []
+            rejected = []
 
             for tmpl in templates:
-                result = self._evaluate(tmpl, train_rows, test_rows)
+                tid    = tmpl["template_id"]
+                result = self._evaluate(tmpl, train_stats[tid], test_stats[tid])
                 _save_candidate(result)
                 results.append(result)
 
@@ -825,24 +1047,26 @@ class DiscoveryEngine:
                     print(
                         f"[discovery] PROPOSED {result['template_id']} "
                         f"OOS_WR={result['oos_wr']}% n={result['oos_n']} "
-                        f"gap={result['overfit_gap']}pp"
+                        f"gap={result['overfit_gap']}pp",
+                        flush=True,
                     )
                 else:
                     rejected.append(result)
                     print(
                         f"[discovery] REJECTED {result['template_id']} "
-                        f"({result['rejection_reason']})"
+                        f"({result['rejection_reason']})",
+                        flush=True,
                     )
 
             return {
                 "total_templates": len(templates),
-                "proposed":  len(proposed),
-                "rejected":  len(rejected),
-                "train_n":   len(train_rows),
-                "test_n":    len(test_rows),
-                "train_window": f"{_TRAIN_START}→{_TRAIN_END}",
-                "test_window":  f"{_TEST_START}→{_TEST_END}",
-                "results":   results,
+                "proposed":        len(proposed),
+                "rejected":        len(rejected),
+                "train_n":         train_n,
+                "test_n":          test_n,
+                "train_window":    f"{_TRAIN_START}→{_TRAIN_END}",
+                "test_window":     f"{_TEST_START}→{_TEST_END}",
+                "results":         results,
             }
 
     # ── Per-tier Win/Loss learning cycle ─────────────────────────────────

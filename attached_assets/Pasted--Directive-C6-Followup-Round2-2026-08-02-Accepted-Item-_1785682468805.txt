@@ -1,0 +1,251 @@
+# Directive_C6_Followup_Round2_2026-08-02
+
+Accepted: Item 1.1 root causes. Alias def-line normalization. Docstring sync direction. UNCHECKED sentinel. Item 3 tiebreak asymmetry correction. GIT_HEAD_AT_RUN / GIT_HEAD_NOW disclosure.
+
+Execute STEP 1 → STEP 6 in order. Do not reorder. Do not skip a step because a later one looks more important. Paste raw output for every command, including failures. If a step fails, stop and report — do not work around it.
+
+Repo root for all paths below: `artifacts/stock-scanner-api/`
+
+---
+
+# STEP 1 — Make STRUCT_DIFF fail the run
+
+Problem: `RESULT: PASS (8 PASS 0 FAIL 2 STRUCT_DIFF)` with `exit 0`. A copy that cannot be compared is unverified, not passing.
+
+**1a.** Find the current result/exit code. Run and paste:
+
+```
+grep -n "RESULT\|sys.exit\|_STRUCT_DIFF\|_FAIL\|_PASS" artifacts/stock-scanner-api/tools/verify_inline_copies.py
+```
+
+**1b.** Paste the last 15 lines of the file:
+
+```
+tail -15 artifacts/stock-scanner-api/tools/verify_inline_copies.py
+```
+
+**1c.** Record the before hash:
+
+```
+sha256sum artifacts/stock-scanner-api/tools/verify_inline_copies.py
+```
+
+**1d.** Replace the final RESULT print and exit call with exactly this. Keep whatever counter variable names already exist in your file — if yours are named differently than `_PASS` / `_FAIL` / `_STRUCT_DIFF` / `_TOTAL`, substitute your real names and say so in one line. Do not rename anything else.
+
+```python
+_UNVERIFIED = _FAIL + _STRUCT_DIFF
+print(f"RESULT   : {'PASS' if _UNVERIFIED == 0 else 'FAIL'} "
+      f"({_PASS} PASS  {_FAIL} FAIL  {_STRUCT_DIFF} STRUCT_DIFF of {_TOTAL} entries)")
+sys.exit(0 if _UNVERIFIED == 0 else 1)
+```
+
+**1e.** Paste `git diff` for that file, then the after hash.
+
+**1f.** Run the verifier and paste raw output plus `echo "EXIT=$?"`. It must now print `RESULT: FAIL` and exit 1. That is the correct result at this point in the sequence. Do not "fix" it by reverting. STEP 2 is what makes it pass.
+
+---
+
+# STEP 2 — Close both STRUCT_DIFFs with a real field-level comparison
+
+`_build_call_data` / `_build_put_data` are not "no canonical to compare against." Your own text says the test copy **omits `**base_fields`**. That is a confirmed divergence. Prove it, then fix the copies.
+
+**2a.** Create `artifacts/stock-scanner-api/tools/verify_dict_literals.py` with exactly this content:
+
+```python
+#!/usr/bin/env python3
+"""Field-level comparison of scheduler inline dict literals vs their test copies."""
+import ast, pathlib, sys
+
+SCHED = pathlib.Path("artifacts/stock-scanner-api/aiem_options_scheduler.py")
+TEST  = pathlib.Path("artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py")
+TARGETS = [("_build_call_data", 1920, 1947), ("_build_put_data", 1948, 1975)]
+
+def _sched_dict(tree, lo, hi):
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Dict) and lo <= n.lineno <= hi:
+            return n
+    return None
+
+def _base_fields(tree, before):
+    best = None
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and n.lineno < before:
+            for t in n.targets:
+                if isinstance(t, ast.Name) and t.id == "base_fields" and isinstance(n.value, ast.Dict):
+                    if best is None or n.lineno > best.lineno:
+                        best = n
+    return best.value if best else None
+
+def _keys(dnode, tree, lineno):
+    out = {}
+    for k, v in zip(dnode.keys, dnode.values):
+        if k is None:
+            if isinstance(v, ast.Name) and v.id == "base_fields":
+                bf = _base_fields(tree, lineno)
+                if bf is None:
+                    out["**base_fields<UNRESOLVED>"] = None
+                else:
+                    out.update(_keys(bf, tree, bf.lineno))
+            else:
+                out[f"**{ast.unparse(v)}"] = None
+        else:
+            out[ast.literal_eval(k)] = ast.dump(v)
+    return out
+
+def _copy_dict(tree, fname):
+    for n in ast.walk(tree):
+        if isinstance(n, ast.FunctionDef) and n.name == fname:
+            for m in ast.walk(n):
+                if isinstance(m, ast.Return) and isinstance(m.value, ast.Dict):
+                    return m.value, n.lineno
+    return None, None
+
+st, tt = ast.parse(SCHED.read_text()), ast.parse(TEST.read_text())
+fails = 0
+for name, lo, hi in TARGETS:
+    cd = _sched_dict(st, lo, hi)
+    pd, pl = _copy_dict(tt, name)
+    if cd is None or pd is None:
+        print(f"FAIL {name}: canonical_found={cd is not None} copy_found={pd is not None}")
+        fails += 1
+        continue
+    ck, pk = _keys(cd, st, lo), _keys(pd, tt, pl)
+    missing = sorted(set(ck) - set(pk))
+    extra   = sorted(set(pk) - set(ck))
+    changed = sorted(k for k in set(ck) & set(pk) if ck[k] != pk[k])
+    print(f"--- {name} ---")
+    print(f"  canonical_fields ({len(ck)}): {sorted(ck)}")
+    print(f"  copy_fields      ({len(pk)}): {sorted(pk)}")
+    print(f"  missing_from_copy: {missing}")
+    print(f"  extra_in_copy    : {extra}")
+    print(f"  value_expr_diff  : {changed}")
+    if missing or extra or changed:
+        print(f"  FAIL {name}")
+        fails += 1
+    else:
+        print(f"  PASS {name}: {len(ck)} fields identical")
+print(f"RESULT: {'PASS' if fails == 0 else 'FAIL'} ({fails} failing of {len(TARGETS)})")
+sys.exit(0 if fails == 0 else 1)
+```
+
+**2b.** Run it from the repo root and paste raw output plus `echo "EXIT=$?"`. This first run is expected to FAIL and to list the missing fields. That list is the evidence. Do not edit anything before pasting it.
+
+If `**base_fields<UNRESOLVED>` appears, `base_fields` is not a plain dict assignment above the literal — paste `grep -n "base_fields" artifacts/stock-scanner-api/aiem_options_scheduler.py` and stop for instructions rather than guessing.
+
+**2c.** Fix the **test copies only**. For each field listed in `missing_from_copy`, add it to the returned dict in `_build_call_data` / `_build_put_data` inside `tests/test_e2e_pipeline_replay.py`, copying the value expression from the scheduler verbatim. For each field in `extra_in_copy`, delete it. For each in `value_expr_diff`, replace the copy's expression with the scheduler's.
+
+Do not edit `aiem_options_scheduler.py`. Do not change the line ranges in `TARGETS`. Do not relax the comparison to make it pass.
+
+**2d.** Re-run 2b. Paste raw output. Must be `RESULT: PASS` exit 0.
+
+**2e.** Register both entries in the FNS registry in `verify_inline_copies.py` so they route through the new check instead of `_check_struct_diff()`. Add tuples in the existing 4-field shape:
+
+```python
+("_build_call_data", "_build_call_data", TEST_E2E, "dict literal 1920-1947; verified by verify_dict_literals.py"),
+("_build_put_data",  "_build_put_data",  TEST_E2E, "dict literal 1948-1975; verified by verify_dict_literals.py"),
+```
+
+Use whatever the existing entries name the test-file constant. Paste the registry block before and after.
+
+**2f.** Re-run `verify_inline_copies.py`. Paste raw output plus exit code. Must now be `RESULT: PASS` with `0 FAIL 0 STRUCT_DIFF`, exit 0. If STRUCT_DIFF is still nonzero, report the remaining entry by name — do not commit.
+
+**2g.** Paste sha256 before/after for both edited files and `git diff --stat`.
+
+---
+
+# STEP 3 — Re-run the assertions you declared void
+
+You declared all 6 Section B assertions void, synced the docstring, then re-ran only the verifier. The `14 PASS 0 FAIL` output is timestamped 14:29:22Z — before the sync. So the sha256 `b1f28500…` in Item 5 does not correspond to the file that produced that output, and "No file under test was modified between the test runs and the commit" is false for `test_failure_reproduction.py`.
+
+**3a.** Run this as a single shell block so the hashes and the runs share one invocation. Paste the entire raw output:
+
+```bash
+date -u +"RUN_START: %Y-%m-%dT%H:%M:%SZ"
+sha256sum artifacts/stock-scanner-api/tests/test_real_chain_selection.py \
+          artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py \
+          artifacts/stock-scanner-api/tests/test_failure_reproduction.py \
+          artifacts/stock-scanner-api/tools/verify_inline_copies.py \
+          artifacts/stock-scanner-api/aiem_options_scheduler.py
+python3 artifacts/stock-scanner-api/tests/test_real_chain_selection.py;  echo "EXIT=$?"
+python3 artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py;   echo "EXIT=$?"
+python3 artifacts/stock-scanner-api/tests/test_failure_reproduction.py;  echo "EXIT=$?"
+python3 artifacts/stock-scanner-api/tools/verify_dict_literals.py;       echo "EXIT=$?"
+python3 artifacts/stock-scanner-api/tools/verify_inline_copies.py;       echo "EXIT=$?"
+date -u +"RUN_END: %Y-%m-%dT%H:%M:%SZ"
+```
+
+**3b.** For `test_failure_reproduction.py`, paste the 6 Section B assertion lines from this run specifically, not the summary line.
+
+**3c.** Write one correction line: the earlier statement that no file under test changed between the test runs and the commit was wrong, because the docstring in `test_failure_reproduction.py` was synced in that window. State it plainly; do not restate the surrounding context.
+
+---
+
+# STEP 4 — Resolve the scheduler commit-state contradiction
+
+Item 5 says `aiem_options_scheduler.py (prod, not committed)`. Item 11's git state shows a clean tree — only `logs/git_autosync_blocks.jsonl` modified. Both cannot be true.
+
+**4a.** Run and paste raw, in this order:
+
+```
+git status --porcelain
+git log --oneline -5 -- artifacts/stock-scanner-api/aiem_options_scheduler.py
+git show db8444b:artifacts/stock-scanner-api/aiem_options_scheduler.py | sha256sum
+sha256sum artifacts/stock-scanner-api/aiem_options_scheduler.py
+git log --oneline -1 588f0a99
+git show --stat 588f0a99 | head -20
+```
+
+**4b.** Then answer these three, one line each, no explanation:
+
+1. Is the patched scheduler (`456106be…`) inside commit `db8444b` — YES or NO.
+2. If NO, which commit if any contains it, and is prod `ad34726` running the patched or unpatched version.
+3. What is commit `588f0a99` (HEAD at test-run time), what changed in it, and who authored it.
+
+---
+
+# STEP 5 — Actually execute the reproduction
+
+Item 10 publishes expected outputs. It was never run. Run:
+
+```bash
+git worktree add /tmp/c6repro db8444b
+cd /tmp/c6repro
+sha256sum artifacts/stock-scanner-api/aiem_options_scheduler.py
+python3 artifacts/stock-scanner-api/tests/test_real_chain_selection.py;  echo "EXIT=$?"
+python3 artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py;   echo "EXIT=$?"
+python3 artifacts/stock-scanner-api/tests/test_failure_reproduction.py;  echo "EXIT=$?"
+python3 artifacts/stock-scanner-api/tools/verify_inline_copies.py;       echo "EXIT=$?"
+```
+
+Paste everything, failures included. If the verifier fails in the worktree because the scheduler there is the pre-fix version, **report that as the result**. Do not copy files into the worktree. Do not `git stash` anything into it. Do not adjust the recipe to make it pass. That failure, if it happens, is the answer to STEP 4 and is the most valuable output of this round.
+
+Then clean up: `git worktree remove /tmp/c6repro`.
+
+---
+
+# STEP 6 — Carried-over items not answered last round
+
+One line each. If already delivered, cite the exact section where.
+
+1. **PATH-01** prints `prob=0.38<0.35? -> BEARISH`, which is self-contradictory (0.38 is not < 0.35). Paste the raw line with `grep -n`, state whether the print string or the branch logic is wrong, and fix the print only if the logic is correct.
+2. Full `git diff ad34726..82861df -- artifacts/stock-scanner-api/aiem_options_scheduler.py`. Raw, unabridged.
+3. Rev C Item I: `grep -n "_MIN_OI\|_MIN_VOLUME\|_MAX_SPREAD" artifacts/stock-scanner-api/aiem_polygon_options_chain.py` — paste values, and state how many historical strikes came from the `S * 1.025` fallback.
+4. Rev C Item J: `grep -rn "put_delta_bs" artifacts/stock-scanner-api/` — for each hit, one line saying whether `abs()` is applied before comparison.
+5. The 3 exact before/after docstrings from the earlier `(lines NNN-NNN)` fix, verbatim, for the record.
+
+---
+
+# STEP 7 — Do not deploy
+
+No commit of `aiem_options_scheduler.py`. No deploy. Prod stays `ad34726`. The Monday live census (Item K, after 10:00 ET) remains the gate. Committing the test files and tools is expected and required; the scheduler is not.
+
+---
+
+## Standing requirements
+
+- Raw terminal output only. No paraphrase. Raw `grep -n` / `sed -n` for every code-location claim.
+- sha256 before/after, full 64 characters, for every file changed this session.
+- No deletion, truncation or overwrite of any row or file without prior approval in this session.
+- Do not label anything PASS unless nothing is outstanding for that item.
+- When a phase closes cleanly, write the final report as a committed repo file under `docs/verification/`.
+- Anything you cannot evidence, say so in one line. Do not pad.

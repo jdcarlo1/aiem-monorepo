@@ -223,6 +223,92 @@ def _startup_metrics():
     return _FlaskResponse(body, status=200, mimetype="text/plain; version=0.0.4; charset=utf-8")
 
 
+@app.route("/stock-api/admin/preflight", methods=["GET"])
+def admin_preflight():
+    """Read-only prod diagnostic endpoint.
+    Returns DB state, heartbeats, lifecycle rows, and boot SHA.
+    Requires header X-Diag-Token matching env DIAG_TOKEN. SELECT-only — no writes."""
+    import hmac as _pf_hmac, os as _pf_os, datetime as _pf_dt, subprocess as _pf_sp
+    _tok = request.headers.get("X-Diag-Token", "")
+    _want = _pf_os.environ.get("DIAG_TOKEN", "")
+    if not _want or not _pf_hmac.compare_digest(
+            _tok.encode("utf-8"), _want.encode("utf-8")):
+        return jsonify({"error": "unauthorized"}), 401
+    out: dict = {}
+    try:
+        import psycopg2 as _pf_pg
+        _url = _pf_os.environ.get("DATABASE_URL", "")
+        with _pf_pg.connect(_url, connect_timeout=5) as _c, _c.cursor() as _cur:
+            # ── Polygon scan dates ────────────────────────────────────────────
+            _cur.execute("SELECT MAX(scan_date)::text FROM polygon_rvol_scan")
+            out["polygon_rvol_max_scan_date"] = (_cur.fetchone() or [None])[0]
+            _cur.execute("SELECT MAX(scan_date)::text FROM polygon_market_daily")
+            out["polygon_market_daily_max_scan_date"] = (_cur.fetchone() or [None])[0]
+            # ── Today's owner_email_log rows ──────────────────────────────────
+            _cur.execute("""
+                SELECT kind, slot, sent_date::text, sent_at::text
+                FROM owner_email_log
+                WHERE sent_date = CURRENT_DATE
+                ORDER BY sent_at
+            """)
+            out["owner_email_log_today"] = [
+                {"kind": r[0], "slot": r[1], "sent_date": r[2], "sent_at": r[3]}
+                for r in _cur.fetchall()
+            ]
+            # ── Job heartbeats ────────────────────────────────────────────────
+            _cur.execute("""
+                SELECT job_name, last_success::text, consecutive_failures
+                FROM job_heartbeats
+                ORDER BY job_name
+            """)
+            out["job_heartbeats"] = [
+                {"job": r[0], "last_success": r[1], "consecutive_failures": r[2]}
+                for r in _cur.fetchall()
+            ]
+            # ── Last 5 process_lifecycle_log rows ─────────────────────────────
+            _cur.execute("""
+                SELECT process_name,
+                       (started_at AT TIME ZONE 'America/New_York')::text AS started_et,
+                       (exited_at  AT TIME ZONE 'America/New_York')::text AS exited_et,
+                       exit_code, git_sha
+                FROM process_lifecycle_log
+                ORDER BY started_at DESC LIMIT 5
+            """)
+            out["process_lifecycle_last5"] = [
+                {"process": r[0], "started_et": r[1], "exited_et": r[2],
+                 "exit_code": r[3], "git_sha": r[4]}
+                for r in _cur.fetchall()
+            ]
+            # ── Latest paper trade ────────────────────────────────────────────
+            _cur.execute("""
+                SELECT ticker, direction, created_at::text, status
+                FROM aiem_paper_trades
+                ORDER BY created_at DESC LIMIT 1
+            """)
+            _pt = _cur.fetchone()
+            out["latest_paper_trade"] = (
+                {"ticker": _pt[0], "direction": _pt[1],
+                 "created_at": _pt[2], "status": _pt[3]} if _pt else None
+            )
+    except Exception as _pf_e:
+        out["db_error"] = str(_pf_e)
+    # ── Boot commit SHA ───────────────────────────────────────────────────────
+    try:
+        _sha = _pf_sp.run(
+            ["git", "-C", "/home/runner/workspace", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=3
+        ).stdout.strip()
+    except Exception:
+        _sha = "unavailable"
+    out["boot_commit_sha"] = _sha
+    # ── Which environment ─────────────────────────────────────────────────────
+    out["is_deployment"] = _pf_os.environ.get("REPLIT_DEPLOYMENT", "0")
+    out["pg_host"] = _pf_os.environ.get("PGHOST", "unknown")
+    out["pg_database"] = _pf_os.environ.get("PGDATABASE", "unknown")
+    out["checked_at_utc"] = _pf_dt.datetime.utcnow().isoformat()
+    return jsonify(out)
+
+
 @app.route("/stock-api/auth/me", methods=["GET"])
 def dashboard_me():
     import hmac as _hmac
@@ -3140,38 +3226,97 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
     except Exception as _e:
         print(f"[discovery_cycle] log insert error: {_e}")
 
-    # ── Run the discovery engine (with Module 2 template ranking) ───────────
+    # ── Run the discovery engine in a memory-isolated subprocess ────────────
+    # run_cycle() loads 1.3M+ rows into Python dicts, spiking process memory
+    # by ~1.2 GB.  Running it in a child process means an OOM kill takes out
+    # only the child — the Flask server (parent) stays alive.
+    # Module 3–7 post-processing is lightweight (DB queries on small result
+    # dicts) and runs in the parent after the subprocess exits.
     result    = {}
     error_msg = None
+    _dc_tmpl_file   = f"/tmp/dc_templates_{run_id}.json"
+    _dc_result_file = f"/tmp/dc_result_{run_id}.json"
     try:
         import aiem_discovery_engine as _de
-        # Module 2: Thompson-rank the template pool before handing to run_cycle
+        import subprocess as _dc_sp
+        import json as _dc_json
+
+        # Module 2: Thompson-rank the template pool (lightweight — DB query only,
+        # no row data loaded here).
         _dc_all_templates = list(_de._HYPOTHESIS_TEMPLATES)
         _dc_ranked        = _dc_module2_rank_templates(_dc_all_templates)
-        result = _de.get_discovery_engine().run_cycle(templates=_dc_ranked)
+
+        # Serialize ranked templates for the subprocess to read
+        with open(_dc_tmpl_file, "w") as _dc_f:
+            _dc_json.dump(_dc_ranked, _dc_f, default=str)
+
+        # Spawn the isolated subprocess — inherits DATABASE_URL and all env vars
+        _dc_script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "run_discovery_cycle_subprocess.py",
+        )
+        print(f"[discovery_cycle] spawning subprocess run_id={run_id}")
+        _dc_proc = _dc_sp.Popen(
+            [sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
+            stdout=_dc_sp.PIPE,
+            stderr=_dc_sp.STDOUT,
+        )
+        try:
+            _dc_stdout, _ = _dc_proc.communicate(timeout=900)  # 15-min ceiling
+        except _dc_sp.TimeoutExpired:
+            _dc_proc.kill()
+            _dc_proc.communicate()
+            raise RuntimeError("discovery subprocess timed out after 900s")
+
+        # Surface subprocess stdout into our own log stream
+        _dc_child_log = (_dc_stdout or b"").decode(errors="replace")
+        for _dc_line in _dc_child_log.splitlines():
+            if _dc_line.strip():
+                print(f"[discovery_cycle][child] {_dc_line}")
+
+        if _dc_proc.returncode not in (0, 1):
+            # returncode -9 / 137 = OOM kill; let this surface as an error so
+            # discovery_cycle_log records the failure without taking down Flask.
+            raise RuntimeError(
+                f"discovery subprocess killed (exit {_dc_proc.returncode}) — "
+                f"likely OOM"
+            )
+
+        # Read result written by the subprocess
+        if not os.path.exists(_dc_result_file):
+            raise RuntimeError(
+                f"discovery subprocess exited {_dc_proc.returncode} "
+                f"but wrote no result file"
+            )
+        with open(_dc_result_file) as _dc_rf:
+            _dc_sub_out = _dc_json.load(_dc_rf)
+
+        result      = _dc_sub_out.get("cycle", {})
+        _dc_wl_res  = _dc_sub_out.get("wl", {})
+        print(f"[discovery_cycle] WL cycle: {_dc_wl_res}")
+
         # Part 2 silent-failure fix: surface early-return "aborted_no_data"
-        # status so discovery_cycle_log.error_msg is never silently NULL when
-        # the engine aborted before running any templates.  A clean zero-result
-        # run has run_status="completed" and error_msg=NULL — distinguishable.
         if result.get("run_status") == "aborted_no_data":
             error_msg = result.get("error", "no backtest data loaded")
-        print(f"[discovery_cycle] run_id={run_id} done — "
-              f"proposed={result.get('proposed',0)} "
-              f"rejected={result.get('rejected',0)} "
-              f"total={result.get('total_templates',0)} "
-              f"status={result.get('run_status','completed')}")
+        print(
+            f"[discovery_cycle] run_id={run_id} done — "
+            f"proposed={result.get('proposed', 0)} "
+            f"rejected={result.get('rejected', 0)} "
+            f"total={result.get('total_templates', 0)} "
+            f"status={result.get('run_status', 'completed')}"
+        )
+
     except Exception as _e:
         error_msg = str(_e)
         print(f"[discovery_cycle] run_id={run_id} engine error: {_e}")
-
-    # WL cycle: per-tier win/loss indicator testing against labeled mover data
-    # Runs after run_cycle() so the two sub-cycles share the same scheduler slot.
-    # Non-fatal: WL failure never blocks Module 3 SGD or Module 4 critique.
-    try:
-        _wl_result = _de.get_discovery_engine().run_tiered_wl_cycle()
-        print(f"[discovery_cycle] WL cycle: {_wl_result}")
-    except Exception as _wl_e:
-        print(f"[discovery_cycle] WL cycle error (non-fatal): {_wl_e}")
+    finally:
+        # Clean up temp files regardless of outcome
+        for _dc_tf in [_dc_tmpl_file, _dc_result_file]:
+            try:
+                if os.path.exists(_dc_tf):
+                    os.unlink(_dc_tf)
+            except Exception:
+                pass
 
     # Module 3: SGD weight update from this cycle's OOS results
     if result and not error_msg:
@@ -4506,6 +4651,25 @@ def _ensure_job_heartbeat_table():
                     consecutive_failures INTEGER DEFAULT 0
                 )
             """)
+            # job_attempt_log: append-only per-attempt history.
+            # job_heartbeats overwrites current state on every run, losing
+            # history. job_attempt_log never updates — every attempt appends
+            # a new row so failure patterns across time are preserved and
+            # queryable (answers "did this job fail on prior dates and why?").
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS job_attempt_log (
+                    id           BIGSERIAL    PRIMARY KEY,
+                    job_name     VARCHAR(120) NOT NULL,
+                    attempt_time TIMESTAMP    NOT NULL DEFAULT NOW(),
+                    status       VARCHAR(20)  NOT NULL
+                                 CHECK (status IN ('success', 'failure')),
+                    error_text   TEXT
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_jal_job_time
+                    ON job_attempt_log (job_name, attempt_time DESC)
+            """)
     except Exception as _e:
         print(f"[job_health] table init error: {_e}")
 
@@ -4523,6 +4687,11 @@ def record_job_success(job_name: str):
                 ON CONFLICT (job_name) DO UPDATE SET
                     last_success=NOW(), last_attempt=NOW(),
                     consecutive_failures=0, last_error=NULL
+            """, (job_name,))
+            # Append-only history row — never overwrites, never lost.
+            cur.execute("""
+                INSERT INTO job_attempt_log (job_name, attempt_time, status)
+                VALUES (%s, NOW(), 'success')
             """, (job_name,))
     except Exception as _e:
         print(f"[job_health] record_success error for {job_name}: {_e}")
@@ -4542,6 +4711,11 @@ def record_job_failure(job_name: str, error: str):
                     last_attempt=NOW(), last_error=%s,
                     consecutive_failures = job_heartbeats.consecutive_failures + 1
             """, (job_name, error[:1000], error[:1000]))
+            # Append-only history row — never overwrites, never lost.
+            cur.execute("""
+                INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
+                VALUES (%s, NOW(), 'failure', %s)
+            """, (job_name, error[:2000]))
     except Exception as _e:
         print(f"[job_health] record_failure error for {job_name}: {_e}")
 
@@ -4632,6 +4806,18 @@ def _run_health_watchdog():
     print(f"[job_health] watchdog: {healthy}/{total} jobs healthy, {len(alerts)} alerts")
     if not alerts:
         return
+    # ── Telegram: always fires when alerts exist (independent of OWNER_EMAIL) ─
+    try:
+        _tg_lines = [f"\u26a0\ufe0f <b>Job health alert \u2014 {len(alerts)} issue(s)</b>"]
+        for _a in alerts:
+            _tg_lines.append(f"\u2022 <b>{_a['job']}</b>: {_a['issue']}")
+            if _a.get("last_success"):
+                _tg_lines.append(f"  last OK: {_a['last_success']}")
+        _tg_lines.append(f"Checked: {result['checked_at']} UTC")
+        _tg_send("\n".join(_tg_lines), signal_source="job_health_watchdog")
+        print(f"[job_health] Telegram alert sent ({len(alerts)} issue(s))")
+    except Exception as _tg_e:
+        print(f"[job_health] Telegram alert error: {_tg_e}")
     try:
         from email_alerts import send_email_raw, smtp_configured
         owner = os.environ.get("OWNER_EMAIL", "")
@@ -4730,6 +4916,63 @@ try:
         executors={"default": _APThreadPool(max_workers=4)},
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 600},
     )
+
+    # ── Late-reference guard ──────────────────────────────────────────────────
+    # When _scheduler.start() fires a job that was registered early in module
+    # load (lines ~4737-8189), the module may still be loading — functions
+    # defined after line 8189 are NOT yet in globals(). Any wrapper that calls
+    # a late-defined function via Thread(target=<name>) will hit NameError.
+    #
+    # Pattern (proven on aiem_independent_scan, 2026-07-31): wrap the Thread
+    # start with _wait_for_module_load(). This blocks the scheduler thread for
+    # at most timeout_s seconds until _MODULE_FULLY_LOADED=True (line 73174).
+    # All at-risk wrappers in this file call this before Thread.start().
+    def _wait_for_module_load(timeout_s: int = 300) -> bool:
+        """Block until _MODULE_FULLY_LOADED is set or timeout_s seconds elapse.
+        Returns True if module loaded in time, False if timed out."""
+        import time as _wfml_t
+        for _ in range(timeout_s // 10):
+            if globals().get("_MODULE_FULLY_LOADED"):
+                return True
+            _wfml_t.sleep(10)
+        print(f"[WARN] _wait_for_module_load: timed out after {timeout_s}s — "
+              f"proceeding; target function may not be in globals yet")
+        return False
+
+    # Registry: job_id → late-defined function name it references.
+    # Post-load self-check (near _MODULE_FULLY_LOADED=True) iterates this dict
+    # to verify every target resolved. A CRITICAL log line here means a new
+    # wrapper was wired without the _wait_for_module_load() guard.
+    _SCHEDULER_LATE_REFS: dict = {
+        "aiem_morning_scan":             "_run_aiem_morning_scan",
+        "aiem_independent_grade":        "_run_aiem_independent_grade",
+        "aiem_independent_scan":         "_run_aiem_independent_scan",
+        "aiem_independent_options_scan": "_run_aiem_independent_options_scan",
+        "aiem_prediction_grader":        "_run_aiem_prediction_grader",
+        "aiem_research_agent":           "_run_aiem_research_agent",
+        "aiem_continuous_research":      "_run_aiem_continuous_research",
+        "behavioral_scan":               "_run_behavioral_comparison_scan",
+        "gamma_pressure_scan":           "_run_gamma_pressure_scan",
+        "oi_snapshot_eod":               "_run_oi_snapshot",
+        "oi_snapshot_premarket":         "_run_oi_snapshot",
+        "whale_hc_crossover":            "_check_whale_hc_crossover",
+        "morning_gamma_watchlist":       "_send_morning_gamma_watchlist_sms",
+        "bigcat_gap_alert":              "_send_bigcat_gap_email",
+        "daily_price_options_alert":     "_aiem_daily_price_options_alert",
+        "same_day_alert":                "_aiem_same_day_alert",
+        "momentum_two_stage_daily":      "_scan_momentum_coil_daily",
+        "nano_morning_ranking":          "_run_nano_morning_ranking",
+        "nano_morning_outcomes":         "_run_nano_morning_outcomes",
+        "sc_morning_ranking":            "_run_sc_morning_ranking",
+        "sc_morning_outcomes":           "_run_sc_morning_outcomes",
+        "behavioral_template_rebuild":   "_rebuild_templates",
+        "signal_bridge_daily":           "_run_daily_signal_jobs",
+        "eod_accum_email":               "_send_eod_accum_email",
+        "unusual_calls_email":           "_send_unusual_calls_email",
+        "microcap_calls_email":          "_send_microcap_calls_email",
+        "hc_calls_email":                "_send_high_conviction_email",
+    }
+
     # Delay first run of all "interval" jobs by 3 min so they don't burst-compete
     # with Flask startup + health checks right after a restart or fresh deploy.
     _sched_start_delay = _dt_sched.now(_ET) + _td_sched(minutes=3)
@@ -5704,6 +5947,9 @@ try:
     def _run_momentum_two_stage():
         try:
             import threading as _thr_mts
+            # All three targets defined at lines ~66337/66380/66421 — after
+            # _scheduler.start() (line 8189). Guard required.
+            _wait_for_module_load()
             _thr_mts.Thread(target=_scan_momentum_coil_daily,     daemon=True).start()
             _thr_mts.Thread(target=_scan_momentum_breakout_daily, daemon=True).start()
             _thr_mts.Thread(target=_check_momentum_washout_complete, daemon=True).start()
@@ -6013,6 +6259,7 @@ try:
             return
         try:
             import threading as _thr_ea
+            _wait_for_module_load()  # target _send_eod_accum_email @ line ~9632
             _thr_ea.Thread(target=_send_eod_accum_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] EOD accum email error: {e}")
@@ -6047,6 +6294,7 @@ try:
             return
         try:
             import threading as _thr_uc
+            _wait_for_module_load()  # target _send_unusual_calls_email @ line ~14455
             _thr_uc.Thread(target=_send_unusual_calls_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] unusual calls email error: {e}")
@@ -6063,6 +6311,7 @@ try:
             return
         try:
             import threading as _thr_mc
+            _wait_for_module_load()  # target _send_microcap_calls_email @ line ~14613
             _thr_mc.Thread(target=_send_microcap_calls_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] microcap calls email error: {e}")
@@ -6080,6 +6329,7 @@ try:
             return
         try:
             import threading as _thr_dpa
+            _wait_for_module_load()  # target _aiem_daily_price_options_alert @ line ~15491
             _thr_dpa.Thread(target=_aiem_daily_price_options_alert, daemon=True).start()
         except Exception as _e_dpa_s:
             print(f"[scheduler] daily price+options alert error: {_e_dpa_s}")
@@ -6098,6 +6348,7 @@ try:
             return
         try:
             import threading as _thr_sda
+            _wait_for_module_load()  # target _aiem_same_day_alert @ line ~15569
             _thr_sda.Thread(target=_aiem_same_day_alert, daemon=True).start()
         except Exception as _e_sda_s:
             print(f"[scheduler] same-day alert error: {_e_sda_s}")
@@ -6114,6 +6365,7 @@ try:
             return
         try:
             import threading as _thr_hc
+            _wait_for_module_load()  # target _send_high_conviction_email @ line ~14785
             _thr_hc.Thread(target=_send_high_conviction_email, daemon=True).start()
         except Exception as e:
             print(f"[scheduler] high conviction calls email error: {e}")
@@ -6268,6 +6520,7 @@ try:
     def _run_continuous_research_job():
         try:
             import threading as _crj_thr
+            _wait_for_module_load()  # target _run_aiem_continuous_research @ line ~34739
             _crj_thr.Thread(target=_run_aiem_continuous_research, daemon=True).start()
             record_job_success("aiem_continuous_research")
         except Exception as e:
@@ -6285,8 +6538,9 @@ try:
     def _run_aiem_morning_job():
         try:
             import threading as _amj_thr
+            _wait_for_module_load()  # target _run_aiem_morning_scan @ line ~44471
             _amj_thr.Thread(target=_run_aiem_morning_scan, daemon=True).start()
-            record_job_success("aiem_morning_scan")
+            # record_job_success moved inside _morning_thread — only fires after save confirms >0 rows
         except Exception as e:
             record_job_failure("aiem_morning_scan", str(e))
             print(f"[scheduler] aiem morning scan error: {e}")
@@ -6302,6 +6556,7 @@ try:
     def _run_aiem_independent_grade_job():
         try:
             import threading as _aigj_thr
+            _wait_for_module_load()  # target _run_aiem_independent_grade @ line ~26937
             _aigj_thr.Thread(target=_run_aiem_independent_grade, daemon=True).start()
             record_job_success("aiem_independent_grade")
         except Exception as e:
@@ -6321,6 +6576,16 @@ try:
     def _run_aiem_independent_scan_job():
         try:
             import threading as _aisj_thr
+            import time as _aisj_time
+            # _run_aiem_independent_scan is defined at line ~44449 — after
+            # _MODULE_FULLY_LOADED is set (line 73159). If the scheduler fires
+            # while the module is still loading (e.g. server restarted seconds
+            # before 9:20 AM), the name lookup fails with NameError. Wait up to
+            # 300 s for full load before starting the thread.
+            for _aisj_w in range(30):
+                if globals().get("_MODULE_FULLY_LOADED"):
+                    break
+                _aisj_time.sleep(10)
             _aisj_thr.Thread(target=_run_aiem_independent_scan, daemon=True).start()
             record_job_success("aiem_independent_scan")
         except Exception as e:
@@ -6339,6 +6604,7 @@ try:
     def _run_aiem_independent_options_scan_job():
         try:
             import threading as _aiso_thr
+            _wait_for_module_load()  # target _run_aiem_independent_options_scan @ line ~44465
             _aiso_thr.Thread(target=_run_aiem_independent_options_scan, daemon=True).start()
             record_job_success("aiem_independent_options_scan")
         except Exception as e:
@@ -6439,6 +6705,7 @@ try:
     def _run_aiem_research_job():
         try:
             import threading as _aiem_rt
+            _wait_for_module_load()  # target _run_aiem_research_agent @ line ~47178
             # Run ML retrain cycle first — train/validate/promote on settled picks
             def _retrain_then_research():
                 try:
@@ -6510,6 +6777,7 @@ try:
     def _run_beh_scan_job():
         try:
             import threading as _bst
+            _wait_for_module_load()  # target _run_behavioral_comparison_scan @ line ~38428
             _bst.Thread(target=_run_behavioral_comparison_scan, daemon=True).start()
         except Exception as _e:
             print(f"[scheduler] behavioral scan error: {_e}")
@@ -6525,8 +6793,11 @@ try:
             )
 
     # ── Template rebuild: every Sunday 5 PM ET (before retrain at 7 PM) ─
+    def _run_rebuild_templates_job():
+        _wait_for_module_load()  # target _rebuild_templates @ line ~38355
+        __import__("threading").Thread(target=_rebuild_templates, daemon=True).start()
     _scheduler.add_job(
-        lambda: __import__("threading").Thread(target=_rebuild_templates, daemon=True).start(),
+        _run_rebuild_templates_job,
         CronTrigger(day_of_week="sun", hour=17, minute=0, timezone=_ET),
         id="behavioral_template_rebuild", replace_existing=True,
     )
@@ -6831,6 +7102,7 @@ try:
             return
         try:
             import threading as _thr_mgw
+            _wait_for_module_load()  # target _send_morning_gamma_watchlist_sms @ line ~22161
             _thr_mgw.Thread(target=_send_morning_gamma_watchlist_sms, daemon=True).start()
         except Exception as _e_mgw:
             print(f"[scheduler] morning gamma watchlist error: {_e_mgw}")
@@ -6854,6 +7126,7 @@ try:
             return
         try:
             import threading as _thr_gps
+            _wait_for_module_load()  # target _run_gamma_pressure_scan @ line ~22303
             _thr_gps.Thread(target=_run_gamma_pressure_scan, daemon=True).start()
         except Exception as _e_gps:
             print(f"[scheduler] gamma pressure scan error: {_e_gps}")
@@ -6883,6 +7156,7 @@ try:
             return
         try:
             import threading as _thr_ois
+            _wait_for_module_load()  # target _run_oi_snapshot @ line ~22546
             _thr_ois.Thread(target=_run_oi_snapshot, daemon=True).start()
         except Exception as _e_ois:
             print(f"[scheduler] OI snapshot error: {_e_ois}")
@@ -6909,6 +7183,7 @@ try:
             return
         try:
             import threading as _thr_pmoi
+            _wait_for_module_load()  # target _run_oi_snapshot @ line ~22546
             _thr_pmoi.Thread(target=_run_oi_snapshot, daemon=True).start()
             print("[scheduler] pre-market OI refresh started (Barchart + Yahoo small-cap universe)")
         except Exception as _e_pmoi:
@@ -6927,6 +7202,7 @@ try:
             return
         try:
             import threading as _thr_bcg
+            _wait_for_module_load()  # target _send_bigcat_gap_email @ line ~22834
             _thr_bcg.Thread(target=_send_bigcat_gap_email, daemon=True).start()
         except Exception as _e_bcg:
             print(f"[scheduler] bigcat_gap error: {_e_bcg}")
@@ -6942,6 +7218,7 @@ try:
             return
         try:
             import threading as _thr_wh
+            _wait_for_module_load()  # target _check_whale_hc_crossover @ line ~9517
             _thr_wh.Thread(target=_check_whale_hc_crossover, daemon=True).start()
         except Exception as _e_wh:
             print(f"[scheduler] whale_hc crossover error: {_e_wh}")
@@ -7307,16 +7584,22 @@ try:
     # stealth accumulation → candidate list. The 9:35 watchlist + 9:45 buy emails
     # are fired by the owner-email scheduler (kinds nano_watch / nano_buy).
     # Stage D (16:10 ET): grade confirmed buys forward (5% stop, winners ride).
-    # Lambdas defer the name lookup (the functions are defined later, module-level)
-    # and run the heavy work on a daemon thread so the scheduler pool isn't blocked.
+    # Named wrappers with _wait_for_module_load() guard replace the original
+    # lambdas — lambdas cannot hold guard code inline.
+    def _run_nano_morning_ranking_job():
+        _wait_for_module_load()  # target _run_nano_morning_ranking @ line ~11137
+        threading.Thread(target=_run_nano_morning_ranking, daemon=True).start()
+    def _run_nano_morning_outcomes_job():
+        _wait_for_module_load()  # target _run_nano_morning_outcomes @ line ~11971
+        threading.Thread(target=_run_nano_morning_outcomes, daemon=True).start()
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_nano_morning_ranking, daemon=True).start()),
+        _run_nano_morning_ranking_job,
         CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=_ET),
         id="nano_morning_ranking",
         replace_existing=True,
     )
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_nano_morning_outcomes, daemon=True).start()),
+        _run_nano_morning_outcomes_job,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
         id="nano_morning_outcomes",
         replace_existing=True,
@@ -7329,14 +7612,20 @@ try:
     # EOD accumulation list → candidate list. The 9:37 watch + 9:47 buy emails are
     # fired by the owner-email scheduler (kinds sc_watch / sc_buy).
     # Stage D (16:12 ET): grade confirmed buys forward (5% stop, winners ride).
+    def _run_sc_morning_ranking_job():
+        _wait_for_module_load()  # target _run_sc_morning_ranking @ line ~13075
+        threading.Thread(target=_run_sc_morning_ranking, daemon=True).start()
+    def _run_sc_morning_outcomes_job():
+        _wait_for_module_load()  # target _run_sc_morning_outcomes @ line ~13768
+        threading.Thread(target=_run_sc_morning_outcomes, daemon=True).start()
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_sc_morning_ranking, daemon=True).start()),
+        _run_sc_morning_ranking_job,
         CronTrigger(day_of_week="mon-fri", hour=8, minute=15, timezone=_ET),
         id="sc_morning_ranking",
         replace_existing=True,
     )
     _scheduler.add_job(
-        (lambda: threading.Thread(target=_run_sc_morning_outcomes, daemon=True).start()),
+        _run_sc_morning_outcomes_job,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=12, timezone=_ET),
         id="sc_morning_outcomes",
         replace_existing=True,
@@ -7868,6 +8157,7 @@ try:
                 return
             try:
                 import threading as _sbj
+                _wait_for_module_load()  # target _run_daily_signal_jobs @ line ~37363
                 _sbj.Thread(target=_run_daily_signal_jobs, daemon=True).start()
             except Exception as _e:
                 print(f"[scheduler] signal bridge error: {_e}")
@@ -8264,12 +8554,9 @@ try:
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms, \
                             _c_ms.cursor() as _cur_ms:
                         _cur_ms.execute("""
-                            SELECT 1 FROM job_heartbeats
-                            WHERE job_name = 'aiem_morning_scan'
-                              AND last_success >= (
-                                date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                                AT TIME ZONE 'America/New_York'
-                              ) AT TIME ZONE 'UTC'
+                            SELECT 1 FROM aiem_predictions
+                            WHERE prediction_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                            LIMIT 1
                         """)
                         if _cur_ms.fetchone():
                             _need_ms = False
@@ -8283,7 +8570,7 @@ try:
                         if _ms_fn is not None:
                             import threading as _ms_thr
                             _ms_thr.Thread(target=_ms_fn, daemon=True).start()
-                            record_job_success("aiem_morning_scan")
+                            # record_job_success moved inside _morning_thread — fires only after >0 rows saved
                             print("[startup_catchup] aiem_morning_scan catch-up thread launched")
                         else:
                             print("[startup_catchup] aiem_morning_scan not yet in globals — skipping")
@@ -8301,12 +8588,9 @@ try:
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms2, \
                             _c_ms2.cursor() as _cur_ms2:
                         _cur_ms2.execute("""
-                            SELECT 1 FROM job_heartbeats
-                            WHERE job_name = 'aiem_morning_scan'
-                              AND last_success >= (
-                                date_trunc('day', now() AT TIME ZONE 'America/New_York')
-                                AT TIME ZONE 'America/New_York'
-                              ) AT TIME ZONE 'UTC'
+                            SELECT 1 FROM aiem_predictions
+                            WHERE prediction_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                            LIMIT 1
                         """)
                         if not _cur_ms2.fetchone():
                             _ms_missed_late = True
@@ -20981,6 +21265,46 @@ def admin_run_paper_today():
     return jsonify({"status": "triggered", "note": "paper execution running — check DB in ~60s"})
 
 
+@app.route("/stock-api/admin/dryrun/pick-candidates", methods=["POST"])
+def admin_dryrun_pick_candidates():
+    """AIEM-1 testability endpoint: calls _aiem_paper_pick_candidates() with
+    injected mock deps — no advisory lock, no try_claim, no live DB.
+    Returns {candidates_returned, mock_connect_calls, injected_params: true}."""
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from unittest.mock import MagicMock as _MMock
+        _mock_pg2 = _MMock()
+        _mock_cur = _MMock()
+        _mock_cur.fetchall.return_value = []
+        _mock_cur.fetchone.return_value = None
+        _mock_cur.__enter__ = _MMock(return_value=_mock_cur)
+        _mock_cur.__exit__  = _MMock(return_value=False)
+        _mock_conn = _MMock()
+        _mock_conn.cursor.return_value = _mock_cur
+        _mock_conn.__enter__ = _MMock(return_value=_mock_conn)
+        _mock_conn.__exit__  = _MMock(return_value=False)
+        _mock_pg2.connect.return_value = _mock_conn
+        _candidates = _aiem_paper_pick_candidates(
+            psycopg2_mod=_mock_pg2,
+            db_url="postgresql://dryrun:mock@localhost/dryrun",
+            fred_macro=None,
+            econ_gate_fn=lambda _url: {"high_impact_day": False},
+            social_sentiment=None,
+            specialist_council=None,
+        )
+        return jsonify({
+            "status": "ok",
+            "injected_params": True,
+            "candidates_returned": len(_candidates),
+            "mock_connect_calls": _mock_pg2.connect.call_count,
+            "note": "Mock pg2 returned empty cursors — 0 candidates expected",
+        })
+    except Exception as _e:
+        import traceback as _tb
+        return jsonify({"error": str(_e), "traceback": _tb.format_exc()[-1000:]}), 500
+
+
 @app.route("/stock-api/admin/check-stock-pe", methods=["POST"])
 def admin_check_stock_pe():
     """Manually trigger the Stock Panic Exhaustion live scanner + Telegram alert."""
@@ -26445,17 +26769,20 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
-                SELECT p.ticker, p.rvol, p.price, p.change_pct, p.dollar_volume
+                SELECT p.ticker, p.rvol, p.price, p.open_price, p.volume
                 FROM polygon_rvol_scan p
                 WHERE p.scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
                   AND p.rvol >= %s
                   AND p.price BETWEEN 2 AND %s
-                  AND p.dollar_volume >= 500000
+                  AND p.volume * p.price >= 500000
                 ORDER BY p.rvol DESC LIMIT 80
             """, (min_rvol, max_price))
             rvol_rows = {r[0]: {"rvol": float(r[1]), "price": float(r[2]),
-                                 "change_pct": float(r[3] or 0),
-                                 "dollar_vol_m": round(float(r[4] or 0)/1e6,2)}
+                                 "change_pct": round(
+                                     (float(r[2]) - float(r[3] or r[2])) /
+                                     max(float(r[3] or r[2]), 0.01) * 100, 2),
+                                 "dollar_vol_m": round(
+                                     float(r[4] or 0) * float(r[2]) / 1e6, 2)}
                          for r in _cu.fetchall()}
 
             _cu.execute("""
@@ -44343,7 +44670,17 @@ liquidity.
 """
 
 
-def _run_aiem_independent_pick_scan(kind: str):
+_DRY_RUN_STUB_UNIVERSE_STOCK = [
+    {"ticker": "AAPL", "rvol": 3.5, "close_strength": 0.72, "gap_pct": 1.8,
+     "momentum_5d_pct": 4.2, "range_pct": 2.1},
+    {"ticker": "TSLA", "rvol": 5.2, "close_strength": 0.61, "gap_pct": 3.1,
+     "momentum_5d_pct": 7.8, "range_pct": 4.5},
+    {"ticker": "NVDA", "rvol": 2.8, "close_strength": 0.55, "gap_pct": 0.0,
+     "momentum_5d_pct": 2.1, "range_pct": 1.0},
+]  # Used by _run_aiem_independent_pick_scan(dry_run=True) only; never in production.
+
+
+def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_universe: list = None):
     """
     AIEM's own independent daily pick generation — Workstream D.
     Scores the raw universe directly using AIEM's own formula.
@@ -44351,7 +44688,7 @@ def _run_aiem_independent_pick_scan(kind: str):
     """
     import threading as _aist
 
-    if not _is_trading_day():
+    if not dry_run and not _is_trading_day():
         print(f"[aiem_independent_{kind}] skipped - market closed")
         return
 
@@ -44359,7 +44696,13 @@ def _run_aiem_independent_pick_scan(kind: str):
         try:
             print(f"[aiem_independent_{kind}] scoring universe autonomously...")
             if kind == "stock":
-                universe = _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150)
+                if dry_run:
+                    universe = {"candidates": _dry_run_universe if _dry_run_universe is not None
+                                else _DRY_RUN_STUB_UNIVERSE_STOCK}
+                    print(f"[aiem_independent_stock] DRY_RUN — using "
+                          f"{len(universe['candidates'])} stub candidates")
+                else:
+                    universe = _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150)
                 candidates = universe.get("candidates", [])
                 picks = []
                 for c in candidates:
@@ -44404,11 +44747,21 @@ def _run_aiem_independent_pick_scan(kind: str):
                     }
                     for i, p in enumerate(picks[:15])
                 ]
-                result = _aiem_indep_tool_save_independent_picks(stock_picks=stock_picks)
-                print(f"[aiem_independent_stock] saved {result.get('saved_stock', 0)} picks autonomously")
+                if dry_run:
+                    print(f"[aiem_independent_stock] DRY_RUN — would save "
+                          f"{len(stock_picks)} picks: {[p['ticker'] for p in stock_picks]}")
+                else:
+                    result = _aiem_indep_tool_save_independent_picks(stock_picks=stock_picks)
+                    print(f"[aiem_independent_stock] saved "
+                          f"{result.get('saved_stock', 0)} picks autonomously")
 
             else:  # options
-                universe = _aiem_indep_tool_options_universe(min_vol_oi=1.0, days_back=3, limit=150)
+                if dry_run:
+                    universe = {"candidates": _dry_run_universe if _dry_run_universe is not None else []}
+                    print(f"[aiem_independent_options] DRY_RUN — using "
+                          f"{len(universe['candidates'])} stub candidates")
+                else:
+                    universe = _aiem_indep_tool_options_universe(min_vol_oi=1.0, days_back=3, limit=150)
                 candidates = universe.get("candidates", [])
                 picks = []
                 for c in candidates:
@@ -44439,17 +44792,22 @@ def _run_aiem_independent_pick_scan(kind: str):
                     }
                     for i, p in enumerate(picks[:15])
                 ]
-                result = _aiem_indep_tool_save_independent_picks(option_picks=option_picks)
-                print(f"[aiem_independent_options] saved {result.get('saved_call_option', 0)} picks autonomously")
+                if dry_run:
+                    print(f"[aiem_independent_options] DRY_RUN — would save "
+                          f"{len(option_picks)} picks: {[p['ticker'] for p in option_picks]}")
+                else:
+                    result = _aiem_indep_tool_save_independent_picks(option_picks=option_picks)
+                    print(f"[aiem_independent_options] saved "
+                          f"{result.get('saved_call_option', 0)} picks autonomously")
 
         except Exception as _e:
             print(f"[aiem_independent_{kind}] error: {_e}")
 
     _aist.Thread(target=_indep_scan_thread, daemon=True).start()
-def _run_aiem_independent_scan():
+def _run_aiem_independent_scan(dry_run: bool = False):
     """Backward-compat wrapper (was the combined stock+options scan) - now
     only runs the stock leg. Kept so any existing manual callers still work."""
-    _run_aiem_independent_pick_scan("stock")
+    _run_aiem_independent_pick_scan("stock", dry_run=dry_run)
 
 
 def _run_aiem_independent_options_scan():
@@ -44474,9 +44832,16 @@ def _run_aiem_morning_scan():
         try:
             print("[aiem_morning] scanning autonomously...")
             universe = _aiem_tool_scan_market_for_setups()
+            if universe.get("error"):
+                _err_msg = universe["error"]
+                record_job_failure("aiem_morning_scan", _err_msg)
+                _tg_send(f"⚠️ [aiem_morning] scan universe error: {_err_msg}")
+                return
             candidates = universe.get("top_candidates", [])
             if not candidates:
-                print("[aiem_morning] no candidates today")
+                _no_cand_reason = "no candidates returned from scan"
+                print(f"[aiem_morning] {_no_cand_reason}")
+                record_job_failure("aiem_morning_scan", _no_cand_reason)
                 return
             # Score by composite already computed in scan_market_for_setups
             # Add confidence tiers based on sources_confirming
@@ -44509,8 +44874,15 @@ def _run_aiem_morning_scan():
                     "predicted_move":   "breakout_3_5d",
                 })
             result = _aiem_tool_save_daily_predictions(predictions)
-            print(f"[aiem_morning] saved {result.get('saved', 0)} predictions autonomously")
+            _saved = result.get('saved', 0)
+            print(f"[aiem_morning] saved {_saved} predictions autonomously")
+            if _saved > 0:
+                record_job_success("aiem_morning_scan")
+            else:
+                record_job_failure("aiem_morning_scan",
+                                   f"save returned 0 rows (result={result})")
         except Exception as _e:
+            record_job_failure("aiem_morning_scan", str(_e))
             print(f"[aiem_morning] error: {_e}")
 
     _amt.Thread(target=_morning_thread, daemon=True).start()
@@ -47650,12 +48022,32 @@ def _init_paper_execution_log():
 _DEFERRED_INITS.append(lambda: _init_paper_execution_log())
 
 
-def _aiem_paper_pick_candidates() -> list:
+def _aiem_paper_pick_candidates(
+    *,
+    db_url             = None,   # replaces _DB_URL; falls back to module global
+    psycopg2_mod       = None,   # replaces _psycopg2; falls back to module global
+    fred_macro         = None,   # replaces _fred_macro; falls back to module global
+    econ_gate_fn       = None,   # replaces _econ_is_high_impact_day; falls back to module global
+    social_sentiment   = None,   # replaces _social_sentiment; falls back to module global
+    specialist_council = None,   # replaces _specialist_council; falls back to module global
+) -> list:
     """
     Aggregate candidates from every signal source, deduplicate, and return
     a ranked list ready for trade execution. Each entry has:
       ticker, score, trade_type (STOCK|CALL_OPTION|ETF), source, detail
+
+    All parameters are keyword-only and optional.  Production callers pass
+    nothing (all fall back to module globals).  Tests inject mocks to run
+    without the advisory-lock / try_claim gate and without touching the live DB.
     """
+    # Resolve injected values or fall back to module globals
+    _db_url_eff     = db_url             or _DB_URL
+    _pg2_eff        = psycopg2_mod       or _psycopg2
+    _fred_macro_eff = fred_macro         if fred_macro         is not None else _fred_macro
+    _econ_eff       = econ_gate_fn       or _econ_is_high_impact_day
+    _social_eff     = social_sentiment   if social_sentiment   is not None else _social_sentiment
+    _council_eff    = specialist_council if specialist_council is not None else _specialist_council
+
     _candidates = {}
 
     # ── -1. PortfolioCircuitBreaker — account-level halt ──────────────────
@@ -47677,7 +48069,7 @@ def _aiem_paper_pick_candidates() -> list:
 
     # ── 0b. Economic calendar gate — pause new picks on FOMC/CPI/NFP days ─
     try:
-        _econ_result = _econ_is_high_impact_day(_DB_URL)
+        _econ_result = _econ_eff(_db_url_eff)
         if _econ_result.get("high_impact_day"):
             _econ_events = [e["event_type"] for e in _econ_result.get("events_today", [])]
             print(f"[aiem_paper] HIGH-IMPACT DAY — {_econ_events} — skipping new picks to avoid volatility")
@@ -47687,9 +48079,9 @@ def _aiem_paper_pick_candidates() -> list:
 
     # ── 0. FRED macro bias — yield curve + credit spreads ─────────────────
     _macro_bias = 0  # -1 = risk-off, 0 = neutral, 1 = risk-on
-    if _fred_macro:
+    if _fred_macro_eff:
         try:
-            _mac_votes = _fred_macro.get_fred_macro_votes()
+            _mac_votes = _fred_macro_eff.get_fred_macro_votes()
             _mac_sum   = sum(v.get("vote", 0) for v in _mac_votes)
             _macro_bias = 1 if _mac_sum >= 2 else (-1 if _mac_sum <= -2 else 0)
             if _macro_bias != 0:
@@ -47708,7 +48100,7 @@ def _aiem_paper_pick_candidates() -> list:
     # the candidate-ranking decision (step 9).
     _drift_mult: dict = {}
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _dmc, \
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _dmc, \
                 _dmc.cursor() as _dmcu:
             _dmcu.execute("""
                 SELECT DISTINCT ON (signal_source)
@@ -47755,7 +48147,7 @@ def _aiem_paper_pick_candidates() -> list:
             existing["expiry"] = expiry if expiry is not None else existing.get("expiry")
 
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
 
             # ── 1. Conviction stack (highest conviction tickers) ──────────────
@@ -47961,16 +48353,16 @@ def _aiem_paper_pick_candidates() -> list:
         import aiem_v3_technical as _v3t
         import aiem_v3_orchestrator as _v3o
 
-        _v3_disc = _v3d.get_todays_discoveries(_DB_URL, min_confidence=0.42)
+        _v3_disc = _v3d.get_todays_discoveries(_db_url_eff, min_confidence=0.42)
         if not _v3_disc:
-            _v3_disc = _v3d.run_discovery(_DB_URL, top_n=25)
+            _v3_disc = _v3d.run_discovery(_db_url_eff, top_n=25)
 
         if _v3_disc:
             _v3_tickers  = [d["ticker"] for d in _v3_disc]
-            _v3_tech_db  = _v3t.get_technical_scores(_v3_tickers, _DB_URL)
+            _v3_tech_db  = _v3t.get_technical_scores(_v3_tickers, _db_url_eff)
             _v3_tech_miss = [t for t in _v3_tickers if t not in _v3_tech_db]
             if _v3_tech_miss:
-                _v3_tech_live = _v3t.run_technical_analysis(_v3_tech_miss, _DB_URL)
+                _v3_tech_live = _v3t.run_technical_analysis(_v3_tech_miss, _db_url_eff)
                 _v3_tech_db.update(_v3_tech_live)
 
             # Current macro state (prefer in-process cache; fall back to DB)
@@ -47985,7 +48377,7 @@ def _aiem_paper_pick_candidates() -> list:
                 "open_positions": sum(1 for c in _candidates.values()),
             }
             _v3_decisions = _v3o.run_orchestrator(
-                _v3_disc, _v3_tech_db, _v3_macro, _v3_portfolio, _DB_URL
+                _v3_disc, _v3_tech_db, _v3_macro, _v3_portfolio, _db_url_eff
             )
 
             for _v3dec in _v3_decisions:
@@ -48008,6 +48400,9 @@ def _aiem_paper_pick_candidates() -> list:
                          f"v3/{_v3dec['decision']} conf={_v3dec['confidence']:.0f}% | {_v3_detail}")
             _v3_buys = sum(1 for d in _v3_decisions if d["decision"] in ("BUY","SMALL_BUY"))
             print(f"[aiem_paper] v3_discovery: {len(_v3_disc)} candidates → {_v3_buys} BUY/SMALL_BUY")
+        # Write success heartbeat so daily health check shows green.
+        # Placed outside `if _v3_disc:` so it fires even when no candidates were found today.
+        record_job_success("aiem_paper_v3_discovery")
     except Exception as _v3e:
         import traceback as _v3_tb
         _v3_msg = f"{type(_v3e).__name__}: {_v3e}"
@@ -48016,7 +48411,7 @@ def _aiem_paper_pick_candidates() -> list:
         # Surface in job_heartbeats so daily status check catches it
         try:
             import psycopg2 as _v3_pg2
-            with _v3_pg2.connect(_DB_URL, connect_timeout=3) as _v3c, _v3c.cursor() as _v3cu:
+            with _v3_pg2.connect(_db_url_eff, connect_timeout=3) as _v3c, _v3c.cursor() as _v3cu:
                 _v3cu.execute("""
                     INSERT INTO job_heartbeats
                         (job_name, last_attempt, last_error, consecutive_failures)
@@ -48036,7 +48431,7 @@ def _aiem_paper_pick_candidates() -> list:
     # Gate: only fires when macro_bias != 1 (risk-on) to avoid fighting the tape.
     try:
         if _macro_bias != 1:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4,
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                    options="-c statement_timeout=5000") as _bc, _bc.cursor() as _bcu:
                 _bcu.execute("""
                     SELECT ticker, spot, pc_skew_pp, gex_m, gex_regime, gamma_flip_price
@@ -48069,7 +48464,7 @@ def _aiem_paper_pick_candidates() -> list:
     # Gate: only fires when macro_bias != 1 (risk-on).
     try:
         if _macro_bias != 1:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4,
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                    options="-c statement_timeout=5000") as _dc, _dc.cursor() as _dcu:
                 _dcu.execute("""
                     SELECT ticker, rvol, gap_pct, price, close_strength
@@ -48096,10 +48491,10 @@ def _aiem_paper_pick_candidates() -> list:
 
     # ── Social sentiment boost (StockTwits) for top 12 candidates ─────────
     _prelim = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)[:12]
-    if _social_sentiment:
+    if _social_eff:
         for _sp in _prelim:
             try:
-                _snap = _social_sentiment.compute_sentiment_snapshot(_sp["ticker"])
+                _snap = _social_eff.compute_sentiment_snapshot(_sp["ticker"])
                 _bpct = _snap.get("bullish_pct")
                 _tcnt = _snap.get("tagged_count", 0)
                 if _bpct is not None and _tcnt >= 4:
@@ -48117,10 +48512,10 @@ def _aiem_paper_pick_candidates() -> list:
     # SpecialistOpinion objects inline — see specialist_council.py's
     # "CANONICAL COUNCIL FACTORY" docstring section for why. Vote math is
     # unchanged (verbatim formulas now live in _build_opinion()).
-    if _specialist_council:
+    if _council_eff:
         for _sp in _prelim:
             try:
-                _council = _specialist_council.run_council(
+                _council = _council_eff.run_council(
                     "candidate_entry",
                     _sp["ticker"],
                     {
@@ -48148,7 +48543,7 @@ def _aiem_paper_pick_candidates() -> list:
     _ncm_blocked = set()
     for _nc_ticker in list(_candidates.keys()):
         try:
-            _ncm_result = _ncm_check_headlines(_DB_URL, _nc_ticker, lookback_hours=24)
+            _ncm_result = _ncm_check_headlines(_db_url_eff, _nc_ticker, lookback_hours=24)
             if _ncm_result.get("high_risk_flag"):
                 _kw = _ncm_result["flagged_headlines"][0]["matched_keyword"] if _ncm_result.get("flagged_headlines") else "unknown"
                 print(f"[news_catalyst_gate] BLOCKED {_nc_ticker} — high-risk headline: '{_kw}'")
@@ -48171,7 +48566,7 @@ def _aiem_paper_pick_candidates() -> list:
     # The table is populated by _aiem_paper_mark_to_market() on each exit.
     _tw_map: dict = {}
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _twc, \
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _twc, \
                 _twc.cursor() as _twcu:
             _twcu.execute("""
                 SELECT signal_name, trust_weight, n_outcomes_observed
@@ -48199,7 +48594,7 @@ def _aiem_paper_pick_candidates() -> list:
     # Band is intentionally conservative: cannot swing scores more than ±50% of base.
     _th_map: dict = {}
     try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _thmc, \
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _thmc, \
                 _thmc.cursor() as _thmcu:
             _thmcu.execute("""
                 SELECT signal_source, sampled_score
@@ -48452,7 +48847,7 @@ def _aiem_paper_pick_candidates() -> list:
         _cq_all = list(_candidates.items()) + [
             (_t, _d) for _t, _d in _ncm_cand_save.items() if _t not in _candidates
         ]
-        with _cq_pg2.connect(_DB_URL, connect_timeout=4) as _cqc, _cqc.cursor() as _cqcu:
+        with _cq_pg2.connect(_db_url_eff, connect_timeout=4) as _cqc, _cqc.cursor() as _cqcu:
             for _cq_ticker, _cq_cand in _cq_all:
                 _cq_score = float(_cq_cand.get("score", 0))
                 _cq_raw_prob = round(min(max(_cq_score / 10.0, 0.0), 1.0), 4)
@@ -48507,7 +48902,7 @@ def _aiem_paper_pick_candidates() -> list:
     _cpi_today = _cpi_dt.datetime.now(_ET).date()
     if _final:
         try:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _cpic, \
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=4) as _cpic, \
                     _cpic.cursor() as _cpicu:
                 for _cpi_cand in _final:
                     _cpicu.execute(
@@ -66012,8 +66407,10 @@ def _polygon_full_market_scan() -> list:
                           _m["high"], _m["low"], _m["vwap"], _m["gap_pct"],
                           _m["volume"], _m["avg_volume"], _m["rvol"], _m["close_strength"]))
             app.logger.info(f"[polygon_rvol] saved {len(top)} rows to DB")
+            record_job_success("polygon_daily_scan")
         except Exception as _e3:
             app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
+            record_job_failure("polygon_daily_scan", str(_e3))
 
         # ── Step 5: Save ALL stocks to polygon_market_daily ──────────────────────────
         try:
@@ -66891,9 +67288,11 @@ def admin_run_aiem_independent_scan():
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     try:
-        _run_aiem_independent_scan()
-        return jsonify({"status": "started",
-                        "message": "Running in background - check logs for [aiem_independent_stock]."})
+        _dry = request.args.get('dry_run', '').lower() == 'true'
+        _run_aiem_independent_scan(dry_run=_dry)
+        _msg = ("DRY_RUN — no Polygon call, no DB write; check logs for 'DRY_RUN — would save'"
+                if _dry else "Running in background - check logs for [aiem_independent_stock].")
+        return jsonify({"status": "started", "dry_run": _dry, "message": _msg})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -73158,7 +73557,45 @@ def bear_flow():
 # before calling _aiem_paper_execute_today so all dependencies are guaranteed to exist.
 _MODULE_FULLY_LOADED = True
 
+# ── Startup self-check: verify every scheduler late-ref resolved ───────────
+# Iterates _SCHEDULER_LATE_REFS (built during scheduler setup). Any CRITICAL
+# line here means a wrapper was wired without _wait_for_module_load(), or a
+# function was renamed/deleted without updating the registry.
+#
+# BLOCKING: for any unresolvable target, the job is removed from the scheduler
+# so it can never fire in a broken state. Process restart required to re-enable.
+try:
+    _sched_check_missing = [
+        (job_id, fn_name)
+        for job_id, fn_name in globals().get("_SCHEDULER_LATE_REFS", {}).items()
+        if fn_name not in globals()
+    ]
+    if _sched_check_missing:
+        for _jid, _fn in _sched_check_missing:
+            print(f"[CRITICAL][startup-selfcheck] job={_jid!r} target={_fn!r} "
+                  f"NOT in globals() after full load — BLOCKING job registration")
+            # Block the job from ever firing: remove it from the live scheduler.
+            # The _wait_for_module_load() guard protects against early fires, but
+            # if the function was deleted/renamed it would NameError on every run.
+            try:
+                _scheduler.remove_job(_jid)
+                print(f"[CRITICAL][startup-selfcheck] job={_jid!r} REMOVED from scheduler "
+                      f"— will not fire until process restart with correct code")
+            except Exception as _rm_e:
+                # Job may not have been registered (ID mismatch) or already removed
+                print(f"[CRITICAL][startup-selfcheck] job={_jid!r} remove_job() failed: {_rm_e} "
+                      f"— manual scheduler inspection required")
+    else:
+        _n = len(globals().get("_SCHEDULER_LATE_REFS", {}))
+        print(f"[startup-selfcheck] all {_n} scheduler late-refs resolved OK — no jobs blocked")
+except Exception as _ssc_e:
+    print(f"[startup-selfcheck] error: {_ssc_e}")
+
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
     # Join it to keep the main thread alive. SIGTERM/SIGKILL will terminate the process.
     _wz_srv_thr.join()
+
+# [TLA-ENFORCED] Commits touching this file require a Trading Logic Approval (TLA).
+# Run: python3 tools/issue_tla.py --approved-by "Name" --note "rationale"
+# Gate enforced by: .git/hooks/pre-commit + git_autosync_daemon.py pre-push check.

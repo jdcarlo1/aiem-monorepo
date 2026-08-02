@@ -1,0 +1,43 @@
+# PHASE 3 — VOLATILITY INTELLIGENCE
+Source: AIEM_OPTIONS_AUTONOMY_MASTER_DIRECTIVE.txt §5
+Target: aiem_options_volatility_engine.py (create only if absent)
+Depends on: Phase 2 CLOSED (SignalResult live)
+Scope: Options Engine only. Paper trading only.
+
+## Requirements
+Calculate and persist: ATM IV, 52-week IV rank, IV percentile, realized
+volatility, IV minus realized volatility, term structure, skew, expected
+move, event IV expansion, estimated IV crush, volatility regime
+(LOW|NORMAL|HIGH|EXTREME).
+
+IV rank = (current_iv - rolling_low) / max(rolling_high - rolling_low, epsilon) * 100
+IV percentile = percent of historical observations below current IV.
+
+Never substitute "ATM IV > 40%" as a stand-in for IV rank — these are
+distinct calculations and must both exist independently.
+
+## Evidence required (master §14 items 6, 7, 12)
+- Item 12: raw DB rows showing IV rank + IV percentile history for at least
+  one real ticker across multiple sessions, with the rolling-window inputs
+  shown (not just the output number).
+- Item 6: one real high-IV-regime case and the downstream behavior it should
+  trigger per §7's mapping (defined-risk credit/condor family) — behavior
+  proof deferred to Phase 5, this phase only proves the regime classification
+  itself is real and live-computed.
+- Item 7: same, for a real low-IV-regime case.
+- Claude will independently hand-check the IV rank/percentile formula against
+  a known test case before accepting this phase (per standing quant-math rule).
+
+## Out of scope this phase
+Chain liquidity gate, scoring, strategy mapping, triggers, autonomy cadence,
+position management — Phases 4-8.
+
+## STANDING CHECKLIST (applies to every item below)
+- Raw evidence only: terminal output, raw grep -n/sed -n for any code-location/behavior claim, exact git diff, sha256 before/after for changed files, full SQL query + complete result set. No narrative/paraphrased "fixed/tested/confirmed" claims.
+- Run all evidence commands through tools/verified_run.sh; validate log with verify_chain.sh before declaring anything complete. Paste sha256sum of both tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical — mismatch voids the submission.
+- No-hardcoded-values check: list every hardcoded-looking constant introduced this phase + one-line trace to its live source (API/DB/formula). Negative control proving any new conditional gate actually blocks under the failing condition.
+- Data Immutability Rule: no DELETE/TRUNCATE/UPDATE/overwrite of any row or file — including test/synthetic data — without Joel's explicit prior approval this session.
+- "PASS" is reserved for items with nothing outstanding, nothing deferred, nothing accepted-as-risk. Otherwise label exactly: "closed via accepted-risk," "cleared to proceed," or "partial" — never blend with "passed."
+- A verifier PASS is not autonomous-execution authorization. Phase-completion and clearance-to-run-unsupervised are separate approvals requiring separate evidence.
+- Once a phase fully closes, agent commits a permanent record file to the repo: /docs/verification/phase{N}-{name}-FINAL.md with verdict, evidence summary, and commit hash verified against.
+- Lean output format: raw command + output only, no restated headers/summary tables/narrative. State plainly if a claim can't be backed by real output — no padding.

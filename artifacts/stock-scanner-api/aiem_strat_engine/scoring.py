@@ -130,10 +130,11 @@ def score_regime_fit(
 def score_vol_fit(
     strategy_vol_thesis: str,
     iv_rank: Optional[float],
-) -> float:
-    """Match vol structure to IV rank."""
+) -> Optional[float]:
+    """Match vol structure to IV rank.
+    Returns None when iv_rank is unavailable; caller excludes + renormalizes weights."""
     if iv_rank is None:
-        return 0.5  # neutral if unknown
+        return None   # optional component — no silent neutral default
     is_high_iv = iv_rank >= 50
     if strategy_vol_thesis == "HIGH_IV" and is_high_iv:     return 1.0
     if strategy_vol_thesis == "LOW_IV"  and not is_high_iv: return 1.0
@@ -144,10 +145,11 @@ def score_vol_fit(
 def score_diversification(
     strategy_family: str,
     existing_families: Optional[list] = None,
-) -> float:
-    """Reward strategies that diversify from existing positions."""
+) -> Optional[float]:
+    """Reward strategies that diversify from existing positions.
+    Returns None when no position context is available; caller excludes + renormalizes weights."""
     if not existing_families:
-        return 0.5   # no context — neutral
+        return None   # optional component — no silent neutral default
     if strategy_family not in existing_families:
         return 1.0
     # Count concentration
@@ -214,17 +216,32 @@ def compute_capital_compounding_score(
     n_legs:             int             = 2,
     existing_families:  Optional[list]  = None,
     portfolio_capital:  float           = 100_000.0,
-    pattern_score:      float           = 0.5,
-    pm_intel_score:     float           = 0.5,
-    mtf_alignment_score:float           = 0.5,
+    pattern_score:      Optional[float] = None,    # None = module unavailable
+    pm_intel_score:     Optional[float] = None,    # None = module unavailable
+    mtf_alignment_score:Optional[float] = None,    # None = module unavailable
 ) -> Dict[str, float]:
     """
     Compute the Capital Compounding Score and all individual components.
-    Returns a dict with every component and the final score.
+
+    Optional components: pattern_confirmation, pm_intel_score, mtf_alignment_score,
+    vol_regime_fit, and diversification_value may be None (module unavailable or
+    input missing).  When any optional component is None its weight is excluded and
+    the remaining active weights are renormalized so they still sum to 1.0:
+
+        active_weight_sum = Σ w_j  for j where component_j is not None
+        w_active_i        = w_i / active_weight_sum   (for each active component i)
+
+    Example — pattern_confirmation (w=0.03) unavailable:
+        active_weight_sum = 1.00 − 0.03 = 0.97
+        renorm_factor     = 1 / 0.97 ≈ 1.0309
+        w_pop_active      = 0.18 × 1.0309 ≈ 0.1856  (all active weights scale identically)
+
+    Returns a dict with every component (None-valued optionals recorded as -1.0
+    sentinel so downstream logging can distinguish "not computed" from "scored 0").
     """
     w = SCORE_WEIGHTS
 
-    # Positive components
+    # ── Mandatory component scores (always a float) ───────────────────────────
     sc_pop     = score_pop(pop)
     sc_ev      = score_ev(ev_after_costs)
     sc_capres  = score_capital_preservation(max_loss, max_profit, risk_class)
@@ -233,26 +250,40 @@ def compute_capital_compounding_score(
     sc_liq     = score_liquidity(liquidity)
     sc_thesis  = score_thesis_fit(strategy_direction, thesis, strategy_vol_thesis, vol_regime)
     sc_regime  = score_regime_fit(strategy_direction, market_regime)
+
+    # ── Optional component scores (None = unavailable → excluded + renormalized) ─
+    # score_vol_fit / score_diversification now return None when input is missing
     sc_vol     = score_vol_fit(strategy_vol_thesis, iv_rank)
     sc_divers  = score_diversification(strategy_family, existing_families)
-    sc_pattern = _clamp(float(pattern_score))
-    sc_pm      = _clamp(float(pm_intel_score))
-    sc_mtf     = _clamp(float(mtf_alignment_score))
+    sc_pattern = _clamp(float(pattern_score))    if pattern_score      is not None else None
+    sc_pm      = _clamp(float(pm_intel_score))   if pm_intel_score     is not None else None
+    sc_mtf     = _clamp(float(mtf_alignment_score)) if mtf_alignment_score is not None else None
 
-    raw_score = (
-        sc_pop     * w["pop"]                   +
-        sc_ev      * w["ev_after_costs"]         +
-        sc_capres  * w["capital_preservation"]   +
-        sc_def     * w["defined_risk_quality"]   +
-        sc_capeff  * w["capital_efficiency"]     +
-        sc_liq     * w["liquidity"]              +
-        sc_pm      * w["pm_intel_score"]         +
-        sc_mtf     * w["mtf_alignment_score"]    +
-        sc_thesis  * w["thesis_fit"]             +
-        sc_regime  * w["regime_fit"]             +
-        sc_vol     * w["vol_regime_fit"]         +
-        sc_divers  * w["diversification_value"]  +
-        sc_pattern * w["pattern_confirmation"]
+    # ── Weight renormalization ────────────────────────────────────────────────
+    component_scores: Dict[str, Optional[float]] = {
+        "pop":                  sc_pop,
+        "ev_after_costs":       sc_ev,
+        "capital_preservation": sc_capres,
+        "defined_risk_quality": sc_def,
+        "capital_efficiency":   sc_capeff,
+        "liquidity":            sc_liq,
+        "pm_intel_score":       sc_pm,
+        "mtf_alignment_score":  sc_mtf,
+        "thesis_fit":           sc_thesis,
+        "regime_fit":           sc_regime,
+        "vol_regime_fit":       sc_vol,
+        "diversification_value":sc_divers,
+        "pattern_confirmation": sc_pattern,
+    }
+
+    active_weight_sum = sum(w[k] for k, v in component_scores.items() if v is not None)
+    if active_weight_sum <= 0:
+        active_weight_sum = 1.0   # safety: mandatory components guarantee this never fires
+
+    raw_score = sum(
+        v * (w[k] / active_weight_sum)
+        for k, v in component_scores.items()
+        if v is not None
     )
 
     # Penalties
@@ -265,22 +296,25 @@ def compute_capital_compounding_score(
 
     final_score = _clamp(raw_score - total_penalty)
 
+    # -1.0 sentinel distinguishes "not computed" from "scored 0.0" in DB rows
+    _na = -1.0
     return {
-        "score_pop":                  round(sc_pop,     4),
-        "score_ev":                   round(sc_ev,      4),
-        "score_capital_pres":         round(sc_capres,  4),
-        "score_defined_risk":         round(sc_def,     4),
-        "score_cap_efficiency":       round(sc_capeff,  4),
-        "score_liquidity":            round(sc_liq,     4),
-        "score_pm_intel":             round(sc_pm,      4),
-        "score_mtf_alignment":        round(sc_mtf,     4),
-        "score_thesis_fit":           round(sc_thesis,  4),
-        "score_regime_fit":           round(sc_regime,  4),
-        "score_vol_fit":              round(sc_vol,     4),
-        "score_diversification":      round(sc_divers,  4),
-        "score_pattern_confirmation": round(sc_pattern, 4),
-        "penalty_total":              round(total_penalty, 4),
-        "capital_compounding_score":  round(final_score,   4),
+        "score_pop":                  round(sc_pop,              4),
+        "score_ev":                   round(sc_ev,               4),
+        "score_capital_pres":         round(sc_capres,           4),
+        "score_defined_risk":         round(sc_def,              4),
+        "score_cap_efficiency":       round(sc_capeff,           4),
+        "score_liquidity":            round(sc_liq,              4),
+        "score_pm_intel":             round(sc_pm,    4) if sc_pm    is not None else _na,
+        "score_mtf_alignment":        round(sc_mtf,   4) if sc_mtf   is not None else _na,
+        "score_thesis_fit":           round(sc_thesis,           4),
+        "score_regime_fit":           round(sc_regime,           4),
+        "score_vol_fit":              round(sc_vol,   4) if sc_vol   is not None else _na,
+        "score_diversification":      round(sc_divers,4) if sc_divers is not None else _na,
+        "score_pattern_confirmation": round(sc_pattern,4) if sc_pattern is not None else _na,
+        "active_weight_sum":          round(active_weight_sum,   4),
+        "penalty_total":              round(total_penalty,        4),
+        "capital_compounding_score":  round(final_score,          4),
     }
 
 

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# tools/pre-push — tracked git copy of the .git/hooks/pre-push hook.
+#
+# .git/hooks/ is not synced by git.  This file IS tracked so it survives
+# clones and environment resets.  Install it via:
+#
+#   bash tools/install_hooks.sh
+#
+# which copies this file to .git/hooks/pre-push and makes it executable.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT THIS HOOK DOES
+#   Fires on EVERY `git push`, regardless of whether the push originates from
+#   a manual terminal command, the agent, or the autosync daemon.
+#   Delegates to tools/check_protected_push.py (single source of truth) which
+#   inspects every commit in the push range for TLA compliance.
+#
+# KNOWN BYPASS
+#   `git push --no-verify` skips all pre-push hooks by git design.
+#   This gap cannot be closed at the hook level and is documented here
+#   as a residual risk.  Any use of --no-verify must be recorded in
+#   tools/trading_logic_approvals.jsonl as a BYPASS entry with reason.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+GATE_SCRIPT="${REPO_ROOT}/tools/check_protected_push.py"
+
+if [ ! -f "${GATE_SCRIPT}" ]; then
+    echo "[pre-push-gate] ERROR: ${GATE_SCRIPT} not found — push BLOCKED (fail closed)" >&2
+    exit 1
+fi
+
+echo ""
+echo "=================================================================="
+echo "pre-push hook: running TLA gate (tools/check_protected_push.py)"
+echo "=================================================================="
+
+# git pipes push targets on stdin: <local-ref> <local-sha1> <remote-ref> <remote-sha1>
+# We pass stdin straight through to the Python script.
+python3 "${GATE_SCRIPT}"
+EXIT_CODE=$?
+
+if [ ${EXIT_CODE} -ne 0 ]; then
+    echo ""
+    echo "PUSH BLOCKED: one or more commits failed the TLA gate."
+    echo "Fix the listed commits (rebase + re-issue TLA) before pushing."
+    echo ""
+    echo "KNOWN BYPASS (document any use): git push --no-verify"
+    exit 1
+fi
+
+echo "TLA gate: PASS — push allowed."
+echo "=================================================================="
+exit 0

@@ -1,0 +1,45 @@
+Directive_PrePushGate_RealFix_2026-08-01
+
+ROOT CAUSE (confirmed via code read):
+git_autosync_daemon.py's TLA/protected-file check only runs inside its
+own automatic push cycle. It is NOT a git hook. Any direct `git push`
+run manually in the terminal (by Joel or the agent) never touches
+this check at all and reaches origin/dev unguarded. This is why
+b5e7a02 (no TLA) and 9267fee (self-issued TLA) both pushed clean.
+
+FIX REQUIRED — make the gate un-bypassable regardless of who pushes:
+
+1. Extract the existing check logic (PROTECTED_PATTERNS match + TLA
+   token regex + trading_logic_approvals.jsonl used=True lookup) out
+   of git_autosync_daemon.py into a standalone script,
+   tools/check_protected_push.sh or .py, that takes no daemon state
+   and can run standalone against any commit range.
+
+2. Install that script as the real git hook: .git/hooks/pre-push.
+   This makes it fire on EVERY push — manual terminal push, agent
+   push, daemon push — not just the daemon's own cycle.
+
+3. Update git_autosync_daemon.py to call this same shared script
+   instead of its own inline copy of the logic, so there's one
+   source of truth, not two implementations that can drift.
+
+4. Confirm .git/hooks/pre-push is executable (chmod +x) and is NOT
+   in .gitignore or excluded from the repo's tracked hook setup —
+   hooks live in .git/hooks locally and don't sync via git by
+   default, so document how this gets installed on every clone/fresh
+   environment (e.g. a setup script that symlinks it in).
+
+5. Note the known limit: `git push --no-verify` still skips pre-push
+   hooks by git design. Document this residual gap explicitly rather
+   than claiming the fix is airtight.
+
+VERIFICATION REQUIRED BEFORE CLOSING (raw output only, no narrative):
+- Make a commit touching a protected file with NO TLA token, run
+  `git push` directly from the terminal (not through the daemon) —
+  paste raw output showing it is BLOCKED.
+- Make a commit touching a protected file WITH a valid used=True TLA,
+  run `git push` directly from the terminal — paste raw output
+  showing it PASSES.
+- Run `git push --no-verify` on the blocked case and paste raw output
+  confirming this known bypass exists (for the record, not as a fix
+  requirement).

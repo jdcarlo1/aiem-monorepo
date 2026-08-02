@@ -1,0 +1,48 @@
+# Directive — Morning Pipeline Root-Cause Fixes (2026-08-01)
+
+Independent audit of the full export found 4 defects. Fix in this order. Evidence required per item.
+
+## Item 1 — CRITICAL: aiem morning scan queries nonexistent columns
+`_aiem_tool_scan_market_for_setups` (main.py ~26680) selects `p.change_pct` and `p.dollar_volume` from `polygon_rvol_scan`. No CREATE TABLE or INSERT in the codebase defines either column.
+
+Steps:
+1. Run against live DB: `SELECT column_name FROM information_schema.columns WHERE table_name='polygon_rvol_scan';` — paste full output.
+2. If `change_pct`/`dollar_volume` are missing: remove both from the SELECT and remove the `p.dollar_volume >= 500000` predicate. Compute change_pct in Python as `(price-open_price)/open_price*100` from existing columns; replace the dollar-volume gate with `p.volume * p.price >= 500000` in SQL.
+3. Run the function once manually; paste the returned dict's `signal_source_counts` and `total_candidates` (must be >0 on a market day, or explain from data).
+
+Evidence: information_schema output, diff, one live function output.
+
+## Item 2 — CRITICAL: heartbeat recorded at thread launch, catch-up trusts it
+`_run_aiem_morning_job` (main.py ~6441) calls `record_job_success("aiem_morning_scan")` immediately after `Thread.start()`. Startup catch-up (~8453) checks that heartbeat to decide "already ran."
+
+Steps:
+1. Remove `record_job_success` from the cron wrapper AND from the startup catch-up launch path.
+2. Inside `_morning_thread` in `_run_aiem_morning_scan`: after `_aiem_tool_save_daily_predictions`, call `record_job_success("aiem_morning_scan")` only if `result.get('saved',0) > 0`; else `record_job_failure` with the reason.
+3. Add at top of `_morning_thread`: `if universe.get("error"): record_job_failure(...); _tg alert with the error; return`.
+4. Change the startup catch-up evidence check from `job_heartbeats` to: `SELECT 1 FROM aiem_predictions WHERE prediction_date = CURRENT_DATE LIMIT 1`.
+
+Evidence: diff of all 4 changes; one forced-failure test (temporarily break the query, confirm heartbeat shows failure + Telegram fired, then revert).
+
+## Item 3 — HIGH: OE scheduler missing job_defaults (1-second misfire grace)
+`aiem_options_scheduler.py` ~3944: `sched = BackgroundScheduler(timezone=_ET)`.
+
+Steps:
+1. Change to: `BackgroundScheduler(timezone=_ET, job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 600})`.
+2. Restart scheduler; paste startup log line showing scheduler started and the `/health` output.
+
+Evidence: diff + restart log.
+
+## Item 4 — HIGH: ASE startup-kick time condition broken
+`aiem_strat_scheduler.py` ~691: `now_et.hour >= 9 and now_et.minute >= 45` is only true minutes 45-59 of each hour.
+
+Steps:
+1. Replace with: `(now_et.hour, now_et.minute) >= (9, 45) and now_et.hour < 16`.
+2. Make the kick sequential: run `_seed_candidates()` then `_run_all_pending()` in ONE thread, not two parallel threads.
+3. Paste diff.
+
+Evidence: diff only (spot-check tier).
+
+## Constraints
+- No other changes. No refactors. Each item = separate commit with the item number in the message.
+- Items 1-2 are trade-affecting: full evidence bar. Items 3-4: diff + restart log is sufficient.
+- Report back per item: PASS/FAIL + evidence inline.

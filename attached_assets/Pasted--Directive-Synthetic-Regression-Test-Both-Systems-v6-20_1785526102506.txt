@@ -1,0 +1,46 @@
+# Directive — Synthetic Regression Test, Both Systems (v6, 2026-07-31)
+
+Purpose: confirm today's changes did not introduce a regression in AIEM or Options Engine, confirm the 3 newly-approved items actually landed, and close remaining gaps before Monday.
+
+## Part 1 — Generic regression check, AIEM AND Options Engine
+1. `git log --oneline` since start of day 2026-07-31 for BOTH the AIEM repo AND the Options Engine repo. List every file touched in each.
+2. Pull last known-good synthetic output (conviction_score, final_confidence, position sizing, gating/EV decision) as baseline — one for AIEM, one for Options Engine.
+3. Run a synthetic decision cycle through current code, fixed input — once for AIEM, once for Options Engine. Capture full output for each.
+4. Raw diff vs baseline, AIEM and Options Engine separately. Any unexplained difference in either system = OPEN, not dismissed.
+
+## Part 2 — Options Engine late-def-race sweep (approved, confirm it landed)
+1. Raw grep across `aiem_options_scheduler.py` (Options Engine) confirming every scheduler-registered function name has the same wrapper-guard pattern applied as AIEM's main.py — no unguarded registrations remaining.
+2. Startup self-check present, logging CRITICAL on any unresolved name.
+3. **Force a synthetic late-def-race condition on Options Engine**, specifically including the new `_validate_and_fix_pipeline_run_classifications` target — not just the pre-existing 5 — and show it fails loud (CRITICAL log), not silently. This is a live behavioral proof, not just a grep showing the guard exists.
+4. sha256 before/after for `aiem_options_scheduler.py` — confirm the after-hash matches the value staged Friday night (`ec3c947e...`), not just that it changed.
+
+## Part 3 — job_attempt_log table (approved, confirm it landed)
+1. Schema shown: `job_attempt_log(job_name, attempt_time, status, error_text)`.
+2. Write-path wired in wherever job_heartbeats currently overwrites without history.
+3. One real row present after the next job run — not just an empty table.
+4. sha256 before/after for `main.py` — confirm the after-hash matches the value staged Friday night (`7535b7ac...`).
+
+## Part 4 — issue_tla.py TTY-gate fix (approved, confirm it landed)
+1. Raw diff + sha256 before/after for the `sys.stdin.isatty()` check.
+2. Negative-control test: attempt non-interactive issuance (agent-style shell call) and show it's actually blocked with a hard error — not just described as blocked.
+
+## Part 5 — Item F: smoke-test CI real end-to-end proof (still open, not yet done)
+The smoke-test suite (scheduler_smoke_test.py, Check 9) was proven locally only. Still required:
+1. A real push to the CI-triggering branch.
+2. The actual GitHub Actions run URL showing the suite executed there (not local).
+3. Confirmation the Telegram alert fired from that real CI run, not a local simulation.
+
+## Part 6 — Status check on remaining open threads
+State PASS/OPEN plainly for each, raw evidence only:
+1. TLA `835d1242 (approved_by=Joel)` on the Options Engine catch-up commit — confirm this was real approval, or flag as a pre-fix instance of the auto-approval defect.
+2. Telegram alert delivery (general) — actual message receipt, not just HTTP 200.
+3. sha256 before/after for the TLA-session break/revert commits (both AIEM and Options Engine cycles) — still never provided.
+4. AIEM-1/AIEM-2 core-path functions — NOT a test item, a decision item: Joel still needs to decide which 2 of 6 are genuinely uncallable and what acceptable substitute proof looks like. Flag as pending, do not attempt to resolve unilaterally.
+5. git-autosync recurrence policy — NOT a test item, a decision item: Joel still needs to decide what happens if local/remote diverges again. Flag as pending, do not attempt to resolve unilaterally.
+
+## Already closed — do not re-open, listed for completeness only
+- dfc1479 sha256 — provided.
+- Item D date contradiction — corrected.
+- SEAL_STALE on chain entries — confirmed permanent baseline, unrelated to drift incident, no action needed.
+
+No summary judgment ("looks fine") without raw output shown for each part, for both systems.

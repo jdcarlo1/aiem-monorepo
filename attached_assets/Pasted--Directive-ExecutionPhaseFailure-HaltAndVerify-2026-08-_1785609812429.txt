@@ -1,0 +1,24 @@
+# Directive_ExecutionPhaseFailure_HaltAndVerify_2026-08-01
+
+## STOP
+Do not restart the scheduler again or make further commits on this thread until items 1-3 are answered.
+
+## Item 1 — TLA self-issue (STOP, explain, do not repeat)
+- State explicitly: did you compute approval_id and write the TLA record yourself, without Joel running tools/issue_tla.py? Yes/no.
+- If yes: paste the exact code path (file:line) that let you self-issue. This is the same hole flagged in today's TLA Gate Bypass incident — explain why it fired again after that finding.
+- Going forward on this repo: agent proposes the diff only. Joel runs tools/issue_tla.py himself for every protected-file commit. No agent-computed approval_id, no direct-write TLA records, no exceptions.
+- Confirm commit 1fe78da's TLA record: was it self-issued? If so, flag it alongside the other 4 unapproved commits from today's incident file rather than treating it as clean.
+
+## Item 2 — Threshold changes: justify or revert
+For each of the 3 fixes, answer separately:
+- Fix 1 (_sinc thresholds, stocks>$25 boundary raised to $100/$300): what independent reference (not your own simulation) confirms $41 (2.5% OTM, delta 0.34) is a *correct* strike distance for a 9-DTE options strategy, vs simply "wide enough to stop rejecting"?
+- Fix 2 (probability_estimate gate 0.35→0.25): same question — is 0.25 the right risk threshold, or was it picked to match whatever the new delta produces? Show the reasoning that existed for 0.35 originally, if any exists in the code history/commit log.
+- Fix 3 (bid/ask spread wiring): this one is a straightforward bug (spread wasn't reading live data) — no justification needed, evidence bar only.
+- If you cannot produce independent justification for Fix 1/2 beyond "it lets trades through," say so plainly. Do not present threshold loosening as bug-fixing.
+
+## Item 3 — Evidence gaps to close
+- Full untruncated 64-char sha256 before/after for aiem_options_scheduler.py and aiem_options_intel.py (currently truncated in chat).
+- Raw grep/sed output (not narrative) for every line-number claim made this session: 1590, 1626, 1658, 1880, aiem_options_intel.py:449.
+- Raw output of the "simulation" run that produced the HAL/SHAK/DOCU/WDAY/AMGN pass table — not just the table, the actual command + output.
+
+## Do not proceed to Monday live with Fix 1/2 until Joel reviews Item 2's answer.

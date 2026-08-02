@@ -330,3 +330,41 @@ print("ALL CHECKS PASSED")
 167	2026-07-30T21:33:00Z	0	77d97156b7e5ad2480a47fde0e275c177410c4670c75cf34ebb4332fba5570ff	git -C artifacts/stock-scanner-api blame -L 329,334 aiem_sse.py
 168	2026-07-30T23:08:42Z	1	8979bc0c245ae9a39208a4a725c348749de5b0917ea451fbda249b9fc0e15aa7	python3 /tmp/test_grader_vectors.py
 169	2026-07-30T23:09:31Z	0	50532650e5a7f9ae8c2e09620a047074013135e452dd8e799383f1d611222a1a	python3 /tmp/test_grader_vectors.py
+170	2026-07-31T04:09:17Z	0	756170e4c7a2dd7d3b1416b77e18a65b8aed7c74f92ad0cf305925831a9661d4	python3 -c "print("verified_run smoke test 97-98-followup")"
+171	2026-08-01T17:33:24Z	0	de53fc994522f936ee3ba9b0023fbb1523a6afae78f7776628618fd3ba934c62	git log origin/dev --oneline -8
+172	2026-08-01T17:33:43Z	0	42da377136bcb2e1e9a6a1a2bf68827bfee9b71ef54361724f2d3c2d9634713e	cat logs/git_autosync_blocks.jsonl
+173	2026-08-02T16:56:55Z	0	f8dd40e36f00a0e7b3796744ad2f3c14f1e8006c4efe0647d0d8af36ef976044	psql "$DATABASE_URL" -x -c "
+SELECT ticker, close_strength, rvol, gap_pct, scan_date
+FROM (
+    SELECT ticker, close_strength, rvol, gap_pct, scan_date,
+           ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date DESC) AS rn
+    FROM polygon_rvol_scan
+    WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
+      AND rvol >= 1.5 AND price >= 5.0 AND price <= 500.0
+) latest
+WHERE rn = 1
+ORDER BY rvol DESC, ABS(gap_pct) DESC LIMIT 25;
+"
+174	2026-08-02T16:56:56Z	0	5e2101bcfc5eb24634abbfc7b42f2287a45642d9d84ce888b34c6aba8ca5bcf9	grep -n '0\.5' aiem_strat_scheduler.py aiem_strat_engine/scoring.py
+175	2026-08-02T16:57:12Z	0	01d19e4d85cc8b5df3d9df88ba64fa21f93508e4f09ce2dd018c02e73937d3e9	python3 -c "
+import sys, os; sys.path.insert(0, '/home/runner/workspace/artifacts/stock-scanner-api')
+from datetime import datetime
+
+def _gate(atm_iv_value, ticker='SIM_TICKER', run_id='test_trace_item2'):
+    if atm_iv_value is None:
+        msg=(f'[{run_id}] module=chain_data ticker={ticker} status=MISSING '
+             f'field=atm_iv source_ts={datetime.utcnow().isoformat()}Z '
+             f'— INSUFFICIENT_DATA; aborting job')
+        print('GATE FIRED:', msg)
+        return False
+    return True
+
+ok_a=_gate(None);   print('Case A atm_iv=None  proceed={} verdict={}'.format(ok_a,'INSUFFICIENT_DATA' if not ok_a else 'PROCEED'))
+ok_b=_gate(0.28);   print('Case B atm_iv=0.28  proceed={} verdict={}'.format(ok_b,'INSUFFICIENT_DATA' if not ok_b else 'PROCEED'))
+assert not ok_a,'FAIL: gate did not block on None'
+assert ok_b,    'FAIL: gate blocked on valid float'
+print('NEGATIVE_CONTROL: PASS')
+"
+176	2026-08-02T20:37:06Z	1	5843e2ecc6e328ce5edc6f8560e4cfc21cc7b3541a2b4b75a66728795a849ccf	cd /home/runner/workspace/artifacts/stock-scanner-api && python3 verify_phase2_signal_engine.py
+177	2026-08-02T20:38:50Z	1	1f42bc52ab23f76eabe72fe40cbaaa16ab15dbf23ffd687b1ed9c4f89b154940	cd /home/runner/workspace/artifacts/stock-scanner-api && python3 verify_phase2_signal_engine.py
+178	2026-08-02T20:39:38Z	0	63340a3fa2d9d3afbb668d30463c588f1e20f66571c6b510c2e134c175aa3361	cd /home/runner/workspace/artifacts/stock-scanner-api && python3 verify_phase2_signal_engine.py

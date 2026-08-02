@@ -1,0 +1,38 @@
+# PHASE 1 — DATA FOUNDATION
+Source: AIEM_OPTIONS_AUTONOMY_MASTER_DIRECTIVE.txt §1, §3
+Target: aiem_strat_scheduler.py, aiem_strat_engine/config.py, universe scan module
+Scope: Options Engine only. Paper trading only. Do not touch D1/D2/D3.
+
+## Requirements
+1. Replace ticker-first LIMIT universe query with the point-in-time latest-row
+   ranking query (§1 exact SQL). Do not assign direction from gap_pct/close_strength
+   alone — that stays the signal engine's job (Phase 2).
+2. Every module status must resolve to one of: AVAILABLE | STALE | MISSING |
+   FAILED | NOT_APPLICABLE. Remove every silent 0.5-default fallback wherever
+   it currently exists in the strat engine.
+3. Mandatory component missing/stale/failed => INSUFFICIENT_DATA + NO_TRADE.
+   Optional component unavailable => exclude + renormalize remaining weights
+   (show the renormalization formula and one live example).
+4. Log exception, module, ticker, trace_id, source timestamp on every failure.
+
+## Evidence required (master §14 items 1, 2, 8)
+- Item 1: raw SQL + full result set proving the new ranking query returns
+  latest-row-per-ticker (not stale/duplicate rows), ordered rvol DESC, |gap_pct| DESC.
+- Item 2: a real or forced stale-data case, raw log/DB proof it blocks with
+  INSUFFICIENT_DATA rather than silently defaulting.
+- Item 8: grep proof no `0.5` neutral-default literal remains as a fallback
+  anywhere in the changed files (with any legitimate non-fallback 0.5 explained).
+
+## Out of scope this phase
+SignalResult fields, pattern pipeline, volatility, chain gate, scoring,
+triggers, autonomy cadence, position management — Phases 2-8.
+
+## STANDING CHECKLIST (applies to every item below)
+- Raw evidence only: terminal output, raw grep -n/sed -n for any code-location/behavior claim, exact git diff, sha256 before/after for changed files, full SQL query + complete result set. No narrative/paraphrased "fixed/tested/confirmed" claims.
+- Run all evidence commands through tools/verified_run.sh; validate log with verify_chain.sh before declaring anything complete. Paste sha256sum of both tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical — mismatch voids the submission.
+- No-hardcoded-values check: list every hardcoded-looking constant introduced this phase + one-line trace to its live source (API/DB/formula). Negative control proving any new conditional gate actually blocks under the failing condition.
+- Data Immutability Rule: no DELETE/TRUNCATE/UPDATE/overwrite of any row or file — including test/synthetic data — without Joel's explicit prior approval this session.
+- "PASS" is reserved for items with nothing outstanding, nothing deferred, nothing accepted-as-risk. Otherwise label exactly: "closed via accepted-risk," "cleared to proceed," or "partial" — never blend with "passed."
+- A verifier PASS is not autonomous-execution authorization. Phase-completion and clearance-to-run-unsupervised are separate approvals requiring separate evidence.
+- Once a phase fully closes, agent commits a permanent record file to the repo: /docs/verification/phase{N}-{name}-FINAL.md with verdict, evidence summary, and commit hash verified against.
+- Lean output format: raw command + output only, no restated headers/summary tables/narrative. State plainly if a claim can't be backed by real output — no padding.

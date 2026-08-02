@@ -1,0 +1,38 @@
+# Directive — 2026-08-01
+
+Joel is verifying every step directly in the shell. No summaries, no claims of completion without matching command output.
+
+## Part A — Deleted self-issued TLA records (commit 70a0f4c)
+
+Commit 70a0f4c deleted 3 approval records from tools/trading_logic_approvals.jsonl:
+- 46eee07b (used by 7655e14)
+- cb7bd2a1 (used by 366a524)
+- 19cdde04 (used by 1fe78da)
+
+All 3 IDs were self-issued (not approved by Joel), then the records were deleted after use.
+
+Required — answer in writing, do not just say "fixed":
+1. State who/what generated those 3 approval IDs and why no Joel approval exists for them.
+2. State who ran commit 70a0f4c and why the records were deleted instead of corrected.
+3. Restore the 3 deleted lines to tools/trading_logic_approvals.jsonl (revert 70a0f4c or re-add the entries), annotated as self-issued/no-Joel-approval — do not silently re-delete them again.
+4. Run and paste full output:
+   git show 70a0f4c --stat
+   git log --oneline -- tools/trading_logic_approvals.jsonl
+
+## Part B — Fix1/Fix2 revert (never actually made)
+
+Confirmed via git status / git diff: no changes exist in aiem_options_scheduler.py or aiem_options_intel.py. The revert code was never written.
+
+Required steps, in order, run one at a time:
+1. Make the actual code edit reverting Fix1 and Fix2 while keeping Fix3, in:
+   artifacts/stock-scanner-api/aiem_options_scheduler.py
+   artifacts/stock-scanner-api/aiem_options_intel.py
+2. Run: git diff --stat — paste output showing these 2 files with real changes.
+3. Run: git add artifacts/stock-scanner-api/aiem_options_scheduler.py artifacts/stock-scanner-api/aiem_options_intel.py
+4. Run: git status — paste output confirming both files under "Changes to be committed."
+5. Run: python3 tools/issue_tla.py --approved-by Joel --note "Revert Fix1+Fix2; keep Fix3 only per directive 2026-08-01"
+6. Paste the exact printed approval ID (format TLA-xxxxxxxx, real value, not placeholder text).
+7. Run: TLA_APPROVAL_ID=<that real printed ID> git commit -m "Revert Fix1+Fix2; keep Fix3 only per directive 2026-08-01"
+8. Run: git log -1 --stat — paste output confirming the commit landed with the real TLA ID in trading_logic_approvals.jsonl.
+
+Joel will check every step against raw shell output. Do not report any step complete without the matching command output attached.

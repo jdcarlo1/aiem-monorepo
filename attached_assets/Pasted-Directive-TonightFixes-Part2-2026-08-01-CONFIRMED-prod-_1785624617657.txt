@@ -1,0 +1,47 @@
+Directive_TonightFixes_Part2_2026-08-01
+
+CONFIRMED: prod preflight now live. is_deployment="1" (real GCE deployment).
+pg_host=ep-spring-fl...neon.tech, pg_database=neondb — CONFIRMED SEPARATE
+from dev (pg_host=helium, pg_database=heliumdb). Dev and prod are genuinely
+different databases. This reverses the earlier "one shared DB" claim back
+to "separate DBs," which was correct all along.
+
+PRIORITY 3 — Scheduler migration Phase 1 (NOW UNBLOCKED)
+
+1. Gate _scheduler.start() (aiem_options_scheduler.py line ~4201,
+   sched.start()) behind REPLIT_DEPLOYMENT=="1" so only the GCE
+   deployment process runs the scheduler — not workspace workflows.
+2. Show before/after: confirm workspace workflow no longer starts the
+   scheduler, GCE process does. Raw proof, not narrative.
+3. Confirm no duplicate-fire risk remains between workspace + GCE.
+
+PRIORITY 4 — Re-verify the 10-day morning-failure diagnosis against PROD
+
+Everything root-caused so far (execution phase failure, seed-date
+mismatch, misfire gaps, heartbeat/watchdog state) was checked against the
+DEV database. Since prod is now confirmed separate, that diagnosis needs
+re-confirmation on the database that actually runs live trades:
+
+1. Pull the same job_heartbeats / oe_decision_records / execution history
+   from PROD (via the preflight endpoint or direct query) for the same
+   10-day window.
+2. State plainly whether prod shows the same failure pattern as dev, or
+   whether prod's actual history differs — don't assume it transfers.
+3. If prod's execution-phase/seed-date bugs are confirmed present in the
+   PROD codebase currently running (not just fixed in the repo pending
+   next deploy), confirm this redeploy tonight actually shipped those
+   fixes to prod. Show git_sha on the running process vs the fix commit
+   shas from earlier tonight.
+
+PRIORITY 5 — Confirm watchdog Telegram alert fires on PROD now
+
+Earlier proof was dev-only. Since prod just redeployed:
+1. Trigger the same stale-job check against prod.
+2. Show the Telegram alert firing from prod specifically (not dev).
+
+NOT for tonight — still needs Monday's live run:
+- Keepalive 8:35 AM slot-claim proof
+- Natural end-to-end Monday trade/no-trade verdict
+
+Evidence bar unchanged: raw curl/grep/JSON/git output only, no narrative
+substitution, state prod vs dev explicitly on every claim from here on.

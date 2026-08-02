@@ -1,0 +1,37 @@
+# Directive: Reconcile 1_polygon FAIL — Two Conflicting Root Causes
+
+Two prior sessions gave DIFFERENT root causes for the same symptom (1_polygon hash FAIL), and they contradict on the SAME alert (id=25, TER):
+
+- Session A ("accepted-risk" close): repair script (commit fd2e199) overwrote 9 alerts' (PSX×8, TER×1) stored hash-anchors with EOD data instead of the original intraday data → those 9, INCLUDING TER/25, ruled **irrecoverable**.
+- Session B (this round): all 25 alerts fail 1_polygon due to a field-structure mismatch (mass backfill wrote wrong key set) → rewrote all 25 snapshots, TER/25 now shows **PASS, fully recovered**.
+
+These cannot both be true for alert 25. Do not accept either as closed. Required, in order:
+
+## Step 1 — Pull the actual source data used, both times
+Run and paste raw output:
+```
+SELECT * FROM polygon_market_daily WHERE scan_date IN ('2026-07-16','2026-07-17') ORDER BY scan_date;
+```
+State explicitly: is this row intraday-captured data from alert time, or EOD data backfilled later? Give the `captured_at`/insert timestamp for this exact row, not the snapshot's captured_at.
+
+## Step 2 — Diff the two "fixes" against each other
+```
+git log --follow -p -- <snapshot repair script path from fd2e199>
+git log --follow -p -- <this session's snapshot rewrite script>
+```
+Paste both. State plainly: did this session's rewrite touch alert_id=25's snapshot row a SECOND time (i.e., after fd2e199's overwrite)? If yes, the "recovery" may just be writing whatever data reproduces the stored hash — that is tampering, not verification, and must be flagged as such, not reported as PASS.
+
+## Step 3 — Reconcile the 9-vs-25 scope
+List the 9 alert_ids Session A flagged as irrecoverable (PSX×8 + TER×1) next to the 25 alert_ids Session B rewrote. State explicitly which of the 9 are inside the 25, and whether the two sessions are describing the same incident or two separate incidents that happen to produce the same FAIL symptom.
+
+## Step 4 — Full-set verify, not one alert
+```
+verify_chain.sh                # default = most recent alert
+verify_chain.sh 1
+verify_chain.sh 2
+... (all 25, or a scripted loop — paste full loop output, not "representative")
+```
+Report exact PASS/FAIL count. Do not accept "PASS" language for anything short of all 25 independently confirmed.
+
+## Output format
+Per standing protocol: raw command output only, no narrative summary, no restated context. If any of the 4 steps can't be answered with real evidence, say so in one line — do not paper over with a status label.

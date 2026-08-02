@@ -1,0 +1,30 @@
+# Directive — Follow-up: Item F not actually closed, plus one disclosure question
+
+Standing checklist applies: raw output, sha256 before/after, no paraphrase, PASS only if fully closed.
+
+The "8/8 PASS, all four items closed" summary is not accurate for Item F. Two of the eight checks do not test what the original directive required. Fix both — do not re-report as closed until they actually do what's described below.
+
+## Gap 1 — Core-path check only verifies functions exist, not that they run correctly
+What was built: an AST parse that confirms `_aiem_paper_pick_candidates`, `_run_aiem_independent_scan`, `_aiem_paper_execute_today` (AIEM) and `seed_daily_candidates`, `run_pipeline_worker`, `grade_outcomes_job` (OE) still exist by name in the file. This only catches a renamed/deleted/moved function. It does NOT catch a function that still exists, still parses, but is actually broken (wrong logic, throws on real input, etc.) — which is what "core-path smoke test" was supposed to catch.
+
+What to do instead:
+1. For each of those 6 functions, call the actual function in a dry-run/paper-mode path with safe/synthetic input (not a live trade) and confirm it completes without raising an exception. If a function requires DB or API access that can't be safely mocked, use a minimal test double (e.g., in-memory stub objects) rather than skipping execution entirely — the point is to actually invoke the code path, not just confirm it's importable.
+2. If a genuine blocker exists for calling any specific function safely (e.g., irreversible side effect with no dry-run mode available), state that function by name and explain the specific blocker — don't generalize "no mocking infrastructure exists" as a blanket reason to skip execution for all 6.
+3. Show the actual test code added and the raw pass/fail output.
+
+## Gap 2 — Forced-failure proof still only ran locally, not through real GitHub Actions
+Checks 6 and 7 ran `SMOKE_FULL=1 python3 tools/scheduler_smoke_test.py` directly on the machine. That proves the script's logic works. It does NOT prove the GitHub Actions workflow itself triggers on push, fails visibly, or sends the Telegram alert in the real pipeline — a separate system from running a script by hand.
+
+Do this exact sequence, in order, and paste the raw output/links for each step — this is spelled out in full so there's no ambiguity about what "real proof" means here:
+1. **AIEM break:** Make one small, clearly-labeled breaking change to an AIEM file (e.g., the same kind of sed edit used for the local forced-failure test — rename a function so a scheduler target no longer resolves). Commit it with a message like "TEST: intentional break for CI proof — do not merge."
+2. **Push it:** `git push` that commit to the branch that triggers the CI workflow.
+3. **Show the real Actions run:** Go to the repo's GitHub Actions tab, find the run triggered by that push, and paste the actual run URL and its status (should be red/failed). A screenshot or the raw API response for that run is acceptable — a text description of what "should" have happened is not.
+4. **Confirm the Telegram alert:** Paste the actual alert message received (timestamp + content), not a description of the alert logic.
+5. **Revert:** Commit a revert of the breaking change, `git push` again.
+6. **Show the green run:** Same as step 3 — actual Actions run URL/status showing it passed after the revert.
+7. **Repeat steps 1-6 separately for Options Engine** with its own breaking change (e.g., the same `grade_outcomes` rename used locally). Two full break→push→proof→revert→push→proof cycles total, one per system.
+
+If GitHub Actions run history isn't directly accessible/paste-able for some reason, say so explicitly and propose an alternative way to prove the trigger — don't substitute another local test and call it equivalent.
+
+## Item G — issue_tla.py approval disclosure
+The commit closing this directive (`3decc59`) was gated by `issue_tla.py`, the same script previously flagged for defaulting `approved_by` to "Joel" with no human present or prompted. State plainly: was this specific TLA approval run with an explicit `--approved-by` argument or human confirmation this time, or did it default again with nobody present? No reframing — direct answer, plus the exact command that was run.

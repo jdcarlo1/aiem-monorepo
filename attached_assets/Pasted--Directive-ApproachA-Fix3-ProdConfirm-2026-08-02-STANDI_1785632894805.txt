@@ -1,0 +1,42 @@
+# Directive_ApproachA_Fix3_ProdConfirm_2026-08-02
+
+## STANDING CHECKLIST (applies to every item below)
+- Raw evidence only: terminal output, grep -n/sed -n for any code-location claim, exact diff, sha256 before/after for changed files, full SQL+result set for any DB query. No paraphrasing, no narrative-only claims.
+- Data Immutability: no delete/truncate/overwrite of any row/file without explicit approval first.
+- Route all evidence-producing commands through verified_run.sh; paste verify_chain.sh output before declaring anything complete. Paste sha256sum of tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh, cross-checked against last confirmed canonical.
+- "PASS" only if fully verified with nothing deferred. Otherwise use "cleared to proceed" / "partial" / "closed via accepted-risk" — never blend with "passed."
+- Any phase that fully closes gets a permanent record file committed to the repo (/docs/verification/...).
+
+## ITEM A — Strike Selection: Approach A (delta-target)
+Replace the _sinc grid-snap with delta-targeting via Black-Scholes inversion.
+
+Requirements:
+1. State target delta explicitly (e.g. 0.30) before writing code.
+2. Implement BS delta inversion to solve for strike given target delta, spot, IV, time-to-expiry, rate.
+3. Correctness verification (required, not optional):
+   - Independent known-answer test vectors — expected values from an external reference/known formula, not invented by you. Must match exactly.
+   - Cross-check via a second method (e.g. numerical finite-difference vs analytic) — agreement within stated tolerance.
+   - Mutation check: deliberately break a known-correct value, prove the test suite catches it as failing.
+4. No-hardcoded-values check: list every numeric constant in the new code, grep+trace each to its live source (API/DB/computed) — no "wired later."
+5. Confirm this actually fixes the CLF/HAL deep-ITM put problem — show before/after strike for CLF and HAL specifically.
+6. Do NOT threshold-shop — target delta must be justified against an independent reference, not reverse-engineered to make trades pass.
+7. STOP after this item and report before proceeding to B/C — do not self-authorize moving to live/autonomous trading on this.
+
+## ITEM B — Fix3 (bid/ask wiring) re-verification
+Commit message for b5bb2ad claims Fix3 (bid/ask wiring to Tradier) was included, but git diff ad34726..b5bb2ad shows zero bid/ask/spread code changes.
+1. Raw grep/sed showing the actual call_data / bid-ask construction path in current code.
+2. Trace it line-by-line: is it actually calling Tradier, or still using the synthetic call_mid±12% formula?
+3. If synthetic: state that plainly, do not claim Fix3 is wired.
+4. If real: paste the exact lines proving it, plus a live test call showing a real Tradier-sourced spread for one ticker.
+
+## ITEM C — Prod deploy confirmation (after Joel publishes)
+Joel will click Publish in Replit himself. Once done, agent confirms via:
+```
+curl -s https://nclexai.org/stock-api/admin/preflight -H "X-Diag-Token: $DIAG_TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print('boot_commit_sha:', d.get('boot_commit_sha',''))"
+```
+Confirm boot_commit_sha matches the final commit from Item A/B (not ad34726, not b5bb2ad alone).
+
+## Order of operations
+1. Item B first (quick, unblocks trust in Fix3 claim).
+2. Item A (the real work — do not rush verification here).
+3. Item C only after Joel confirms he's clicked Publish.

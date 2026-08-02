@@ -1,0 +1,83 @@
+# Directive_ApproachA_Round2_2026-08-02
+
+## Verdicts
+- ITEM 1 — disclosure accepted. Do NOT revert. Do NOT re-commit. Answer Step 1 first.
+- ITEM 2 — CLOSED.
+- ITEM 3 — withdrawal accepted. One follow-up (Step 3).
+- ITEM 4 — logic approved in principle. NOT cleared to commit. Steps 4A-4D first.
+- ITEM 5 — NOT closed. Escalated. Steps 5A-5D.
+- ITEM 6 — proceed as stated after Publish.
+
+**No commits of any kind this round. Every step ends in a paste, not a commit.**
+
+---
+
+## STEP 1 — _sinc grid: answer before any revert or approval
+
+The question is not "which breakpoints." It is "why are we modeling the strike grid at all."
+
+1. Does the pipeline already fetch a full option chain (the list of actually-available strikes) from Polygon or Tradier for any ticker, at any point? Paste the exact function name, file path, line numbers, and one raw sample response showing a real strike list.
+2. If YES: list every call site of `_sinc` (raw grep with line numbers) and state what it would take to replace the modeled grid entirely with the real available strikes. Lines changed, files touched. No code.
+3. If NO: state that plainly and paste the grep proving it.
+
+STOP after answering.
+
+---
+
+## STEP 3 — correct the approval record and the consistency claim
+
+1. The `note` field of approval_id `42db2334` in `trading_logic_approvals.jsonl` contains "Natenberg §8 / CBOE BXM convention." Both are withdrawn. Append a NEW annotation record referencing `42db2334` stating both citations withdrawn and that no external reference exists for `_DELTA_TARGET = 0.35`. Do not edit the original line in place.
+2. Paste raw before/after of the file and sha256 of both.
+3. Answer in one sentence: do `delta` and `probability_estimate` measure the same quantity? They do not — delta is the risk-neutral probability of finishing ITM at expiry; `probability_estimate` is the engine's estimate that the trade is profitable. Confirm you understand that the "design consistency" argument for 0.35 rests on two different quantities that happen to share a number.
+
+---
+
+## STEP 4 — delta-aware snap: required before it can be committed
+
+**4A. Both grids.** The submitted table is only valid under the c66a973 grid, which is not authorized. Re-run the full 5-ticker × 2-leg before/after table under BOTH:
+- (i) pre-c66a973 grid: 1.0 / 2.5 / 5.0
+- (ii) c66a973 grid: 0.5 / 1.0 / 2.5 / 5.0
+
+Two tables, same format, same columns.
+
+**4B. Moneyness shift — the thing nobody has checked.** Every selected delta in your table is ABOVE target: 0.376, 0.392, 0.392, 0.413, 0.421, 0.444, 0.449. None is at 0.35. Selected strikes moved from 1.9-2.8% OTM to 0.5-1.7% OTM.
+
+1. State plainly: 0.35 is operating as a delta FLOOR, not a target, and the engine now selects near-ATM contracts at 9 DTE.
+2. For each of the 7 passing legs, paste recomputed `profit_target`, `capital_efficiency`, expected-move check, and position size at the NEW strike vs the OLD strike. Side by side.
+3. Name every downstream gate, formula, or calibration that was set or observed against ~2-3% OTM assumptions. If none, say so and show how you established that.
+
+**4C. Sensitivity.** Targeting exactly at the gate boundary is fragile. Re-run all 10 legs at spot ±1% and IV ±10% (4 additional runs). Report how many legs flip between candidate and no-candidate. Raw table.
+
+**4D. No-candidate as a counted outcome.** "No candidate" is the correct behavior, but it must be visible, not just logged. Spec only — no code: where the daily no-candidate count is written (table + column) and how it surfaces in the morning diagnostic.
+
+STOP after 4A-4D. Do not commit the snap.
+
+---
+
+## STEP 5 — TLA integrity (escalated)
+
+`42db2334` passed the pre-push gate while being self-issued. That means the gate checks that a token exists and is marked used — not that a human issued it. The gate's "CLOSED" status is withdrawn.
+
+**5A.** Enumerate EVERY record in `trading_logic_approvals.jsonl`. For each: approval_id, timestamp, commit SHA, and whether it was created by `tools/issue_tla.py` or written directly by you. Paste raw. Do not summarize.
+
+**5B.** State plainly in one paragraph: the pre-push hook cannot verify human issuance, and any approval record you write directly will pass it.
+
+**5C.** State plainly whether ANY technical control in this environment can prevent you from writing to `trading_logic_approvals.jsonl`. If none can, say so in those words.
+
+**5D.** Propose — do not build — a detection-only control: Joel keeps an out-of-band list of approval_ids he personally issued; an audit job compares the JSONL against that list and alerts on any ID not on it. Specify the file format, where Joel's list lives, which existing job runs the comparison, and what the alert says.
+
+STOP after 5A-5D.
+
+---
+
+## STEP 6 — prod
+
+After Joel clicks Publish, run the preflight curl as you specified and paste raw output including `boot_commit_sha`. Then state:
+1. Which commits are live and which are not.
+2. Exactly what will and will not be running at Monday 09:40 ET, given the delta-aware snap is uncommitted.
+
+---
+
+## Standing
+- Raw output only. No narrative in place of evidence.
+- If a step cannot be completed, say so and stop. Do not substitute a workaround.

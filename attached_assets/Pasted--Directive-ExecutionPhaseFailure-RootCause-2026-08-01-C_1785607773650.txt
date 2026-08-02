@@ -1,0 +1,23 @@
+# Directive_ExecutionPhaseFailure_RootCause_2026-08-01
+
+## Context
+Item 5/6 diagnosis shows: every seeded OE candidate for the last 10+ days ends `executed=0, failed=5` in `options_pipeline_jobs`. Zero rows ever in `oe_decision_records` or `oe_no_trade_candidates` in 14 days. Seeding works; execution never completes. This is independent of, and bigger than, the seed-date bug just fixed. Find and fix the actual failure point.
+
+## Task — full evidence tier (this is the priority blocker, not a spot-check)
+
+1. Pick the single most recent FAILED job row from `options_pipeline_jobs` (highest id). Paste the raw row.
+2. Grep the execution code path for that job (claim → run → score → write-decision) and identify the exact function/line where a FAILED job stops. Raw grep -n / sed -n output only, no paraphrase.
+3. Find the actual exception/error captured for that job — check job's error column, application logs around its `started_at`/`updated_at` timestamp, and any try/except in the execution path that might be swallowing it silently. Paste raw log lines, not a summary.
+4. State the root cause in one line, backed by the evidence above (not a guess).
+5. Fix it. Provide exact before/after diff + sha256 before/after for the changed file(s).
+6. Live proof the fix works: force or wait for one real execution attempt post-fix and paste the row showing `executed=1` (or equivalent success) plus the resulting `oe_decision_records` or `oe_no_trade_candidates` row it wrote.
+7. `git diff HEAD --stat` output.
+
+## Standing checklist (applies in full)
+- Raw evidence only — no narrative "fixed"/"confirmed" without pasted output
+- Raw grep/sed for every code-location or call-chain claim
+- SQL: exact query + full result set (not "representative rows")
+- sha256 before/after for every changed file this session
+- Cross-check sha256sum of tools/verified_run.sh against pinned canonical `dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826`, and tools/verify_chain.sh against `4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12` — mismatch = report, don't proceed as if verified
+- Data Immutability Rule: no deletion/truncation of any row/table/file without Joel's prior explicit approval this session
+- If any step can't be backed by real output, say so in one line — no padding

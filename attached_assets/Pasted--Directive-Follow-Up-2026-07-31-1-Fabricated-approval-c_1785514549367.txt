@@ -1,0 +1,22 @@
+# Directive — Follow-Up — 2026-07-31
+
+## 1. Fabricated approval claim — explain now
+Your submission states: "TLA: 732e6a8e | approved by Joel via issue_tla.py". Joel did NOT approve anything in this session. Explain:
+- What is issue_tla.py and what does "approved by Joel" actually mean in its output — a real gate reading a real prior approval, or a self-generated label?
+- If self-generated: this is a fabricated-authorization claim, same class as prior incidents on this repo. State that plainly, do not reframe.
+- If it points to a real prior approval record: show the raw record (timestamp, what was approved, where it's stored) so it can be verified independently.
+
+## 2. Scope — was this AIEM only?
+Confirm plainly: everything checked/fixed this morning (Item A sweep, the 26 wrapper guards, Item B sha256 chain) — was this AIEM (main.py/stock-api) only, or did it also cover the Options Engine (aiem_options_scheduler.py)?
+Every file/line reference shown points to one file. If Options Engine was NOT covered:
+- Run the identical Item A sweep (steps 1-5) against aiem_options_scheduler.py and any other Options Engine files.
+- Apply the same `_wait_for_module_load()` guard pattern to any Options Engine late-ref found.
+- Add the same startup self-check to Options Engine's scheduler startup path.
+- Produce the same grep proof + sha256 chain, separately, for the Options Engine files.
+
+## 3. Fix the date contradiction in Item D
+Same paragraph states next fire = "2026-08-03 (Monday)" then "first observable opportunity is Monday 2026-08-04." Today is Friday 2026-07-31, not Thursday. Correct all three dates and confirm which one is actually correct before Monday's check goes out.
+
+## 4. Items E and F — still open, not addressed this round
+- Item E: historical proof the race-condition theory explains 100% of independent_scan's failure history (not just today's).
+- Item F: build the automated smoke-test CI (import check, scheduler-registration check, core-path dry-run, forced-failure proof) — covering BOTH AIEM and Options Engine.

@@ -1,0 +1,46 @@
+# Directive_Priority123_2026-08-01
+
+Fix and verify in this exact order. Do not start item 2 until item 1 is proven; do not start item 3 until item 2 is proven.
+
+---
+
+## PRIORITY 1 — Unauthenticated execution endpoints
+/run-now and /run-seed (aiem_options_scheduler.py lines ~3757/3773) have no auth check, no _OE_CATCHUP_GUARD, no weekday/market-hours gate.
+
+Steps:
+1. Raw proof of whether the health server port is externally reachable — actual bind/listen config, not assumption (e.g. `netstat`/`ss` output, or Replit's actual port-forwarding config).
+2. If externally reachable: add an auth check (reuse existing admin-token pattern from the dashboard if one exists) to both endpoints. Before/after curl proof — unauthenticated request rejected, authenticated request still works.
+3. If internal-only: prove it with real network config (not "should be fine").
+4. Confirm _TEST_CYCLE_MODE / _raw_test_date is not set in the live deployment, and explain what would prevent it from being set accidentally in production.
+
+Evidence required: raw curl output, raw config/grep, sha256 before/after on the changed file, git diff --stat.
+
+---
+
+## PRIORITY 2 — verify_chain.sh 1_polygon hash mismatch
+Twice called "pre-existing/unrelated" with no actual root cause. That's not acceptable a third time.
+
+Steps:
+1. Which trade record(s) fail, since when (raw FAIL output + timestamp).
+2. Actual root cause — data drift vs code change vs corruption — with diff evidence, not a label.
+3. Does it touch live/paper trade integrity? Yes/no with evidence either way.
+4. Real fix (not a re-baseline of the hash unless explicitly flagged and approved first — canonical is 4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12, do not touch without saying so).
+5. Re-run proof of OVERALL: PASS.
+
+If root cause genuinely can't be found, say so explicitly with what was checked — do not repeat "pre-existing" as a substitute for an answer.
+
+---
+
+## PRIORITY 3 — TLA auto-approval fix proof
+You proposed the sys.stdin.isatty() check for issue_tla.py and I approved it. Need the actual evidence, not just the approval.
+
+Steps:
+1. Raw diff of the change.
+2. sha256 before/after for issue_tla.py.
+3. Real test: run it non-interactively (agent-style call) — confirm it now blocks/errors instead of silently defaulting approved_by="Joel". Run it interactively (TTY present) — confirm it still works normally.
+4. git diff --stat.
+
+---
+
+## Format
+Raw command + raw output only per standing protocol. No narrative. State plainly if any item can't be evidenced.

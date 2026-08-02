@@ -1,11 +1,12 @@
 import { Link, useRoute } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
+import { useApi } from '@/hooks/use-api';
 import {
   Activity,
   BarChart3,
   FileCheck,
   TrendingUp,
   AlertCircle,
-  ListChecks,
 } from 'lucide-react';
 
 const navigation = [
@@ -16,7 +17,61 @@ const navigation = [
   { name: 'System Status', href: '/status', icon: AlertCircle },
 ];
 
+interface ChainStatus {
+  total_entries: number;
+  last_entry_hash: string;
+}
+
+function normaliseChainStatus(resp: unknown): ChainStatus {
+  const r = resp as Record<string, unknown>;
+  return {
+    total_entries: (r?.total_entries ?? 0) as number,
+    last_entry_hash: (r?.last_entry_hash ?? '') as string,
+  };
+}
+
 export function Sidebar() {
+  const { apiFetch } = useApi();
+
+  // Chain health poll — every 60 s, silent on error
+  const { data: chainStatus, isError } = useQuery({
+    queryKey: ['sidebar-chain-status'],
+    queryFn: () =>
+      apiFetch<unknown>('/admin/evidence-chain/status').then(normaliseChainStatus),
+    refetchInterval: 60_000,
+    retry: false,
+  });
+
+  // Derive display state:
+  //   loading (undefined) → dim pulse (neutral)
+  //   error or 0 entries or empty hash → red (destructive)
+  //   entries present + hash non-empty → green (chart-2)
+  const chainVerified =
+    !isError &&
+    chainStatus !== undefined &&
+    chainStatus.total_entries > 0 &&
+    chainStatus.last_entry_hash !== '';
+
+  const chainUnknown = chainStatus === undefined && !isError;
+
+  const dotClass = chainUnknown
+    ? 'w-2 h-2 rounded-full bg-muted animate-pulse'          // loading — neutral
+    : chainVerified
+    ? 'w-2 h-2 rounded-full bg-chart-2 animate-pulse'        // green — verified
+    : 'w-2 h-2 rounded-full bg-destructive animate-pulse';   // red — failed/unverified
+
+  const dotLabel = chainUnknown
+    ? 'Chain Loading…'
+    : chainVerified
+    ? 'Chain Verified'
+    : 'Chain UNVERIFIED';
+
+  const labelClass = chainUnknown
+    ? 'text-xs text-muted-foreground font-mono'
+    : chainVerified
+    ? 'text-xs text-muted-foreground font-mono'
+    : 'text-xs text-destructive font-mono font-semibold';
+
   return (
     <aside className="w-56 bg-sidebar border-r border-sidebar-border flex flex-col">
       <div className="p-4 border-b border-sidebar-border">
@@ -51,10 +106,8 @@ export function Sidebar() {
 
       <div className="p-3 border-t border-sidebar-border">
         <div className="flex items-center gap-2 px-3 py-2">
-          <div className="w-2 h-2 rounded-full bg-chart-2 animate-pulse" />
-          <span className="text-xs text-muted-foreground font-mono">
-            Chain Verified
-          </span>
+          <div className={dotClass} />
+          <span className={labelClass}>{dotLabel}</span>
         </div>
       </div>
     </aside>

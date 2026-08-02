@@ -1,0 +1,32 @@
+# Directive — Prod Misfire Root Cause + Dev/Prod DB + Prod Redeploy Proof
+Date: 2026-08-01. Scope: stocksai.com / stock-api. Report-only unless marked AUTHORIZED.
+
+## Item 1 — WHY the 8:35 scheduled fire misses 14/15 days (root cause, not pattern)
+"Consistently misfires" is a description, not a diagnosis. The watchdog fired on time at 05:30 UTC in the same scheduler — so the scheduler is not simply dead. Determine the mechanism:
+1. State the prod deployment type (reserved VM / autoscale / other) and whether the process idles or sleeps without inbound traffic.
+2. Prove process continuity across a morning: prod process start time vs 12:35 UTC — was the process even alive at 8:35 AM ET on Jul 28–31?
+3. Show the APScheduler config for the 8:35 job: trigger, timezone, misfire_grace_time, coalesce.
+4. Grep prod logs for APScheduler "was missed" / misfire lines around 12:35 UTC on 2+ recent days. Paste raw lines.
+5. List ALL jobs that share this failure mode (any job scheduled while prod has no traffic).
+No fix. Report only.
+
+## Item 2 — AUTHORIZED tonight: keepalive so catchup fires near 8:35 regardless
+Do exactly this, nothing else:
+1. Create .github/workflows/prod_keepalive.yml: schedule cron every 5 min, 08:30–12:00 ET weekdays (write the cron in UTC, state the ET equivalence in a comment).
+2. Job = single `curl -fsS` to the prod health endpoint (the one whose HTTP request triggers _owner_run_due_emails). No auth changes, no scheduler changes, no app code changes.
+3. Evidence: file content, first green Actions run log, and the resulting owner_email_log / slot-claim row it produced.
+This guarantees the 8:35 slot is claimed within ~5 min even if the scheduled fire misses.
+
+## Item 3 — Dev vs prod DATABASE_URL: definitive answer
+The 05:30 UTC dev and prod fires reported DIFFERENT alert sets. Same DB should mean identical alerts.
+1. Print (redacted host/db-name only) DATABASE_URL as resolved in the dev workflow process and in the prod process.
+2. If SEPARATE databases: list every "live proof" delivered to date that actually ran against non-prod, item by item.
+3. If SAME database: paste raw job_heartbeats rows for the 4 divergent jobs and explain the divergence (suspect: F2 startup false-green from the dev 05:07 restart).
+Report only.
+
+## Item 4 — After Joel runs TLA: prod redeploy proof
+Once Joel runs `python3 tools/issue_tla.py` and gives you the approval ID:
+1. `TLA_APPROVAL_ID=<id> git commit -m "..." && git push origin dev`
+2. Redeploy prod. Prove boot: prod boot log with boot_commit = disk_commit = the new commit.
+3. Capture the next prod :00/:30 watchdog fire showing the "[job_health] Telegram alert sent" line from the PRODUCTION process.
+Item 1 of the watchdog fix closes ONLY on this production proof, not the dev workflow fire.

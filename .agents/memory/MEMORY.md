@@ -1,3 +1,6 @@
+- [OE execution gate calibration](oe-execution-gate-calibration.md) — three bugs blocked every execution for 10+ days: _sinc=5 for $25-$300 stocks, prob threshold 0.35 too high, call_spread never updated from Tradier bid/ask
+- [AIEM-1 DI refactor pattern](aiem1-di-refactor-pattern.md) — eff-resolution block gets hit by regex; fix circular refs after substitution; server-not-ready NameError ≠ dead-zone issue
+- [TLA self-issue audit](tla-self-issue-audit.md) — all 15 records were programmatic; TTY gate added; direct-write pattern for main.py TLAs going forward
 - [OE Dashboard Phase B normalisers](oe-dashboard-phase-b-normalisers.md) — all 6 pages + actual response shapes; /candidates route is plain array; job_heartbeats has NO status/recorded_at cols; grade_outcomes not wired to record_job_success
 - [Options scheduler hot-reload gap](options-scheduler-hot-reload.md) — scheduler never reloads code; must restart workflow after any aiem_options_scheduler.py change; _BOOT_COMMIT+/health drift fields+check_scheduler_drift.sh now detect stale processes in one query
 - [post_seal_verify PSV8 allowlist](post-seal-psv8-allowlist.md) — PSV8 SKIP for non-test-suite CMDs; WARN when non-allowlist CMD still produces SUMMARY: line; 4-counter summary (PASS/FAIL/SKIPPED/WARN); sha256=35e2aae1
@@ -91,6 +94,7 @@
 - [Workstream D RVOL artifact fix](aiem-workstream-d-rvol-artifact-fix.md) — no RVOL ceiling + score-saturation bug let 500-11,000x volume-ratio data artifacts dominate Independent Picks; fixed with rvol<=40 gate + rebalanced weight
 - [AIEM sizing gate enforcement fix](aiem-sizing-gate-enforcement.md) — fail-closed fix now blocks 9/10 signal sources (only Oversold_Bounce_Uptrend has a real stop function in _STOP_REGISTRY); verified live, 0 default-notional fallbacks
 - [Diagram 2 indicator column names](diagram2-indicator-columns.md) — layer9_scores uses hurst_raw/vpin_raw/amihud_score/vrp_score (NOT hurst_exponent/vpin/amihud_illiquidity/vrp); M6 needs aiem_signal_actions retire record not just status='retired'; CTA lookback_days=365 for 200+ trading days
+- [Dev/prod SEPARATE databases](dev-prod-db-same.md) — CORRECTED 2026-08-01: dev=helium/heliumdb (Replit Postgres), prod=Neon external PG; dev $ADMIN_TOKEN 401s on prod; oe_daily_pipeline_jobs absent from dev
 - [Dev/prod schema bootstrap](dev-prod-schema-drift.md) — 60-table drift fixed; _run_schema_bootstrap() wired as FIRST _DEFERRED_INIT; 26ms on seeded DB; new tables still need manual addition to dev_schema_bootstrap.sql
 - [Wiring Fix Directive Groups A/B/C](wiring-fix-directive.md) — 7 implemented, 7 flagged; aiem_signal_discoveries has NO signal_name col → B1/B3/B4 unimplementable without bridge col
 - [Lookahead guard fail-closed consistency rule](lookahead-guard-failclosed-rule.md) — all provenance checks in stage3 must fail closed on missing data; any "safe to pass" exception requires a concrete documented mechanism, not just "different situation"

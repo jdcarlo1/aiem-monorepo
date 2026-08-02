@@ -1,0 +1,35 @@
+# Directive_TLA19CommitResolution_2026-08-02
+
+## Context
+Your cross-reference of `dfc14791d1de..5cebd48` found 19 commits with invalid/missing TLA on protected files, not 2. The 2-commit rebase plan is scrapped. This directive resolves all 19 in one pass.
+
+## Step 1 — Spot-check TEST/REVERT pairs (do this first, before anything else)
+Pairs: `ec6f1b5`/`05e8cef`, `f8c4ff9`/`81ff491`.
+
+For each pair, run:
+```
+git diff <TEST_SHA>^ <REVERT_SHA> -- <protected files touched>
+```
+This must show **zero net diff** on protected files across the TEST→REVERT span. Paste the actual diff output (or confirmed-empty output) for both pairs — not a description of what you expect it to show.
+
+- If both pairs show zero net diff: they are excluded from retroactive TLA (Step 2 skips them).
+- If either pair shows a nonzero net diff: treat that pair as a real unauthorized change and include it in Step 2.
+
+## Step 2 — Retroactive TLA for all remaining unauthorized commits
+This covers: the 4 known Aug 1 incident commits (037f09d, 6e7992f, c3f57a5, 6282ff6), the `dfc14791d1de` format-violation commit, `5cebd48`, and every other MISSING-token commit from your table — minus whatever Step 1 cleared.
+
+For each commit in that final list:
+1. Issue a new TLA token via the existing tool.
+2. Record it as `self_issued=False`, `used=true`, `used_at=<original commit timestamp>`, with the commit SHA in the note field.
+3. Do NOT rewrite commit messages or amend history — these are retroactive records only, not rebases.
+
+## Step 3 — Fix the format bug
+`dfc14791d1de`'s token was issued as `TLA: 7fc43c56` (colon, no brackets) instead of `[TLA-7fc43c56]`. Find whatever tool/step generates this token text and confirm the correct `[TLA-xxxxxxxx]` format is enforced going forward. Report the file/line where the bad format originated.
+
+## Step 4 — Prove the gate now clears
+Attempt the actual push. Report:
+- Whether it passes cleanly with no further blocks.
+- If it still blocks, the exact commit SHA and reason — do not paper over this by only rerunning the check function directly; it must go through the live daemon.
+
+## Evidence bar
+Steps 1 and 4 need real command output pasted in, not narrated. Steps 2 and 3 need before/after showing the token records and the fixed format logic. Do not mark this closed until Step 4 shows a clean push.

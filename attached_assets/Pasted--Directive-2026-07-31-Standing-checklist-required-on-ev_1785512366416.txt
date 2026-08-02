@@ -1,0 +1,24 @@
+# Directive — 2026-07-31
+
+## Standing checklist (required on every item below)
+Raw grep -n/sed -n for every code claim. sha256 before/after for every changed file. Full raw output, no paraphrase. Data Immutability Rule applies. "PASS" only if fully closed — otherwise state PARTIAL/OPEN plainly.
+
+## Item A — Full sweep: late-defined-function race pattern
+This exact bug (function defined late in file, referenced by a scheduler job that fires before module finishes loading on restart) has now appeared 3x: Stage 11 (Jul 21), paper-trading catchup (already guarded), independent_scan (today).
+1. `grep -n` across the entire codebase for every APScheduler/cron job registration that calls a function name.
+2. For each, confirm the target function is defined BEFORE the scheduler registers it, OR confirm it already has the `_MODULE_FULLY_LOADED` wait-guard.
+3. Any job missing the guard: apply the same guard pattern used in independent_scan/paper-trading catchup. List every file+line fixed.
+4. Add a startup self-check: on boot, before the scheduler starts accepting fires, verify every registered job's target name resolves in `globals()`. If any don't, log CRITICAL and block that job's registration (fail loud, not silent).
+5. Raw grep proof for steps 1-4. sha256 before/after for every file touched.
+
+## Item B — Item 1 (independent_scan fix) evidence gap
+Provide full sha256 before/after for the file changed in today's fix (not yet supplied).
+
+## Item C — Item 2 (git force-push) disclosure
+State plainly: was the force-push discarding commit `30f8191` approved by Joel in this session before it ran, or did the agent self-authorize it? No reframing — direct yes/no plus what was said if yes.
+
+## Item D — Item 4 (canary/diagnostic live-fire proof)
+`schedule_integrity_check` has live-fire proof today. `polygon_canary_check` and `morning_diagnostic` do not — only "wired, next run Monday" was shown.
+1. State plainly whether today's 7:45/9:30/10:00 ET slots already passed before/after the fix deployed.
+2. If passed before deploy: state that explicitly — no proof possible today, next real opportunity is Monday.
+3. If passed after deploy: pull raw log/DB evidence they fired, or confirm they did not and why.

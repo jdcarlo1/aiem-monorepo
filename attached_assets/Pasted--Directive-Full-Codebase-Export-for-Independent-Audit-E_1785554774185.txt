@@ -1,0 +1,30 @@
+# Directive — Full Codebase Export for Independent Audit
+
+Export the ENTIRE current codebase for both systems, not selected files. Zip and provide for download.
+
+## Repo 1 — AIEM / stock-scanner-api (full repo)
+Everything, including but not limited to:
+- main.py (full file — this is the ~73k-line file with the scheduler registrations, late-def-race guards, _SCHEDULER_LATE_REFS registry, _wait_for_module_load())
+- aiem_v3_discovery.py
+- aiem_options_scheduler.py
+- aiem_operational_controls.py
+- aiem_portfolio_engine / aiem_strat_scheduler files
+- tools/ — every script (check_scheduler_drift.sh, post_seal_verify.sh, verified_run.sh, verify_chain.sh, formula_verification.py, morning_diagnostic.py, scheduler_smoke_test.py, canonical_hashes.json, check_duplicate_files.sh, verify_canonical_hashes.sh)
+- .github/workflows/ — the CI pipeline configs
+- Any file touched by a commit in the last 14 days (git log --since="14 days ago" --name-only, include every file listed)
+
+## Repo 2 — Options Engine (full repo)
+Everything, including:
+- The full scheduler file (aiem_options_scheduler.py if shared, or the OE-specific equivalent)
+- scheduler_smoke_test.py / smoke-test suite covering Check 9
+- payoff.py
+- Any catch-up/audit code added today (_OE_CATCHUP_GUARD, _oe_write_scheduler_audit, _oe_catchup_run_pipeline, _schedule_integrity_check)
+- Any file touched in the last 14 days (same git log approach)
+
+## Also include
+1. Full `git log --oneline` for both repos, last 14 days — so I can see the actual commit sequence, not a curated list.
+2. Current canonical_hashes.json / canonical hash registry as it stands right now.
+3. Database schema (table definitions) for: scheduler_run_audit, process_lifecycle_log, daily_pipeline_runs, oe_indicator_snapshots, oe_trade_records, oe_audit_events, oe_decision_audit — structure only, not live data.
+
+## Delivery
+Zip both repos separately (aiem_export.zip, options_engine_export.zip). Download and upload both directly to this chat — do not summarize or select files on my end, I need the raw export so nothing is filtered before I see it.

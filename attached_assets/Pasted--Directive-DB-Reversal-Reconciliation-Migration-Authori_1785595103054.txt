@@ -1,0 +1,25 @@
+# Directive — DB Reversal Reconciliation + Migration Authorization + Monday Timing Fix
+Date: 2026-08-01. Report-only unless marked AUTHORIZED.
+
+## Item 1 — Reconcile the flip: "separate DBs definitively proven" → "one DB" (report only)
+Both claims were delivered as definitive within 24 hours. One DB is now the working conclusion, but it must survive the evidence that produced the opposite one:
+1. Explain the 05:30 UTC divergent alert sets under the one-DB hypothesis. If both processes read the same job_heartbeats rows, identical inputs cannot yield HEALTHY(dev)/STALE(prod) for aiem_morning_scan. Show the code diff between the prod sha (old code) and dev sha for check_job_health / _JOB_STALENESS_HOURS / the heartbeat query — the divergence must be attributable to a specific code difference, with file:line on both shas.
+2. Prove the 14:26 UTC heartbeat writer was really GCE: show that sha f08e877 is the deployed prod sha AND that no workspace process ever ran f08e877 (process_lifecycle_log sha history).
+3. One paragraph: what was wrong in yesterday's "definitively proven separate" reasoning.
+
+## Item 2 — Monday timing correction (report only)
+Your gate 3 says check owner_email_log at 12:05–12:15 UTC. Per your own _owner_run_due_emails logic, the 8:35 slot is not due until 12:35 UTC — it cannot be claimed at 12:05. Confirm the correct first-evidence window (~12:35–12:45 UTC, keepalive interval + 120s throttle) and restate the Monday check with that window so a 12:10 empty result is not misread as failure.
+
+## Item 3 — AUTHORIZED migration, in this order only
+1. Phase 2 NOW: add the [[services]] block for probability-engine-scheduler to artifact.toml exactly as planned. Own commit. Evidence: file diff + service running (pgrep/log) + heartbeat row.
+2. Phase 1 ONLY AFTER the prod redeploy confirms via preflight that is_deployment="1" on GCE. Then gate _scheduler.start() behind REPLIT_DEPLOYMENT=="1", own commit, rollback line documented. If preflight shows anything other than "1" on GCE, STOP and report — do not ship the gate on an unverified env var, or Monday has zero schedulers.
+3. No other code changes ride along.
+
+## Item 4 — aiem_paper_v3_discovery never succeeded (report only)
+consecutive_failures=1, last_success=null. Root-cause it: what the job does, why it fails (raw error/log), how long it's been broken, what downstream depends on it. No fix without approval.
+
+## Item 5 — Commit attribution
+Do not commit "under Joel's name." Commits go under the agent identity with the TLA approval ID in the commit message. Joel's TLA run IS the authorization record.
+
+## Joel's gate (unchanged)
+Run `python3 tools/issue_tla.py`, hand over the approval ID → commit main.py (watchdog fix + preflight) → prod redeploy → then Item 3 Phase 1 sequencing above.
