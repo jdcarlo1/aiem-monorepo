@@ -1,0 +1,47 @@
+Directive_OptionsEngine_Consolidated_2026-08-02
+
+ITEM 1 — REDEPLOY (BLOCKS MONDAY)
+Prod is on ad34726. b5bb2ad (scheduler gate + Fix3) is NOT live.
+Steps:
+1. Click Publish in Replit UI.
+2. Run: curl -s https://nclexai.org/stock-api/admin/preflight -H "X-Diag-Token: $DIAG_TOKEN"
+3. Confirm options scheduler pid/started_et is after deploy time.
+Report back the preflight output.
+
+ITEM 2 — VERIFY FIX3 IS ACTUALLY WIRED (BLOCKS TRUSTING ITEM 1)
+git diff ad34726..b5bb2ad shows ZERO bid/ask/spread changes in aiem_options_scheduler.py or aiem_options_intel.py, despite commit message claiming Fix3 was included via 04d2d17.
+Steps:
+1. Read current call_data/bid_data construction path (where call_bid/call_ask/put_bid/put_ask get set) in the live b5bb2ad code.
+2. State explicitly: are these values sourced from Tradier live quotes, or defaulting/hardcoded?
+3. If not wired to Tradier, this is a separate bug — fix it, don't just report it.
+Do not mark Fix3 closed until this is answered with the actual code path shown.
+
+ITEM 3 — CONFIRM TELEGRAM WATCHDOG FIRED ON PROD
+Joel: check phone for "Job health alert" message after ~23:17 UTC on 2026-08-01.
+- If received: report back, Priority 5 closes.
+- If not received: agent must root-cause using OWNER_EMAIL and Telegram token diff between dev/prod — no prod token access needed, check env var config only.
+
+ITEM 4 — STRATEGY PARAMETER DECISION (JOEL, NOT AGENT)
+Current state: _sinc grid causes calls to fail POP gate (0.000-0.303 vs 0.35 threshold) on 3-11% OTM strikes. Puts pass POP but are blocked by a separate upstream gate (registry check, likely OSS_GEX_REGIME missing or OC_STRATEGIES_COUNT=0).
+Joel must pick ONE:
+- Approach A: state a target delta (e.g. 0.30) — agent computes strike via Black-Scholes inversion, no grid.
+- Approach B: state a fixed OTM% (e.g. 3%) — agent snaps to nearest strike >= that.
+Once Joel states the number, agent implements — no threshold-shopping, no silent commits.
+
+ITEM 5 — FIX THE PUT-DIRECTION UPSTREAM GATE (SEPARATE FROM ITEM 4)
+All 5 puts pass POP >= 0.35 but pipeline still returns "BOTH DIRECTIONS REJECTED." Root cause is NOT the POP gate — find and fix the registry/OSS check at lines ~1911-1943 that sets put_eligible=False independent of POP score.
+
+ITEM 6 — CLF/HAL PUT STRIKES ARE DEEP ITM, NOT OTM (BUG)
+CLF put_strike=$10 on $11.63 spot = 14% ITM, POP=0.998. HAL similar. The _sinc grid-snap is placing put strikes so far below spot they're not real OTM buys. This will resolve once Item 4's approach is implemented, but confirm post-fix that CLF/HAL land back in normal OTM range.
+
+ITEM 7 — DIAG ENDPOINT (OPTIONAL, JOEL APPROVAL NEEDED)
+If Joel wants Priority 4.2-4.3 (10-day prod pull vs dev) done: reply "add the DIAG OE-history endpoint." Agent builds GET /stock-api/diag/oe-history authenticated via existing X-Diag-Token, one non-protected code edit, no new credential surface.
+
+ITEM 8 — MONDAY-ONLY, NO ACTION YET
+- Keepalive 8:35 AM slot: live proof only, first evidence window 12:35-12:45 UTC Monday.
+- End-to-end verdict: pending Monday's natural scheduler run.
+- Forced-failure heartbeat test: deferred until after Monday per standing directive.
+
+CLOSED — NO ACTION
+- aiem_paper_v3_discovery / record_job_success: fix confirmed present in code.
+- --no-verify bypass: none used this session, policy acknowledged.
