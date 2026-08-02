@@ -125,9 +125,20 @@ def _run_registry_block(call_delta_bs, call_probability_itm, call_vol,
 def _build_call_data(call_strike, call_bid, call_ask, call_spread,
                       call_delta_bs, call_probability_itm, call_vol, call_oi,
                       front_iv, call_gamma_bs=0.0, call_theta_bs=0.0,
-                      call_vega_bs=0.0, expected_return=None):
+                      call_vega_bs=0.0, _call_expected_return=None,
+                      stock_data=None, em_result=None, _dte=None, spot=None):
     """Verbatim call_data dict from lines 1920-1947, FIX-4 guards applied."""
+    # Defensive defaults so callers that omit new params don't crash.
+    if stock_data is None:
+        stock_data = {}
+    if em_result is None:
+        em_result = {"expected_move": None, "expected_move_pct": None}
     return {
+        **stock_data,
+        "expected_move":        em_result["expected_move"],
+        "expected_move_pct":    em_result["expected_move_pct"],
+        "dte":                  _dte,
+        "spot_at_alert":        spot,
         "delta":               call_delta_bs,
         "gamma":               call_gamma_bs,
         "theta":               call_theta_bs,
@@ -144,7 +155,7 @@ def _build_call_data(call_strike, call_bid, call_ask, call_spread,
                                 if call_bid is not None
                                 and call_ask is not None else None),
         "probability_estimate":call_probability_itm,
-        "expected_return":     expected_return,
+        "expected_return":     _call_expected_return,
         "slippage_pct":        (round(call_spread * 0.5, 4)
                                 if call_spread is not None else None),
         "entry_premium_lo":    call_bid, "entry_premium_hi": call_ask,
@@ -158,9 +169,20 @@ def _build_call_data(call_strike, call_bid, call_ask, call_spread,
 def _build_put_data(put_strike, put_bid, put_ask, put_spread,
                      put_delta_bs, put_probability_itm, put_vol, put_oi,
                      front_iv, put_gamma_bs=0.0, put_theta_bs=0.0,
-                     put_vega_bs=0.0, expected_return=None):
+                     put_vega_bs=0.0, _put_expected_return=None,
+                     stock_data=None, em_result=None, _dte=None, spot=None):
     """Verbatim put_data dict from lines 1948-1975, FIX-4 guards applied."""
+    # Defensive defaults so callers that omit new params don't crash.
+    if stock_data is None:
+        stock_data = {}
+    if em_result is None:
+        em_result = {"expected_move": None, "expected_move_pct": None}
     return {
+        **stock_data,
+        "expected_move":        em_result["expected_move"],
+        "expected_move_pct":    em_result["expected_move_pct"],
+        "dte":                  _dte,
+        "spot_at_alert":        spot,
         "delta":               put_delta_bs,
         "gamma":               put_gamma_bs,
         "theta":               put_theta_bs,
@@ -178,15 +200,14 @@ def _build_put_data(put_strike, put_bid, put_ask, put_spread,
                                 if put_bid is not None
                                 and put_ask is not None else None),
         "probability_estimate":put_probability_itm,
-        "expected_return":     expected_return,
+        "expected_return":     _put_expected_return,
         "slippage_pct":        (round(put_spread * 0.5, 4)
                                 if put_spread is not None else None),
         "entry_premium_lo":    put_bid, "entry_premium_hi": put_ask,
         "profit_target":       (round((put_bid + put_ask) * 0.8, 2)
                                 if put_bid is not None
                                 and put_ask is not None else None),
-        "stop_level":          (f"Close below ${put_strike - 3:.0f}"
-                                if put_strike is not None else "n/a"),
+        "stop_level":          f"Close above ${spot + 5:.0f}",
     }
 
 # ── Verbatim: decision gate (lines 2184-2196) ─────────────────────────────────
@@ -321,11 +342,13 @@ def _run_pipeline(ticker, chain, spot, front_iv, call_score, put_score):
         call_strike, call_bid, call_ask, call_spread,
         call_delta_bs_bs, call_probability_itm,
         call_vol, call_oi, front_iv,
+        spot=spot,
     )
     put_data = _build_put_data(
         put_strike, put_bid, put_ask, put_spread,
         put_delta_bs_bs, put_probability_itm,
         put_vol, put_oi, front_iv,
+        spot=spot,
     )
 
     # --- Stage 4d: registry (FIX-5 guards applied) ---
@@ -664,18 +687,22 @@ except Exception as e:
 # PATH-26: put_data all-None leg
 # ───────────────────────────────────────────────────
 print("\n[PATH-26] put_data: put leg completely None → all guarded fields == None")
+# stop_level in canonical put_data is f"Close above ${spot + 5:.0f}" with NO None
+# guard; spot must be supplied.  spot=32.5 → "Close above $38" (37.5 → :.0f = 38).
 try:
     pd26 = _build_put_data(
         put_strike=None, put_bid=None, put_ask=None, put_spread=None,
         put_delta_bs=None, put_probability_itm=None,
-        put_vol=None, put_oi=None, front_iv=None,
+        put_vol=None, put_oi=None, front_iv=None, spot=32.5,
     )
     _assert("PATH-26", "breakeven is None",       pd26["breakeven"] is None)
     _assert("PATH-26", "premium_at_risk is None", pd26["premium_at_risk"] is None)
     _assert("PATH-26", "slippage_pct is None",    pd26["slippage_pct"] is None)
     _assert("PATH-26", "profit_target is None",   pd26["profit_target"] is None)
     _assert("PATH-26", "iv is None (front_iv*1.05 guarded)", pd26["iv"] is None)
-    _assert("PATH-26", "stop_level == 'n/a'",     pd26["stop_level"] == "n/a")
+    _assert("PATH-26", "stop_level == 'Close above $38'",
+            pd26["stop_level"] == "Close above $38",
+            pd26["stop_level"])
     _assert("PATH-26", "no crash",                True)
 except Exception as e:
     _assert("PATH-26", "no crash", False, got=f"{type(e).__name__}: {e}")
