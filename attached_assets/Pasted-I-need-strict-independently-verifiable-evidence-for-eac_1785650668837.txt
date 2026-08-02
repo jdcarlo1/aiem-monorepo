@@ -1,0 +1,79 @@
+I need strict, independently verifiable evidence for each item below. Do not provide summaries or screenshots alone. Provide the raw evidence.
+
+1. RAW TERMINAL LOGS
+- Show the complete terminal session from the beginning of the verification until completion.
+- Include the exact commands executed.
+- Include timestamps.
+- Do not truncate output.
+- If output is too long, split it into multiple sections rather than summarizing.
+
+2. EXACT TEST COMMANDS
+- List every command that was executed.
+- Identify the test file(s) or script(s) each command runs.
+- State what each command is intended to verify.
+
+3. PROVE THE REPORT IS FRESH
+- Show that the verification report was generated during this run.
+- Show the report generation command.
+- Show timestamps.
+- Show any temporary artifacts being created.
+- Demonstrate the report was not reused from a previous run.
+
+4. END-TO-END PIPELINE VERIFICATION
+Run the actual pipeline (not isolated unit tests) using either:
+- live market data, or
+- a deterministic replay dataset.
+
+Show evidence for the complete flow:
+
+Market Data
+→ Validation
+→ Liquidity Checks
+→ Risk Gates
+→ Decision
+→ NO_TRADE or Trade
+→ Audit Log
+→ Final Pipeline Status
+
+If this verification only covers the NO_TRADE path, explicitly state that.
+
+5. CRYPTOGRAPHIC VERIFICATION
+Prove that the code tested is exactly the code being reported.
+
+Provide:
+- SHA-256 of every file under test.
+- SHA-256 of the generated report.
+- Git commit hash.
+- Git status.
+- Confirmation there were no code changes between hashing and execution.
+- If deployed, show the deployed artifact hash and demonstrate it matches the tested artifact.
+
+6. EXECUTION PATH COVERAGE
+Provide evidence that every reachable execution path was exercised.
+
+Include:
+- every success path
+- every failure path
+- every NO_TRADE path
+- every exception path
+- every early exit
+- every null-input path
+- every liquidity rejection path
+- every single-leg rejection path
+- every dual-leg rejection path
+
+For each path show:
+- test name
+- execution evidence
+- PASS/FAIL
+- whether the path was actually executed
+
+7. REPRODUCIBILITY
+Provide enough information that another engineer can reproduce the verification exactly:
+- commands
+- required environment
+- required data
+- dependencies
+- expected output
+
+Please provide raw evidence only. Do not summarize the results without including the underlying evidence.
