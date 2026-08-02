@@ -1,0 +1,79 @@
+# Directive — Fix2 Reversion Forensic + Publish Withdrawal
+2026-08-02. Report-only. No commits to aiem_options_scheduler.py. Prod stays ad34726.
+
+---
+
+## ITEM 1 (BLOCKING) — Identify the commit that silently reverted the probability gate
+
+You reported: 1fe78da lowered `probability_estimate` gate 0.35 -> 0.25, but the current
+aiem_options_intel.py (~line 449) reads `float(v) < 0.35`. A later commit overwrote it.
+That commit has not been identified. Do that now.
+
+Run exactly:
+
+```
+cd artifacts/stock-scanner-api
+git log --oneline --all -S'float(v) < 0.25' -- aiem_options_intel.py
+git log --oneline --all -S'float(v) < 0.35' -- aiem_options_intel.py
+```
+
+For every commit returned that is AFTER 1fe78da, run:
+
+```
+git show <sha> -- aiem_options_intel.py | grep -n 'probability_estimate'
+git log -1 --format='%H%n%an%n%ae%n%ai%n%s' <sha>
+grep -n '<sha>' logs/trading_logic_approvals.jsonl
+grep -n '<sha>' logs/git_autosync_blocks.jsonl
+```
+
+Report as a table, one row per candidate commit:
+
+| sha | author | timestamp (UTC + ET) | commit subject | line before | line after | TLA record present (Y/N + approval_id) | autosync block logged (Y/N) |
+
+Then answer these three in one line each:
+1. Which single commit changed 0.25 -> 0.35, or state that no commit did and the 0.25 never landed on this branch.
+2. Was aiem_options_intel.py a protected file at that time? If yes, did the pre-push gate fire?
+3. Was the change intentional (message/diff references the gate) or incidental (bulk edit, merge, revert)?
+
+Do not fix anything. Do not change the threshold in either direction. 0.35 stays live.
+
+---
+
+## ITEM 2 — Annotate the incorrect b5bb2ad commit message
+
+Confirmed: b5bb2ad's message says "Scheduler gate + Fix3 bid ask wiring", but its own diff
+only wraps `sched.start()` in the `if _is_gce:` gate. Fix3 came in at 1fe78da.
+Do NOT rewrite git history.
+
+Append (do not edit in place) to the C6 permanent record file:
+
+```
+CORRECTION 2026-08-02: commit b5bb2ad message attributes "Fix3 bid ask wiring" to itself.
+Verified false. b5bb2ad diff = _is_gce startup gate only. Fix3 bid/ask assignment lines
+(call_bid/call_ask/call_mid/call_spread/put_bid/put_ask/put_mid/put_spread) were introduced
+in 1fe78da, Aug 1 18:31:52 UTC. b5bb2ad contains Fix3 code by descent, not by its own diff.
+```
+
+Paste sha256 of the record file before and after the append.
+
+---
+
+## ITEM 3 — Publish request withdrawn
+
+Your Pending table lists ITEM C as "Joel must click Publish -> confirm boot_commit_sha = c66a973".
+
+That is withdrawn. c66a973 is not a deploy target. The delta-aware snap and the _sinc
+breakpoint change in that commit are on HOLD and have since been superseded by the real-chain
+selection work. I am not publishing it.
+
+The only path to prod remains: Monday 2026-08-04 live census (Item K) passes -> I issue a TLA
+-> then and only then does any scheduler commit deploy.
+
+Acknowledge this line in your reply so it is on the record. Do not re-request Publish.
+
+---
+
+## Standing
+- No commits to aiem_options_scheduler.py this round.
+- Report raw command output, not summaries.
+- Close with the "WHAT THIS DOES NOT COVER" section as you have been doing.
