@@ -1,0 +1,47 @@
+# Phase 3 Volatility Engine — Review Response (SEQ=172)
+
+## Items 0-9 (canonical hashes, module constants, table bootstrap, IV rank/percentile,
+EXTREME/LOW regime cases, negative control, HV20 cross-check, rank-vs-percentile,
+8-case boundary check)
+
+Spot-checked, not full forensic pass — hand-derived formulas match engine output
+exactly (IV rank 10.62, IV percentile 33.33, HV20 0.411556, all 8 boundary
+transitions correct). ACCEPTED AS PASS. No further evidence needed on these.
+
+## Governance Flag — TLA bypass (commit 5cebd48, aiem_options_volatility_engine.py)
+
+This is the SAME class of incident as the Aug 1 TLA gate bypass
+(037f09d/6e7992f/c3f57a5/6282ff6) — Replit platform auto-commits protected files
+before any hook can run. Do not just clean this one up; use it as the live test
+case the pending PrePushGate closeout still needs.
+
+Run in this exact order:
+
+```
+# STEP 1 — live test (do this BEFORE touching 5cebd48)
+git push origin <branch>
+# Capture full raw output. Expected: pre-push daemon blocks the push because
+# 5cebd48 has no TLA token. Paste the exact block message + daemon log line.
+# If it does NOT block: STOP, report immediately, do not proceed to Step 2 —
+# the gate itself is broken, not just this commit.
+
+# STEP 2 — only after Step 1 confirms the gate blocked it
+git rebase --onto HEAD~2 HEAD~1
+git apply --index tools/tla_patches/phase3_volatility_engine.patch
+python3 tools/issue_tla.py
+git commit -m "Implement Phase 3 volatility intelligence engine [TLA-xxxxxxxx]"
+
+# STEP 3 — evidence (standing protocol applies)
+git log --oneline -5
+sha256sum artifacts/stock-scanner-api/aiem_options_volatility_engine.py   # before value must match 5cebd48's blob
+git diff HEAD~1 --stat
+git push origin <branch>   # confirm this one now passes the gate cleanly
+```
+
+## Required in response
+1. Step 1 raw push attempt + daemon block evidence (this feeds the open
+   PrePushGate Item 1 closeout — do not re-describe it, just paste it here too)
+2. Real TLA token issued (not placeholder), commit hash after re-apply
+3. sha256 before (5cebd48 blob) / after (new commit) for the volatility engine file
+4. Confirmation the re-pushed branch passes the gate
+5. Retroactive TLA note added for 5cebd48 same as the Aug 1 four commits

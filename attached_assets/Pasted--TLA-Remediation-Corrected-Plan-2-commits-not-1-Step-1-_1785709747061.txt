@@ -1,0 +1,47 @@
+# TLA Remediation — Corrected Plan (2 commits, not 1)
+
+Step 1 evidence accepted: gate blocked the push at dfc14791d1de (main.py), not
+5cebd48 — correct behavior, gate stops at the first violation walking the range.
+This is good PrePushGate closeout evidence, use it as-is.
+
+But it means BOTH commits are unauthorized and both need resolution before
+5cebd48 can even be reached:
+- dfc14791d1de — main.py, no TLA
+- 5cebd48 — aiem_options_volatility_engine.py, no TLA
+
+## Required from agent BEFORE Joel touches his shell
+
+1. `git show dfc14791d1de -- artifacts/stock-scanner-api/main.py` — raw diff, paste in full
+2. Confirm no other protected-file commits exist between dfc14791d1de and 5cebd48 (raw `git log --oneline --name-only dfc14791d1de..5cebd48`, cross-referenced against PROTECTED_PATTERNS)
+3. Generate `tools/tla_patches/dfc14791d1de_main.patch` for the main.py diff (same format as the existing phase3_volatility_engine.patch)
+4. Confirm sha256 of main.py as stored in blob dfc14791d1de (Item 3 style, same as the volatility engine before-value already confirmed)
+
+## Then — exact commands for Joel to run himself (needs his TTY + his TLA authorization, not agent-executable)
+
+```
+# drop both bad commits, non-interactive
+git rebase --onto dfc14791d1de~1 dfc14791d1de
+
+# reapply main.py under TLA
+git apply --index tools/tla_patches/dfc14791d1de_main.patch
+python3 tools/issue_tla.py
+git commit -m "<original dfc14791d1de message> [TLA-xxxxxxxx]"
+
+# reapply volatility engine under TLA
+git apply --index tools/tla_patches/phase3_volatility_engine.patch
+python3 tools/issue_tla.py
+git commit -m "Implement Phase 3 volatility intelligence engine [TLA-xxxxxxxx]"
+
+# evidence
+git log --oneline -6
+sha256sum artifacts/stock-scanner-api/main.py
+sha256sum artifacts/stock-scanner-api/aiem_options_volatility_engine.py
+git diff HEAD~2 --stat
+git push origin main
+```
+
+## Required in response after Joel runs the above
+1. Items 1-4 above (agent prep, before Joel's shell work)
+2. Full push output showing gate PASS this time
+3. Both real TLA tokens issued + retroactive note for the original dfc14791d1de/5cebd48 SHAs
+4. sha256 before/after for both files

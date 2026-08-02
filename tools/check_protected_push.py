@@ -141,6 +141,28 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
 
         match = _TLA_RE.search(msg)
         if not match:
+            # Fallback: SHA-based retroactive approval (Directive_TLA19CommitResolution_2026-08-02).
+            # Commits that pre-date the gate or were auto-committed without a TLA token in
+            # their message may carry a retroactive record keyed by commit SHA rather than
+            # a message token.  These records have retroactive=True, used=True, and the full
+            # commit SHA stored in commit_sha.  They are ONLY accepted when the record was
+            # explicitly written under a Joel-issued remediation directive (self_issued=False).
+            retro = next(
+                (r for r in approvals
+                 if r.get("retroactive") is True
+                 and r.get("used") is True
+                 and not r.get("self_issued", True)   # must be Joel-authorized
+                 and r.get("commit_sha", "").lower() == sha.lower()),
+                None,
+            )
+            if retro:
+                print(
+                    f"[pre-push-gate] {sha[:12]}: protected={protected} "
+                    f"retroactive_approval={retro.get('approval_id', '?')} "
+                    f"directive=TLA19CommitResolution_2026-08-02 — PASS"
+                )
+                continue
+
             plist = ", ".join(protected)
             return (
                 False,

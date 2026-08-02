@@ -205,8 +205,17 @@ def _check_commits_before_push(
 
 # ── Main sync cycle ───────────────────────────────────────────────────────────
 
+_PAUSE_FLAG = "/tmp/autosync_paused"
+
+
 def sync_cycle() -> None:
     """One sync attempt. Raises on unexpected errors (caught by caller)."""
+
+    # Pause guard — create /tmp/autosync_paused to hold the daemon without
+    # stopping the workflow (used during manual TLA-gated commit sequences).
+    if os.path.exists(_PAUSE_FLAG):
+        log.info("git-autosync PAUSED (flag=%s) — skipping cycle", _PAUSE_FLAG)
+        return
 
     # 1. Fetch remote tracking ref
     rc, _, err = _run(["git", "fetch", "origin", "dev"])
