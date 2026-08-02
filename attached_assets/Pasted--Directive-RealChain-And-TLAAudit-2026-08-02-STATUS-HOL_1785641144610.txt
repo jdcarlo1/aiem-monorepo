@@ -1,0 +1,95 @@
+# Directive_RealChain_And_TLAAudit_2026-08-02
+
+STATUS: HOLD. No commits this round. All items below are report-only.
+
+---
+
+## 0 — HOLD on the delta-aware snap
+
+Do not commit it. Two reasons from your own STEP 4:
+
+- 4C: 6 of 10 legs flip on a 1% spot move. A selector that flips on noise is not shippable.
+- 4B: strikes drifted from 1.9–2.8% OTM to 0.5–1.7% OTM, and you state `probability_estimate` "now borderline-passes." That is the Fix2 outcome reached by moving strikes instead of lowering the gate. Same thing, different door.
+
+Also correcting my own Round 2 wording: I said "closest to target while satisfying the gate," which is a floor by construction. The intended rule is **nearest to target delta among available strikes** — if the nearest is below 0.35, the gate rejects the leg. Never force selection upward.
+
+---
+
+## 1 — Real chain replaces the modeled grid (report only)
+
+STEP 1 is the most important thing you have sent. A real strike list is already fetched at line 1341 and, you say, in scope at line 1643 where the fake grid is built. If true, the entire `_sinc` / Fix1 / breakpoint debate is unnecessary — the grid gets deleted, not tuned.
+
+Prove it before anything else:
+
+1. Run `grep -n "^def \|^\s*def " artifacts/stock-scanner-api/aiem_options_scheduler.py`. Paste raw. Identify the `def` line immediately preceding 1341 and the one immediately preceding 1643. State whether they are the same function. If they are not, `options_chain` is not in scope — say so and stop Item 1 there.
+2. Do NOT reconstruct a response shape. Run one live call: `fetch_options_chain("CLF", min_dte=5, max_dte=21)` and paste the **raw unedited return value** — first 5 call entries verbatim, plus `expirations` and `contracts_total`. Label it RAW. Any output you assembled by reading the parse loop is not evidence.
+3. Repeat step 2 for VRTX (to show strike spacing differs on a high-priced name).
+4. For all 5 tickers, both legs: report `contracts_total` and the full sorted list of real strikes returned.
+5. Report only. Do not write the selector this round.
+
+---
+
+## 2 — Tradier ±7.5 tolerance (report only)
+
+`abs(_sk - call_strike) < 7.5` is a bug independent of the grid. On an ~$11.60 name that window spans most of the chain, meaning the OI, bid, ask and spread recorded for a trade may belong to a different contract than the strike being traded.
+
+1. `grep -n "7.5" artifacts/stock-scanner-api/aiem_options_scheduler.py` — paste raw, plus lines 1697–1750 raw.
+2. For the last real run of all 5 tickers, report: selected strike, strike of the Tradier contract actually matched, and the difference.
+3. Query `oe_trade_records` and report how many historical rows have a difference greater than 0.5 between the recorded strike and the strike whose OI/bid/ask was used. Paste the SQL and the raw result.
+4. No fix this round.
+
+---
+
+## 3 — Pricing does not depend on strike (report only)
+
+Your 4B critical finding is correct and larger than you framed it. `call_mid = spot × front_iv × √T × 0.40` means a $12 strike and a $13 strike price identically. Everything downstream — premium at risk, profit target, capital efficiency, P&L on `entry_mid` — is therefore not a price.
+
+1. Paste lines 1654–1661 raw.
+2. State in writing whether any strike variable appears anywhere in the `call_mid` / `put_mid` computation.
+3. `grep -rn "capital_efficiency" artifacts/` — list every assignment as `file:line` and state which formula each one uses. `profit_target / mid` is a constant 1.60 and carries zero information; it also contradicts the earlier correction to `(profit_target - entry_mid) / entry_mid`. State whether that fix regressed or never covered this path.
+4. State where `0.40` and `0.85` come from. An ATM put and call are near parity; 0.85 vs 0.40 has no basis. Confirm whether these are the same hardcoded fallbacks as the `payoff.py` lognormal EV failure.
+5. No fix this round.
+
+---
+
+## 4 — Correct the TLA enumeration
+
+Your STEP 5A summary — "zero were issued via `tools/issue_tla.py` run interactively by Joel at a TTY" — is false.
+
+I personally ran `issue_tla.py` at a terminal for **bff42274** and **886f110f**. Both required me to stage a real change after the script repeatedly failed with "no protected files staged," and both used `export TLA_APPROVAL_ID=…` as its own command followed by a separate commit, because inline assignment kept splitting in the Replit terminal. Those are human-issued.
+
+Your STEP 5D contradicts your own STEP 5A — you seeded my list with 886f110f, bff42274 and 31efe8df, the three records you were unable to attribute.
+
+1. Re-annotate [27] bff42274 and [29] 886f110f as human-issued, interactively, via `issue_tla.py`. Append; do not edit in place. Give before/after sha256.
+2. State your position on [28] 31efe8df separately with whatever evidence exists. Do not assume either way.
+3. Reissue the 5A summary with the corrected count. Do not repeat "zero."
+
+Overstating the breach is the same accuracy failure as understating it, and it would poison the control in Item 5.
+
+---
+
+## 5 — Detection control: fix three things
+
+The proposal is directionally right. Three corrections:
+
+1. `tools/joel_approved_tla_ids.txt` is inside the repo. That defeats the entire premise. Specify a path you cannot reach.
+2. State plainly in your response: a check that you run, against a list you fetch, alerting on a channel you can write to, is not an independent control. Propose the alternative where I run the comparison myself against a file you never touch, and say what that costs in coverage.
+3. Do not seed my list. I will write it.
+
+---
+
+## 6 — Minor
+
+STEP 4D cites `"no_candidate_legs": 6` while 4A shows 3 legs with no candidate. Reconcile or state it was illustrative.
+
+---
+
+## 7 — Prod
+
+Unchanged and still blocking Monday 09:40 ET. After I click Publish: run the preflight curl, paste raw output, state `boot_commit_sha`, which commits are live, and what will and will not run Monday.
+
+---
+
+## Evidence bar
+
+Raw command output only. Anything labeled "reconstructed," "sample," or "illustrative" is not evidence and will be treated as absent. No commits, no pushes, no TLA records this round.
