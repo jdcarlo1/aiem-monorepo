@@ -136,8 +136,8 @@ print("      d1 = (math.log(S / K) + 0.5 * sig**2 * T) / (sig * math.sqrt(T))")
 print("      return d1, d1 - sig * math.sqrt(T)")
 
 def _bs_d1d2_FIXED(S, K, sig, T):
-    """POST-FIX: verbatim from HEAD.
-    C6/FIX-3: K is None or S is None guard added BEFORE any <= comparison."""
+    """d1, d2 from Black-Scholes (r=0 simplification).
+    C6/FIX-3: all four args guarded for None before any comparison."""
     if (K is None or S is None or sig is None or T is None
             or sig <= 0 or T <= 0 or S <= 0 or K <= 0):
         return 0.0, -0.1
