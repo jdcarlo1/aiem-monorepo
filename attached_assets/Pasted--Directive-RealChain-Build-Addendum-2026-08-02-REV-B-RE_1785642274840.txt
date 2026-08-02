@@ -1,0 +1,255 @@
+# Directive_RealChain_Build_Addendum_2026-08-02 (REV B — REPLACES REV A)
+
+**Discard the version of this directive sent earlier today. This one replaces it in full.**
+Items A, B, E, F, G are unchanged — any work already done on them stands.
+Items C and D were rewritten: the placeholders are gone (expiration now derived from the chain, put leg written out, match flags defined, import fix given as code). Do not work from Rev A's C or D.
+
+Adds to Directive_RealChain_Build_2026-08-02. No commits this round — `aiem_options_scheduler.py` is protected and no Joel-issued TLA exists.
+
+---
+
+## ACCEPTED / CLOSED
+
+- **Item 3.3 — my error, withdrawn.** Stored formula is OPT-031 `(profit_target - entry_mid)/entry_mid`. My claim that it reverted to `profit_target/mid` was wrong. Your arithmetic is right.
+- **Item 4** — 2 human-issued (bff42274, 886f110f) accepted.
+- **Item 5.1 / 5.2 / 5.3** — accepted as written. Build nothing for the detection control. Joel maintains the list and runs the diff himself.
+- **Item 6** — 3 no-candidate legs, not 6. Accepted.
+
+---
+
+## ITEM A — Liquidity census. Run FIRST, before writing any code.
+
+Every raw contract in your Steps 1.2/1.3 has `bid: 0.0`, `ask: 0.0`, `mid: 0.0`, and either `delta: 0.0` with `implied_volatility: null`, or `delta > 0.99` with `IV > 4.0`. A real-chain selector that does not filter these will pick a delta-0.0 strike or price a trade at mid 0.
+
+For CLF, HAL, AMGN, NEE, VRTX — nearest expiration with DTE ≥ 5 — call and put separately, print exactly:
+
+```
+TICKER TYPE expiry=YYYY-MM-DD total=<n> liquid=<n> delta_range=[min..max] strikes_liquid=[...]
+```
+
+Liquid predicate:
+```
+bid > 0 AND ask > 0
+AND implied_volatility is not None AND 0 < implied_volatility <= 3.0
+AND delta is not None AND abs(delta) > 0
+```
+
+Also paste the code in `aiem_polygon_options_chain.py` that sets the `"liquid"` field, and state whether it matches this predicate.
+
+Paste raw stdout. Then one line: **for how many of the 10 ticker/leg combinations does at least one liquid contract exist with `abs(delta)` in [0.20, 0.50]?**
+
+If that number is 0 or near 0, stop and report. Do not proceed to Item C.
+
+---
+
+## ITEM B — Confirm the insertion point
+
+Your Step 1.1 grep shows the nearest preceding `def` to 1643 is **1606 `_bs_invert_delta_strike`**, with **1580 `_bs_d1d2`** also between 1341 and 1643. Your conclusion said "no intervening def."
+
+Paste `sed -n '1600,1660p' artifacts/stock-scanner-api/aiem_options_scheduler.py` raw, then answer:
+
+1. Is line 1643 inside the body of `_bs_invert_delta_strike`, or back at `_execute_job` body indentation?
+2. Paste indentation-visible lines 1606, 1643, 1651.
+
+If 1643 is inside `_bs_invert_delta_strike`, the replacement does **not** go there. Report where the caller is and stop for instruction.
+
+---
+
+## ITEM C — Build (do not commit)
+
+Only if Item A shows liquid contracts exist and Item B confirms `_execute_job` body.
+
+**C1.** Add these three helpers immediately above the `_sinc` block (module level or `_execute_job` body — match the surrounding indentation):
+
+```python
+_LIQ_IV_MAX = 3.0
+_MIN_DTE = 5
+
+def _pick_expiry(chain, min_dte=_MIN_DTE):
+    """Nearest expiration with dte >= min_dte, taken from the chain itself."""
+    exps = sorted({
+        (c.get("dte"), c.get("expiration_date"))
+        for c in (chain or [])
+        if c.get("expiration_date") and c.get("dte") is not None and c.get("dte") >= min_dte
+    })
+    return exps[0][1] if exps else None
+
+def _liquid_chain(chain, typ, expiry):
+    out = []
+    for c in chain or []:
+        if c.get("contract_type") != typ:
+            continue
+        if expiry and c.get("expiration_date") != expiry:
+            continue
+        b, a = c.get("bid"), c.get("ask")
+        iv, d = c.get("implied_volatility"), c.get("delta")
+        if not b or not a or b <= 0 or a <= 0:
+            continue
+        if iv is None or iv <= 0 or iv > _LIQ_IV_MAX:
+            continue
+        if d is None or abs(d) == 0.0:
+            continue
+        out.append(c)
+    return out
+
+def _pick_by_delta(cands, target):
+    return min(cands, key=lambda c: abs(abs(c.get("delta") or 0.0) - target))
+```
+
+`_pick_expiry` exists so no pre-existing expiration variable is required. If an expiration variable is already in scope at 1643 and disagrees with `_pick_expiry(options_chain)`, report both values and stop — do not silently pick one.
+
+**C2.** Replace lines 1643–1661 in full (the `_sinc` grid, the snap, **and** the synthetic pricing block) with exactly this:
+
+```python
+_exp = _pick_expiry(options_chain)
+if not _exp:
+    call_strike = put_strike = None
+    _NO_CAND("NO_EXPIRY_WITH_MIN_DTE", ticker, None)
+
+# ---- CALL leg ----
+_cc = _liquid_chain(options_chain, "call", _exp) if _exp else []
+if not _cc:
+    call_strike = None
+    call_bid = call_ask = call_mid = call_spread = None
+    call_delta = call_iv = None
+    call_oi = call_vol = None
+    call_exp = _exp
+    _NO_CAND("NO_LIQUID_CALL_CONTRACT", ticker, _exp)
+else:
+    _p = _pick_by_delta(_cc, _DELTA_TARGET)
+    call_strike = float(_p["strike"])
+    call_delta  = float(_p["delta"])
+    call_bid    = float(_p["bid"])
+    call_ask    = float(_p["ask"])
+    call_mid    = round((call_bid + call_ask) / 2.0, 2)
+    call_spread = round((call_ask - call_bid) / call_mid, 4)
+    call_iv     = float(_p["implied_volatility"])
+    call_oi     = int(_p.get("open_interest") or 0)
+    call_vol    = int(_p.get("volume") or 0)
+    call_exp    = _p["expiration_date"]
+
+# ---- PUT leg ----
+_pc = _liquid_chain(options_chain, "put", _exp) if _exp else []
+if not _pc:
+    put_strike = None
+    put_bid = put_ask = put_mid = put_spread = None
+    put_delta = put_iv = None
+    put_oi = put_vol = None
+    put_exp = _exp
+    _NO_CAND("NO_LIQUID_PUT_CONTRACT", ticker, _exp)
+else:
+    _p = _pick_by_delta(_pc, _DELTA_TARGET)
+    put_strike = float(_p["strike"])
+    put_delta  = float(_p["delta"])
+    put_bid    = float(_p["bid"])
+    put_ask    = float(_p["ask"])
+    put_mid    = round((put_bid + put_ask) / 2.0, 2)
+    put_spread = round((put_ask - put_bid) / put_mid, 4)
+    put_iv     = float(_p["implied_volatility"])
+    put_oi     = int(_p.get("open_interest") or 0)
+    put_vol    = int(_p.get("volume") or 0)
+    put_exp    = _p["expiration_date"]
+```
+
+**C3.** `_NO_CAND` is the **only** substitution in this directive. Bind it once, above the helpers, to the existing no-candidate logging path specified in Item 4D (`oe_indicator_snapshots` `NO_CANDIDATE_CALL`/`NO_CANDIDATE_PUT`, or `oe_audit_events` `STRIKE_NO_CANDIDATE`). Do not write a new logger. Paste the binding line and the signature of the function you bound it to.
+
+**C4.** Import swallow at line 1340 — replace the silent fallback with:
+
+```python
+try:
+    from aiem_polygon_options_chain import fetch_options_chain
+except ImportError as _e:
+    _NO_CAND("CHAIN_IMPORT_FAILED", ticker, None)
+    raise RuntimeError(f"options chain module unavailable: {_e}")
+
+options_chain = fetch_options_chain(ticker)
+if not options_chain:
+    _NO_CAND("CHAIN_EMPTY", ticker, None)
+    raise RuntimeError(f"empty options chain for {ticker}")
+```
+
+Match this to the actual import/call form at 1334–1341 — paste those lines raw first, then the replacement.
+
+**C5.** Non-negotiable rules:
+
+1. Selection is **nearest-to-target-delta among liquid contracts only**. No gate awareness. Do not skip a contract because it would fail `probability_estimate`, spread, OI, or volume. Let the downstream gate reject it and log the rejection.
+2. **No fallback to the `_sinc` grid.** Empty chain or no liquid contract → no candidate for that leg. Fail closed.
+3. The synthetic pricing at 1654–1661 is **deleted, not bypassed**. `grep -n "0.40\|0.85\|front_iv \* _T" ` on the file afterwards must show it gone. Paste that grep.
+4. Every downstream consumer of `call_mid`/`put_mid`/`call_spread`/`put_spread` must tolerate `None`. `grep -n "call_mid\|put_mid\|call_spread\|put_spread"` and list any site that would raise on `None`. Report them — do not patch them this round.
+
+---
+
+## ITEM D — Tradier lookup
+
+**D1.** Replace line 1713 and line 1730. Initialise the match flags before the loop:
+
+```python
+_call_matched = False
+_put_matched = False
+
+for _o in _opts:
+    _typ = _o.get("option_type")
+    _sk  = _o.get("strike")
+    if (_typ == "call" and call_strike is not None
+            and float(_sk) == float(call_strike)
+            and _o.get("expiration_date") == call_exp):
+        <existing call-field assignment body, unchanged>
+        _call_matched = True
+        continue
+    if (_typ == "put" and put_strike is not None
+            and float(_sk) == float(put_strike)
+            and _o.get("expiration_date") == put_exp):
+        <existing put-field assignment body, unchanged>
+        _put_matched = True
+        continue
+    if _call_matched and _put_matched:
+        break
+```
+
+Paste lines 1697–1750 raw first, then the rewritten block, so the field-assignment bodies are visibly carried over unchanged.
+
+If no exact match, leave the Tradier-sourced fields `None`. Do not substitute a neighbour, and do not fall back to the ±7.5 window.
+
+**D2.** Write provenance into `entry_greeks_json` for both legs:
+
+```python
+entry_greeks["strike_source"] = "polygon_chain"
+entry_greeks["strike_used_for_tradier_lookup"] = call_strike
+entry_greeks["contract_expiration_used"] = call_exp
+entry_greeks["tradier_match"] = "exact" if _call_matched else "none"
+```
+
+and the `put_`/`_put_matched` equivalent into the put leg's greeks dict. Name the dict variable you wrote into.
+
+Your Item 2.3 finding is correct and is the reason this is required: the field was never written, so historical contamination cannot be measured. It gets written from now on.
+
+One line, with the raw loop body pasted: **does the current loop keep the FIRST match or the LAST match?** Your Item 2 text asserts both.
+
+---
+
+## ITEM E — capital_efficiency (report only, no code change)
+
+1. `grep -rn "capture_trade_record("` across the repo — every call site. Is it reachable from `_execute_job`? Paste raw.
+2. With `profit_target = (bid+ask)*0.8` and `entry_mid = (bid+ask)/2`, `capital_efficiency` is 0.60 for every leg by construction. Confirm or refute in one line.
+3. Where does the `0.8` come from — comment, commit message, test, or nothing? Same question as 0.40/0.85.
+
+Do not change the `0.8`. It is a strategy parameter and Joel's call.
+
+---
+
+## ITEM F — Corrections
+
+- NEE: you wrote "$87.50 does not exist in the chain — `87.5` is present, but so is `88.0`." State what you meant in one sentence.
+- Record `31efe8df`: leave as "unknown — cannot attribute." Joel resolves it. Do not classify it either way.
+
+---
+
+## ITEM G — Prod
+
+Unchanged. Still `ad34726`. On Joel's signal after Publish, run the preflight curl and paste raw output.
+
+---
+
+## Evidence required
+
+Raw stdout for Item A. Raw `sed` for Item B. Full uncommitted `git diff` for Items C and D. Raw grep for Item E. No narrative-only claims. No commits, no TLA self-issue, no push.
