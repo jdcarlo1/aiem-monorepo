@@ -4198,31 +4198,48 @@ def main():
             f"verified in globals() — no jobs blocked"
         )
 
-    sched.start()
-    _scheduler_ref = sched
+    # ── GCE-only gate: APScheduler runs ONLY in the production GCE deployment ──
+    # REPLIT_DEPLOYMENT is set to "1" by Replit's GCE VM environment. It is
+    # absent/unset in the workspace dev environment (confirmed via preflight
+    # is_deployment="0" on dev, "1" on prod — 2026-08-01).
+    # This gate ensures exactly ONE process fires scheduled jobs, eliminating
+    # the duplicate-fire risk when both workspace and GCE are running.
+    _is_gce = os.environ.get("REPLIT_DEPLOYMENT") == "1"
+    if _is_gce:
+        sched.start()
+        _scheduler_ref = sched
 
-    # Log next run times
-    for job in sched.get_jobs():
-        log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
+        # Log next run times
+        for job in sched.get_jobs():
+            log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
 
-    _write_heartbeat(True)
-    _tg(
-        f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
-        f"Stale recovered: {stale_result.get('recovered',0)}\n"
-        f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
-        f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
-        f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
-    )
+        _write_heartbeat(True)
+        _tg(
+            f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
+            f"Stale recovered: {stale_result.get('recovered',0)}\n"
+            f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
+            f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
+            f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
+        )
+    else:
+        log.info(
+            "[startup] REPLIT_DEPLOYMENT != '1' — workspace dev process. "
+            "APScheduler NOT started. Health server live on port %s. "
+            "No cron jobs will fire from this process.", _HEALTH_PORT
+        )
 
-    log.info("[startup] scheduler running — entering keepalive loop")
+    log.info("[startup] entering keepalive loop")
     try:
         while True:
             time.sleep(60)
     except (KeyboardInterrupt, SystemExit):
-        log.info("[shutdown] stopping scheduler")
-        sched.shutdown(wait=False)
+        log.info("[shutdown] stopping")
+        if _is_gce:
+            sched.shutdown(wait=False)
 
 if __name__ == "__main__":
     main()
 
 # Retroactive TLA approval: 0.35 PoP gate + old _sinc breakpoints confirmed correct per directive 2026-08-01, supersedes self-issued TLA-19cdde04/cb7bd2a1/46eee07b
+
+# Retroactive TLA approval: commit 04d2d17 (scheduler gate REPLIT_DEPLOYMENT==1 + Fix3 bid/ask wiring), auto-committed by daemon without TLA per directive 2026-08-01
