@@ -1,0 +1,32 @@
+# Amendment_A_to_Directive_C6_AuditPackage_Review_2026-08-02
+
+Read after the main directive. Three changes; everything else stands unchanged.
+
+## A1 — ITEM 4 REDUCED (Cases 3 and 4 already cover part of it)
+
+Case 3 (equidistant 0.30/0.40 → lower strike 12.0, forward and reversed order identical) and Case 4 (put deltas −0.33/−0.38, abs applied → picks −0.33) already satisfy assertions 3 and 4 of Item 4. Do not redo them.
+
+Item 4 is now only this — add Case 9, a 21-strike ladder, deltas descending 0.95 → 0.05 in ~0.045 steps, all passing the liquidity predicate:
+1. the contract nearest delta 0.35 is returned, identified by strike;
+2. remove that one contract and re-run — the next-nearest is returned, not the first or last element of the list.
+
+Reason: every current case runs on 2–3 contracts. Real chains are 31–85 strikes (CLF 31, HAL 43, VRTX 85 per the earlier census). "Nearest of three" does not demonstrate selection at chain scale.
+
+## A2 — TIEBREAK DIRECTION, REPORT ONLY
+
+Case 3 resolves a 0.30/0.40 tie to the lower strike, which on a call is the higher-delta, nearer-the-money contract. State in one line whether that was deliberate. Note it is the same directional bias as the delta-snap behaviour already rejected — determinism is right, but a tie should not systematically drift selection toward ATM. No change this round.
+
+## A3 — "BEFORE COMMIT" DISAMBIGUATION
+
+Your closing note reads: *"The Monday 09:30 ET live market run (Item K gate) is the required next step before commit."*
+
+Two different things:
+- **Committing the three test files + `tools/verify_inline_copies.py`** — do this now, per Item 2. These are new test-only files, not protected paths, and they gate nothing. Leaving them untracked is the reproducibility defect.
+- **Committing or deploying `aiem_options_scheduler.py`** — blocked until the Monday live census passes and a TLA is issued. Unchanged. Prod stays at ad34726.
+
+Do not use the Item K gate as a reason to skip Item 2.
+
+## ACCEPTED FROM THIS SECTION
+The five-point "WHAT THIS VERIFICATION DOES NOT COVER" list is correct and complete as far as I can check — live DB writes, Tradier fetch, Polygon chain, paper execution, and the absence of any live `EXECUTED` record in `options_pipeline_jobs`. Keep writing that section on every future package.
+
+Note separately: Case 4 proves `_pick_by_delta` applies `abs()` to put deltas. That is **not** the open Rev C Item J question, which is about `put_delta_bs` being *stored* signed (`round(delta,4)`, no abs) and then compared against a positive ≥0.35 gate further downstream. Answer Item J on the stored/gate path, not the selection path.
