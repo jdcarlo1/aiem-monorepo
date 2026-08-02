@@ -1,0 +1,6 @@
+aiem_strat_scheduler.py:293:    expected_move = spot * atm_iv * (21/365)**0.5  # 21-day expected move approx
+aiem_strat_scheduler.py:324:    # in compute_capital_compounding_score.  No 0.5 neutral fallback.
+aiem_strat_engine/scoring.py:40:    """PoP component: 0→0, 0.5→0.5, 0.7→1.0 (linear, capped)."""
+aiem_strat_engine/scoring.py:42:    return _clamp((pop - 0.25) / 0.50)   # 25%=0, 75%=1
+aiem_strat_engine/scoring.py:46:    """EV/risk component: negative EV → 0, EV=0.05 per $ at risk → 0.5, 0.10 → 1.0."""
+aiem_strat_engine/scoring.py:87:    ror_part = _clamp((return_on_risk or 0.0) / 0.50)
