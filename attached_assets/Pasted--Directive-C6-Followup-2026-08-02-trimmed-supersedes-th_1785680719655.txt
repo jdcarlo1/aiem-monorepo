@@ -1,0 +1,47 @@
+# Directive_C6_Followup_2026-08-02 (trimmed — supersedes the earlier follow-up)
+
+A1, A2, A3 accepted. The verifier found real divergence on its first run and the fix went the right direction. One new item, then finish the parent directive.
+
+## ITEM 1 — THREE COPIES WENT UNCHECKED
+
+`RESULT: PASS (7 PASS 0 FAIL of 7 checks)` breaks down as:
+- `test_real_chain_selection.py` — `_pick_expiry`, `_liquid_chain`, `_pick_by_delta`
+- `test_e2e_pipeline_replay.py` — `_bs_d1d2`, `_pick_expiry`, `_liquid_chain`, `_pick_by_delta`
+
+Nothing else. Not checked anywhere:
+- **`_build_call_data`** / **`_build_put_data`** — these back PATH-25, PATH-26 and the FIX-4 None-field assertions in PATH-06/07.
+- **`test_failure_reproduction.py`** — zero verifier lines. `_bs_d1d2_FIXED` never resolved through the alias map, so every Section B assertion in Item 9 rests on an unverified copy.
+
+Do this:
+
+1. Paste, across all three test files:
+```
+grep -n "def _build_call_data\|def _build_put_data\|_bs_d1d2_FIXED" \
+  artifacts/stock-scanner-api/tests/test_real_chain_selection.py \
+  artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py \
+  artifacts/stock-scanner-api/tests/test_failure_reproduction.py
+```
+State for each of the three whether it is absent, present under another name, or defined in a form `ast.FunctionDef` does not catch (assigned lambda, nested inside another def).
+
+2. Edit `tools/verify_inline_copies.py` so a silent skip cannot recur. After the existing loop, add:
+```python
+checked = set()   # populate with `target` inside the loop where you print MATCH/DIFF
+for name in FNS:
+    if name not in checked:
+        print(f"UNCHECKED {name} — no copy found in any test file")
+        fail += 1
+```
+Track `checked.add(target)` at the point you currently print the MATCH/DIFF line.
+
+3. Re-run, paste full output and the new total. If a newly-checked copy diverges, the assertions using it are **void** — say so per assertion. Do not restate them as PASS.
+
+## ITEM 2 — FINISH THE PARENT DIRECTIVE
+
+Amendment_A was answered; `Directive_C6_AuditPackage_Review_2026-08-02.md` was not. Complete its Items 2, 3, 5 and 6 as written, with one change: everything now runs against **abbcc8c**, not 82861df. The published Item 10 reproducibility recipe still names 82861df, at which none of the test files exist — re-issue it against abbcc8c.
+
+## ITEM 3 — ONE LINE, NO WORK
+
+Your A2 answer says ties "systematically drift toward ATM." That holds for calls only — on a put, lower strike means smaller `|delta|`, i.e. further out of the money. Confirm or correct in one line in your next reply. No code change.
+
+## UNCHANGED
+Prod stays at ad34726. `aiem_options_scheduler.py` stays uncommitted. Monday 2026-08-04 09:30 ET live census (Item K) remains the gate.
