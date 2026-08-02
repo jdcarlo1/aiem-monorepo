@@ -1,0 +1,143 @@
+# C6 — NULL SAFETY & PIPELINE VERIFICATION
+
+Evidence only. No assumptions. No code inspection conclusions without runtime proof.
+
+For every claim provide:
+- Raw terminal output
+- Raw SQL output
+- Exact file/function/line numbers
+- Complete execution trace
+- Full SHA-256 hashes
+- Before/After evidence
+
+==================================================
+1. NULL SAFETY
+==================================================
+
+Audit every location where a nullable value could be used.
+
+Verify all comparisons, arithmetic, math functions, and calculations cannot execute with:
+
+- None
+- Missing values
+- Invalid strikes
+- Missing Greeks
+- Missing IV
+- Missing bids/asks
+
+For each occurrence return:
+
+PASS / FAIL
+Reason
+Execution evidence
+
+==================================================
+2. _bs_d1d2()
+==================================================
+
+Show every caller.
+
+Verify no execution path can call:
+
+_bs_d1d2()
+
+with:
+
+K=None
+S=None
+sig=None
+T=None
+
+If possible, show the execution trace.
+If impossible, prove why.
+
+==================================================
+3. NO_LIQUID TERMINATION
+==================================================
+
+Verify every NO_LIQUID path exits cleanly.
+
+Test:
+
+• Call rejected
+• Put rejected
+• Both rejected
+• Empty chain
+• Zero bid/ask
+• Missing IV
+• Missing Greeks
+• Invalid strike
+• Stale market data
+
+Each must terminate as:
+
+NO_TRADE
+
+without exceptions.
+
+==================================================
+4. PIPELINE FLOW
+==================================================
+
+Verify execution order:
+
+Candidate
+→ Liquidity
+→ Greeks
+→ Probability
+→ Risk
+→ Governance
+→ Decision
+→ Paper Execution
+→ Audit
+→ End
+
+Confirm every stage executes or exits intentionally.
+
+==================================================
+5. GOVERNANCE
+==================================================
+
+Verify all three paths:
+
+BUY
+SELL
+NO_TRADE
+
+Show execution evidence for each.
+
+==================================================
+6. LIVE MARKET VERIFICATION
+==================================================
+
+During market hours execute one complete production run using live Polygon data.
+
+Verify:
+
+BUY path
+SELL path
+NO_TRADE path
+
+No mocked data.
+
+==================================================
+7. FINAL CERTIFICATION
+==================================================
+
+Return only:
+
+NULL Safety ........ PASS / FAIL
+Pipeline ........... PASS / FAIL
+Governance ......... PASS / FAIL
+NO_TRADE ........... PASS / FAIL
+Live Verification .. PASS / FAIL
+
+Final Verdict:
+
+PASS
+
+or
+
+NO PASS
+
+No partial credit.
