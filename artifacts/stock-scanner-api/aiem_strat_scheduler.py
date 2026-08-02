@@ -39,6 +39,7 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, date, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from typing import Optional
 
 import psycopg2
 import psycopg2.extras
@@ -88,6 +89,25 @@ def _tg(text: str) -> bool:
             return r.status == 200
     except Exception:
         return False
+
+
+# ── Structured module-failure logger ────────────────────────────────────────
+def _log_module_failure(
+    trace_id: str,
+    module: str,
+    ticker: str,
+    exc: Exception,
+    status: str = "FAILED",
+    source_ts: str = None,
+) -> None:
+    """Emit a structured WARNING for any module failure.
+    Fields: trace_id, module, ticker, status, exception, source_ts.
+    """
+    ts = source_ts or (datetime.utcnow().isoformat() + "Z")
+    log.warning(
+        f"[{trace_id}] module={module} ticker={ticker} status={status} "
+        f"exception={exc!r} source_ts={ts}"
+    )
 
 
 # ── DB helpers ───────────────────────────────────────────────────────────────
@@ -161,15 +181,28 @@ def _seed_candidates():
 
     try:
         with _db_conn() as conn, conn.cursor() as cur:
-            # Pull top-25 stocks from polygon_rvol_scan (most recent scan date)
+            # Point-in-time latest-row ranking query (§1).
+            # Step 1: ROW_NUMBER() PARTITION BY ticker ORDER BY scan_date DESC — picks the
+            #         most recent row per ticker so stale/duplicate scan dates are excluded.
+            # Step 2: ORDER BY rvol DESC, ABS(gap_pct) DESC — ranks by activity, not alphabet.
+            # This replaces the previous DISTINCT ON (ticker) … LIMIT pattern which ordered
+            # by ticker first and could return stale rows or alphabetically-biased candidates.
             cur.execute("""
-                SELECT DISTINCT ON (ticker) ticker, close_strength, rvol, gap_pct
-                FROM polygon_rvol_scan
-                WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
-                  AND rvol >= 1.5
-                  AND price >= 5.0
-                  AND price <= 500.0
-                ORDER BY ticker, scan_date DESC, rvol DESC
+                SELECT ticker, close_strength, rvol, gap_pct, scan_date
+                FROM (
+                    SELECT ticker, close_strength, rvol, gap_pct, scan_date,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY ticker
+                               ORDER BY scan_date DESC
+                           ) AS rn
+                    FROM polygon_rvol_scan
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
+                      AND rvol >= 1.5
+                      AND price >= 5.0
+                      AND price <= 500.0
+                ) latest
+                WHERE rn = 1
+                ORDER BY rvol DESC, ABS(gap_pct) DESC
                 LIMIT %s
             """, (_MAX_CANDIDATES,))
             rows = cur.fetchall()
@@ -180,14 +213,10 @@ def _seed_candidates():
                 return
 
             seeded = 0
-            for ticker, close_str, rvol, gap_pct in rows:
-                # Determine thesis from close_strength + gap
-                if (close_str or 0) >= 0.60 and (gap_pct or 0) >= 0:
-                    thesis = "BULLISH"
-                elif (close_str or 0) <= 0.40 and (gap_pct or 0) <= 0:
-                    thesis = "BEARISH"
-                else:
-                    thesis = "NEUTRAL"
+            for ticker, close_str, rvol, gap_pct, row_scan_date in rows:
+                # Phase 1: thesis assignment from close_strength/gap_pct alone is deferred
+                # to Phase 2 (signal engine). Seed as UNDECIDED to avoid direction bias.
+                thesis = "UNDECIDED"
 
                 cur.execute("""
                     INSERT INTO ase_engine_jobs (ticker, thesis, scan_date, status, priority)
@@ -250,42 +279,65 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
     # Get ATM IV from front-month chain
     front_chain = get_chain(ticker, expirations[0]) if expirations else []
     iv_rank = None
-    atm_iv  = get_atm_iv(front_chain, spot) or 0.30
+    atm_iv  = get_atm_iv(front_chain, spot)
+    if atm_iv is None:
+        # atm_iv is a mandatory input — without it no PoP, EV, or Black-Scholes calc
+        # is valid. Log as INSUFFICIENT_DATA and abort this job cleanly.
+        log.warning(
+            f"[{run_id}] module=chain_data ticker={ticker} status=MISSING "
+            f"field=atm_iv source_ts={datetime.utcnow().isoformat()}Z "
+            f"— INSUFFICIENT_DATA; aborting job"
+        )
+        return False
     skew    = get_skew(front_chain) or 0.0
     expected_move = spot * atm_iv * (21/365)**0.5  # 21-day expected move approx
 
-    # Determine market regime from DB (best-effort)
+    # Determine market regime from DB (optional — best-effort; NEUTRAL on failure)
     market_regime = "NEUTRAL"
     try:
         with _db_conn() as conn, conn.cursor() as cur:
+            # Use ROW_NUMBER point-in-time pattern (consistent with seed query).
+            # Column is `rvol`, not `rvol_ratio` (schema: polygon_rvol_scan).
             cur.execute("""
-                SELECT close_strength, rvol_ratio FROM polygon_rvol_scan
-                WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1
+                SELECT close_strength, rvol
+                FROM polygon_rvol_scan
+                WHERE ticker=%s
+                ORDER BY scan_date DESC
+                LIMIT 1
             """, (ticker,))
             row = cur.fetchone()
             if row:
                 cs, rv = row
                 if (cs or 0) > 0.70 and (rv or 0) > 2.0: market_regime = "BULL_TREND"
                 elif (cs or 0) < 0.30 and (rv or 0) > 2.0: market_regime = "BEAR_TREND"
-    except Exception:
-        pass
+    except Exception as _mr_exc:
+        _log_module_failure(
+            run_id, "market_regime_lookup", ticker, _mr_exc,
+            status="FAILED",
+            source_ts=datetime.utcnow().isoformat() + "Z",
+        )
 
     vol_regime = "HIGH_IV" if (atm_iv or 0) > 0.40 else "LOW_IV"
 
     # ── Pattern detection (all 5 families, thesis-aligned) ────────────────────
-    pattern_score = 0.5  # neutral default
+    # Optional module: unavailable → pattern_score=None, weight excluded + renormalized
+    # in compute_capital_compounding_score.  No 0.5 neutral fallback.
+    pattern_score: Optional[float] = None
     pattern_result: dict = {}
     try:
         import aiem_pipeline_proof as _proof
         from aiem_pattern_engine import detect_for_ticker
         pattern_result = detect_for_ticker(ticker, thesis=thesis, lookback=60)
-        pattern_score  = pattern_result.get("pattern_score", 0.5)
+        _raw_score = pattern_result.get("pattern_score")
+        if _raw_score is not None:
+            pattern_score = float(_raw_score)
         _proof.log_stage(
             trace_id=run_id, ticker=ticker, thesis=thesis,
             stage="pattern_scan",
             data={
                 "pattern_score":       pattern_score,
-                "pass_only_score":     pattern_result.get("pass_only_score", 0.5),
+                "pattern_available":   pattern_score is not None,
+                "pass_only_score":     pattern_result.get("pass_only_score"),
                 "bars_used":           pattern_result.get("bars_used", 0),
                 "n_candlestick":       len(pattern_result.get("candlestick",    [])),
                 "n_chart_structure":   len(pattern_result.get("chart_structure",[])),
@@ -296,10 +348,17 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
                                         pattern_result.get("all_patterns", [])],
             },
         )
-        log.info(f"[{run_id}] pattern_score={pattern_score:.3f} "
-                 f"({len(pattern_result.get('all_patterns',[]))} patterns detected)")
+        log.info(
+            f"[{run_id}] pattern_score={pattern_score} "
+            f"available={pattern_score is not None} "
+            f"({len(pattern_result.get('all_patterns',[]))} patterns detected)"
+        )
     except Exception as _pat_err:
-        log.debug(f"[{run_id}] pattern detection skipped: {_pat_err}")
+        _log_module_failure(
+            run_id, "aiem_pattern_engine", ticker, _pat_err,
+            status="FAILED",
+            source_ts=datetime.utcnow().isoformat() + "Z",
+        )
 
     # Build all eligible strategies
     strategy_builds = build_all_for_ticker(ticker, thesis, market_regime, vol_regime)
