@@ -63,7 +63,7 @@ _MIN_DTE_CHAIN = 5
 _DELTA_TARGET  = 0.35
 
 def _pick_expiry(chain, min_dte=_MIN_DTE_CHAIN):
-    """Nearest expiration with dte >= min_dte (lines 1644-1652)."""
+    """Nearest expiration with dte >= min_dte from the chain itself."""
     exps = sorted({
         (c.get("dte"), c.get("expiration_date"))
         for c in (chain or [])
@@ -73,8 +73,10 @@ def _pick_expiry(chain, min_dte=_MIN_DTE_CHAIN):
     return exps[0][1] if exps else None
 
 def _liquid_chain(chain, typ, expiry):
-    """Filter to liquid contracts (lines 1654-1674).
-    Predicate: bid>0, ask>0, 0<iv<=3.0, abs(delta)>0."""
+    """Filter to liquid contracts of given type and expiry.
+    Predicate: bid>0, ask>0, 0<iv<=3.0, abs(delta)>0.
+    No OI/volume/spread gates — those are downstream gate concerns.
+    """
     out = []
     for c in chain or []:
         if c.get("contract_type") != typ:
@@ -93,7 +95,7 @@ def _liquid_chain(chain, typ, expiry):
     return out
 
 def _pick_by_delta(cands, target):
-    """Nearest-to-target |delta|; lower strike breaks ties (lines 1676-1682)."""
+    """Nearest-to-target |delta|; lower strike breaks ties deterministically."""
     return min(
         cands,
         key=lambda c: (abs(abs(c.get("delta") or 0.0) - target),
