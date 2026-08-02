@@ -1,0 +1,186 @@
+# STRICT INDEPENDENT VERIFICATION PACKAGE
+
+I need strict, independently reproducible evidence for every item below. Do not provide summaries, screenshots, or conclusions without the underlying raw evidence.
+
+====================================================
+1. RAW TERMINAL LOGS
+====================================================
+
+Provide the complete terminal session from the beginning of verification until completion.
+
+Requirements:
+
+• Exact commands executed
+• Full output
+• No truncation
+• Timestamps
+• Environment information
+• If output is large, split it into multiple parts instead of summarizing
+
+====================================================
+2. EXACT TEST COMMANDS
+====================================================
+
+List every verification command executed.
+
+For each command provide:
+
+• Command
+• Purpose
+• Files tested
+• Expected result
+• Actual result
+
+====================================================
+3. PROVE THE REPORT IS FRESH
+====================================================
+
+Demonstrate this report was generated during this verification run.
+
+Provide:
+
+• Report generation command
+• Report creation timestamp
+• Temporary artifacts created
+• Build timestamp
+• Verification timestamp
+
+Demonstrate that the report was NOT reused from an earlier execution.
+
+====================================================
+4. END-TO-END PIPELINE VERIFICATION
+====================================================
+
+Execute the actual production pipeline (not isolated unit tests) using either:
+
+• Live market data
+
+OR
+
+• Deterministic replay data
+
+Show the complete execution path:
+
+Market Data
+→ Validation
+→ Liquidity
+→ Risk Gates
+→ Decision
+→ Trade or NO_TRADE
+→ Audit
+→ Final Status
+
+If only NO_TRADE scenarios were verified, explicitly state that.
+
+====================================================
+5. CRYPTOGRAPHIC VERIFICATION
+====================================================
+
+Prove the code tested is exactly the code reported.
+
+Provide:
+
+• SHA-256 of every file under test
+• SHA-256 of generated report
+• Git commit hash
+• Git status
+• Confirmation no files changed during testing
+
+If deployed:
+
+• Deployed artifact hash
+• Verification deployed artifact matches tested artifact
+
+====================================================
+6. EXECUTION PATH COVERAGE
+====================================================
+
+Demonstrate every reachable execution path was exercised.
+
+Include evidence for:
+
+• Success paths
+• Failure paths
+• NO_TRADE paths
+• Exception paths
+• Early exits
+• Null-input paths
+• Liquidity rejection paths
+• Single-leg rejection paths
+• Dual-leg rejection paths
+
+For every path provide:
+
+• Test name
+• Execution evidence
+• PASS/FAIL
+• Confirmation the path actually executed
+
+====================================================
+7. REPRODUCIBILITY
+====================================================
+
+Provide sufficient information for another engineer to reproduce every result.
+
+Include:
+
+• Repository commit
+• Commands
+• Required environment
+• Dependencies
+• Database
+• Configuration
+• Expected output
+
+====================================================
+8. CODE COVERAGE
+====================================================
+
+Provide coverage generated during verification.
+
+Include:
+
+• Line coverage
+• Branch coverage
+• Function coverage
+
+List every line not executed and explain why.
+
+====================================================
+9. FAILURE REPRODUCTION
+====================================================
+
+Before demonstrating the fix, reproduce the original failure.
+
+Provide:
+
+• Commit containing the bug
+• Command
+• Original stack trace
+• Expected failure
+
+Then switch to the patched commit and demonstrate the failure no longer occurs.
+
+====================================================
+10. INDEPENDENT REPRODUCTION
+====================================================
+
+Provide complete instructions allowing another engineer to independently reproduce every result on a clean machine.
+
+Include:
+
+• Repository commit
+• Operating system
+• Python version
+• Dependency versions
+• Environment variables
+• Required databases
+• Commands
+• Expected hashes
+• Expected outputs
+
+====================================================
+
+Please provide raw evidence only.
+
+Do not summarize the verification without including the underlying evidence.

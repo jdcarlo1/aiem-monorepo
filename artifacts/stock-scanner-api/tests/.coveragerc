@@ -1,0 +1,9 @@
+[run]
+branch = True
+source = artifacts/stock-scanner-api/tests
+omit =
+    */test_*.py
+
+[report]
+show_missing = True
+skip_empty = True
