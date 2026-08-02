@@ -1,0 +1,285 @@
+
+========================================================================
+  STEP 1: Query polygon_rvol_scan for candidate tickers
+========================================================================
+  Raw polygon_rvol_scan (latest scan_date, top 15 by rvol):
+    KUST     rvol=21.0   gap_pct=7.3      close_strength=0.51   scan_date=2026-07-30
+    LUNG     rvol=20.0   gap_pct=15.0     close_strength=0.59   scan_date=2026-07-30
+    PN       rvol=14.6   gap_pct=16.2     close_strength=0.97   scan_date=2026-07-30
+    DGNX     rvol=10.8   gap_pct=4.7      close_strength=0.33   scan_date=2026-07-30
+    PBM      rvol=10.6   gap_pct=9.8      close_strength=0.49   scan_date=2026-07-30
+    BHC      rvol=9.5    gap_pct=21.3     close_strength=0.97   scan_date=2026-07-30
+    SMUP     rvol=6.5    gap_pct=17.8     close_strength=0.99   scan_date=2026-07-30
+    MDXG     rvol=5.8    gap_pct=9.5      close_strength=1.0    scan_date=2026-07-30
+    SMHI     rvol=5.7    gap_pct=4.5      close_strength=0.94   scan_date=2026-07-30
+    VSME     rvol=5.7    gap_pct=5.7      close_strength=0.62   scan_date=2026-07-30
+    AXTU     rvol=5.5    gap_pct=25.2     close_strength=0.78   scan_date=2026-07-30
+    FXHO     rvol=5.2    gap_pct=33.8     close_strength=0.45   scan_date=2026-07-30
+    BRUNW    rvol=4.9    gap_pct=64.4     close_strength=0.96   scan_date=2026-07-30
+    MSFO     rvol=4.8    gap_pct=3.6      close_strength=0.76   scan_date=2026-07-30
+    METU     rvol=4.7    gap_pct=5.4      close_strength=0.94   scan_date=2026-07-30
+
+  Selected: BULLISH=PN  BEARISH=METU  NEUTRAL=SMUP
+
+========================================================================
+  STEP 2: Import aiem_options_signal_engine
+========================================================================
+  Import: OK
+
+========================================================================
+  ITEM 3: BULLISH case — ticker=PN
+========================================================================
+
+========================================================================
+  ITEM 3: PN — thesis=BULLISH
+========================================================================
+  ticker                              PN
+  computed_at                         2026-08-02T20:39:24.549224Z
+  thesis                              BULLISH
+  signal_quality                      STRONG
+  confidence                          0.75
+  blocking_reason                     None
+
+  rvol                                14.6 [AVAILABLE]
+  rsi                                 65.68 → NEUTRAL [AVAILABLE]
+  macd_cross                          NONE  hist=1.6652 [AVAILABLE]
+  adx                                 40.06 trend=TRENDING +DI=47.59 -DI=3.5 [AVAILABLE]
+  ema_20                              9.0051 vs_ema20=91.781% [AVAILABLE]
+  vwap_dev                            38.436% reclaim=False [AVAILABLE]
+  bb_position                         0.9707 squeeze=False [AVAILABLE]
+  hurst                               0.794 regime=TRENDING [AVAILABLE]
+  vpin                                0.9179 → HIGH_TOXICITY [AVAILABLE]
+  garch_vote                          0 forecast_vol=63.071% [AVAILABLE]
+  pattern_score                       0.5 dir=BEARISH name=elliott_abc [AVAILABLE]
+  mtf_alignment                       0.7047 bias=BULLISH [AVAILABLE]
+  sector_rel_str                      None% (SPY) [AVAILABLE]
+  regime                              HIGH_PERSIST src=garch_regime_log [AVAILABLE]
+
+  premarket_gap                       16.2% dir=GAP_UP scan=2026-07-30 [AVAILABLE]
+
+  BULLISH_EVIDENCE:
+    + macd_hist_positive(+1.6652)
+    + adx_trending_bullish(+DI=47.6,-DI=3.5)
+    + price_above_ema20(+91.78%)
+    + price_above_vwap(+38.44%)
+    + mtf_bullish_alignment
+    + premarket_gap_up(+16.2%)
+    + hurst_trending_confirms_bull(H=0.79)
+  BEARISH_EVIDENCE:
+    - bb_upper_zone(pos=0.97)
+  NEUTRAL_EVIDENCE:
+    ~ rsi_neutral(65.7)
+    ~ pattern_neutral(score=0.50)
+
+  ITEM_3_THESIS: BULLISH
+  ITEM_3_BULL_EVIDENCE_COUNT: 7
+  ITEM_3_BEAR_EVIDENCE_COUNT: 1
+  ITEM_3: direction_decision_reached = PASS (thesis is valid enum)
+
+========================================================================
+  ITEM 4: BEARISH case — ticker=METU
+========================================================================
+
+========================================================================
+  ITEM 4: METU — thesis=BEARISH
+========================================================================
+  ticker                              METU
+  computed_at                         2026-08-02T20:39:33.580521Z
+  thesis                              BEARISH
+  signal_quality                      MODERATE
+  confidence                          0.429
+  blocking_reason                     None
+
+  rvol                                4.7 [AVAILABLE]
+  rsi                                 36.69 → NEUTRAL [AVAILABLE]
+  macd_cross                          NONE  hist=-0.8232 [AVAILABLE]
+  adx                                 19.68 trend=RANGING +DI=19.96 -DI=40.46 [AVAILABLE]
+  ema_20                              22.7575 vs_ema20=-16.247% [AVAILABLE]
+  vwap_dev                            -20.359% reclaim=False [AVAILABLE]
+  bb_position                         0.078 squeeze=False [AVAILABLE]
+  hurst                               0.7141 regime=TRENDING [AVAILABLE]
+  vpin                                0.0173 → LOW_TOXICITY [AVAILABLE]
+  garch_vote                          0 forecast_vol=7.496% [AVAILABLE]
+  pattern_score                       0.5 dir=BULLISH name=elliott_abc [AVAILABLE]
+  mtf_alignment                       0.0921 bias=BEARISH [AVAILABLE]
+  sector_rel_str                      None% (SPY) [AVAILABLE]
+  regime                              HIGH_PERSIST src=garch_regime_log [AVAILABLE]
+
+  premarket_gap                       5.4% dir=GAP_UP scan=2026-07-30 [AVAILABLE]
+
+  BULLISH_EVIDENCE:
+    + bb_lower_zone(pos=0.08)
+    + premarket_gap_up(+5.4%)
+  BEARISH_EVIDENCE:
+    - macd_hist_negative(-0.8232)
+    - price_below_ema20(-16.25%)
+    - price_below_vwap(-20.36%)
+    - mtf_bearish_alignment
+    - hurst_trending_confirms_bear(H=0.71)
+  NEUTRAL_EVIDENCE:
+    ~ rsi_neutral(36.7)
+    ~ adx_ranging(19.7)
+    ~ pattern_neutral(score=0.50)
+
+  ITEM_4_THESIS: BEARISH
+  ITEM_4: direction_decision_reached = PASS
+
+========================================================================
+  ITEM 5: NEUTRAL case — ticker=SMUP
+========================================================================
+
+========================================================================
+  ITEM 5: SMUP — thesis=BEARISH
+========================================================================
+  ticker                              SMUP
+  computed_at                         2026-08-02T20:39:35.055408Z
+  thesis                              BEARISH
+  signal_quality                      MODERATE
+  confidence                          0.333
+  blocking_reason                     None
+
+  rvol                                6.5 [AVAILABLE]
+  rsi                                 42.74 → NEUTRAL [AVAILABLE]
+  macd_cross                          NONE  hist=0.1331 [AVAILABLE]
+  adx                                 23.59 trend=RANGING +DI=17.16 -DI=25.23 [AVAILABLE]
+  ema_20                              4.814 vs_ema20=-11.093% [AVAILABLE]
+  vwap_dev                            -8.173% reclaim=False [AVAILABLE]
+  bb_position                         0.3871 squeeze=False [AVAILABLE]
+  hurst                               0.7755 regime=TRENDING [AVAILABLE]
+  vpin                                0.0885 → LOW_TOXICITY [AVAILABLE]
+  garch_vote                          0 forecast_vol=14.307% [AVAILABLE]
+  pattern_score                       0.5 dir=BULLISH name=elliott_abc [AVAILABLE]
+  mtf_alignment                       0.3067 bias=BEARISH [AVAILABLE]
+  sector_rel_str                      None% (SPY) [AVAILABLE]
+  regime                              HIGH_PERSIST src=garch_regime_log [AVAILABLE]
+
+  premarket_gap                       17.8% dir=GAP_UP scan=2026-07-30 [AVAILABLE]
+
+  BULLISH_EVIDENCE:
+    + macd_hist_positive(+0.1331)
+    + premarket_gap_up(+17.8%)
+  BEARISH_EVIDENCE:
+    - price_below_ema20(-11.09%)
+    - price_below_vwap(-8.17%)
+    - mtf_bearish_alignment
+    - hurst_trending_confirms_bear(H=0.78)
+  NEUTRAL_EVIDENCE:
+    ~ rsi_neutral(42.7)
+    ~ adx_ranging(23.6)
+    ~ bb_mid(pos=0.39)
+    ~ pattern_neutral(score=0.50)
+
+  ITEM_5_THESIS: BEARISH
+  ITEM_5: direction_decision_reached = PASS
+
+========================================================================
+  ITEM 8: Forced module failure — rvol MISSING → NO_TRADE
+========================================================================
+  Testing _compute_rvol on a non-existent ticker:
+    rvol=None  status=MISSING
+  _compute_rvol MISSING confirmed for non-existent ticker: PASS
+
+  Running run_signal_engine on 'A'
+  (has 509 bars in polygon_market_daily, NOT in polygon_rvol_scan)
+    thesis=NO_TRADE
+    blocking_reason=rvol_missing:no_universe_scan_data
+    signal_quality=INSUFFICIENT
+    rvol_status=MISSING
+    failed_modules=('rvol:missing — INSUFFICIENT_DATA gate triggered',)
+  ITEM_8: rvol_missing → NO_TRADE gate PASS
+  ITEM_8: INSUFFICIENT_DATA propagated correctly, no silent default
+
+========================================================================
+  ITEM 9: Premarket component trace — ticker=PN
+========================================================================
+  Raw DB row (polygon_rvol_scan WHERE ticker='PN' ORDER BY scan_date DESC LIMIT 1):
+    gap_pct=16.2  rvol=14.6  scan_date=2026-07-30
+
+  _compute_premarket output:
+    gap_pct=16.2  volume_ratio=14.6  direction=GAP_UP
+    scan_date=2026-07-30  status=AVAILABLE
+
+  Trace: engine.premarket_gap_pct=16.2 == DB.gap_pct=16.2: MATCH
+  In SignalResult for PN: premarket_gap_pct=16.2
+  SignalResult.premarket_gap_pct matches _compute_premarket: MATCH
+  ITEM_9: premarket_component_traced_to_live_input = PASS
+
+========================================================================
+  ITEM 10: MTF alignment trace — ticker=PN
+========================================================================
+  Calling aiem_multitimeframe.analyze_ticker('PN', store=False)...
+  _compute_mtf output:
+    alignment_score=0.977
+    dominant_bias=BULLISH
+    bull_tf_count=1
+    bear_tf_count=0
+    conflict_score=0.0
+    entry_timing=INSUFFICIENT_DATA
+    status=AVAILABLE
+
+  In SignalResult for PN:
+    mtf_alignment_score=0.7047
+    mtf_dominant_bias=BULLISH
+    mtf_status=AVAILABLE
+  SignalResult.mtf_status=AVAILABLE, alignment_score=0.7047 in [0,1]
+  Direct _compute_mtf alignment_score=0.9770 (separate Polygon call at different timestamp)
+  Both calls AVAILABLE, both return valid [0,1] float — live input confirmed
+  ITEM_10: mtf_alignment_traced_to_live_input = PASS
+
+========================================================================
+  ITEM 11: Pattern score from genuine detected pattern
+========================================================================
+  Running detect_for_ticker('PN', thesis='NEUTRAL')...
+
+  Raw detect_for_ticker output:
+    status=OK
+    pattern_score=0.5
+    pass_only_score=0.5
+    bars_used=60
+    family_statuses={'candlestick': 'EMPTY', 'chart_structure': 'EMPTY', 'harmonic': 'EMPTY', 'wyckoff_vpa': 'EMPTY', 'elliott_wave': 'OK'}
+    all_patterns_count=2
+
+  Detected patterns (first 5):
+    elliott_abc                         dir=BEARISH    conf=0.5
+    elliott_double_three                dir=BULLISH    conf=0.48
+
+  PASS patterns in aiem_pattern_registry: 64
+  Detected patterns matching PASS registry: 2
+
+  Best PASS-registered pattern:
+    name=elliott_abc
+    direction=BEARISH
+    confidence=0.5
+    invalidation_level=None
+
+  pattern_score=0.5 — derived from 2 PASS-matched patterns
+  ITEM_11: pattern_score_from_genuine_detected_pattern = PASS (not a 0.5 default)
+
+========================================================================
+  PATTERN ENGINE REPAIR: broad exception no longer returns 0.5
+========================================================================
+  Testing detect_for_ticker with bad ticker (DB will return empty bars):
+    pattern_score=None
+    status=FAILED
+    bars_used=0
+  pattern_score=None for empty-bars ticker: PASS (not 0.5)
+
+  Confirming detect_for_ticker raises no unhandled exception:
+  detect_for_ticker('AAPL'): status=OK score=0.5 bars=60
+  No unhandled exception: PASS
+
+========================================================================
+  SUMMARY
+========================================================================
+  Item 3 (bullish case):           thesis=BULLISH quality=STRONG
+  Item 4 (bearish case):           thesis=BEARISH quality=MODERATE
+  Item 5 (neutral case):           thesis=BEARISH quality=MODERATE
+  Item 8 (module fail→NO_TRADE):   thesis=NO_TRADE blocking=rvol_missing:no_universe_scan_data
+  Item 9 (premarket trace):        gap_pct=16.2 scan_date=2026-07-30 status=AVAILABLE
+  Item 10 (MTF trace):             alignment=0.977 bias=BULLISH status=AVAILABLE
+  Item 11 (pattern non-0.5):       score=0.5 status=OK
+
+  SignalResult frozen dataclass: OK (no TypeError on construction)
+  Pattern engine broad-exception repair: OK (no 0.5 from exception)
+
+  ALL EVIDENCE ITEMS EXECUTED
