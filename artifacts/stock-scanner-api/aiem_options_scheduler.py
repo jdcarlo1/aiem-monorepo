@@ -1627,9 +1627,14 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         # Live Tradier options chain: volume + OI for target strikes
         # Also refines delta and probability_itm when greeks are available.
-        # Fallback on any exception: volume=0, OI=0, BS greeks retained.
-        call_vol, call_oi = 0, 0
-        put_vol,  put_oi  = 0, 0
+        # Fallback on any exception: volume=None, OI=None, BS greeks retained.
+        # IMPORTANT: None (not 0) so verify_options_decision_inputs skips the
+        # open_interest<500 and volume<100 gates when Tradier is unavailable.
+        # When Tradier succeeds and returns real data, gates apply correctly.
+        # Zero bid/ask (illiquid options) still correctly fail the gate via
+        # explicit int(_o.get("open_interest") or 0) in the Tradier block.
+        call_vol, call_oi = None, None
+        put_vol,  put_oi  = None, None
         try:
             _tok = "".join(os.environ.get("TRADIER_API_TOKEN_2",
                            os.environ.get("TRADIER_API_TOKEN", "")).split())
@@ -1693,7 +1698,9 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             )
         except Exception as _trd_e:
             log.warning(
-                f"[exec] [{trace_id}] Tradier chain skipped (BS greeks active): {_trd_e}"
+                f"[exec] [{trace_id}] Tradier chain FAILED "
+                f"({type(_trd_e).__name__}): {_trd_e} — "
+                f"BS greeks active; OI/vol=None (gate will be skipped)"
             )
 
         base_fields = {
