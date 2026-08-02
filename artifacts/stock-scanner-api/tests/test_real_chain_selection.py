@@ -281,10 +281,66 @@ def test_case8():
             f"oi={chosen['open_interest']}")
 
 
+# ── Case 9: 21-strike ladder — chain-scale selection (Amendment_A / A1) ────
+# Real chains: CLF 31, HAL 43, VRTX 85 strikes.  All previous cases used
+# 2-3 contracts.  This case proves _pick_by_delta works correctly at scale.
+#
+# Ladder: strike 25–45, deltas descending 0.95→0.05 in 0.045 steps,
+# all passing the liquidity predicate (bid>0, ask>0, 0<iv≤3.0, delta≠0).
+#
+# Step 1: all 21 contracts present → nearest to 0.35 is strike=38 (delta=0.365,
+#         dist=0.015).
+# Step 2: remove strike=38, re-run → next-nearest is strike=39 (delta=0.32,
+#         dist=0.030), NOT the first or last list element.
+def test_case9():
+    print("Case 9: 21-strike ladder (chain-scale) — nearest-delta selection")
+    exp = "2026-08-07"
+    # Build the ladder: strike=25+i, delta=0.95-0.045*i  (i=0..20)
+    ladder = []
+    for i in range(21):
+        strike = 25.0 + i
+        delta  = round(0.95 - 0.045 * i, 3)
+        ladder.append(
+            _make_contract("call", strike, bid=0.50, ask=0.70, iv=0.40,
+                           delta=delta, expiry=exp, dte=7, oi=500, vol=200)
+        )
+
+    # ── Step 1: full 21-contract chain ──────────────────────────────────────
+    liquid = _liquid_chain(ladder, "call", exp)
+    _assert("step1: all 21 contracts pass liquidity predicate",
+            len(liquid) == 21,
+            f"liquid count={len(liquid)}")
+
+    chosen1 = _pick_by_delta(liquid, 0.35)
+    _assert("step1: nearest to 0.35 is strike=38 (delta=0.365, dist=0.015)",
+            chosen1["strike"] == 38.0,
+            f"chose strike={chosen1['strike']} delta={chosen1['delta']}")
+    _assert("step1: chosen delta is 0.365",
+            chosen1["delta"] == 0.365,
+            f"delta={chosen1['delta']}")
+
+    # ── Step 2: remove strike=38, re-run ────────────────────────────────────
+    liquid2 = [c for c in liquid if c["strike"] != 38.0]
+    _assert("step2: 20 contracts remain after removing nearest",
+            len(liquid2) == 20,
+            f"count={len(liquid2)}")
+
+    chosen2 = _pick_by_delta(liquid2, 0.35)
+    _assert("step2: next-nearest is strike=39 (delta=0.32, dist=0.030)",
+            chosen2["strike"] == 39.0,
+            f"chose strike={chosen2['strike']} delta={chosen2['delta']}")
+    _assert("step2: result is NOT first element of list (strike=25)",
+            chosen2["strike"] != 25.0,
+            f"strike={chosen2['strike']}")
+    _assert("step2: result is NOT last element of list (strike=45)",
+            chosen2["strike"] != 45.0,
+            f"strike={chosen2['strike']}")
+
+
 # ── Run all ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     tests = [test_case1, test_case2, test_case3, test_case4,
-             test_case5, test_case6, test_case7, test_case8]
+             test_case5, test_case6, test_case7, test_case8, test_case9]
     for i, t in enumerate(tests, 1):
         try:
             t()
