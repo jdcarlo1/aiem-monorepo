@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-verify_inline_copies.py  —  Directive_C6 / Amendment_A (A3) + Followup Item 1
+verify_inline_copies.py  —  Directive_C6 / Amendment_A (A3) + Followup + Round 2
 
 Verifies that the verbatim function copies embedded in the test files
 match the canonical definitions in aiem_options_scheduler.py.
@@ -10,7 +10,7 @@ If these diverge, the tests no longer exercise the production code path.
 Run from workspace root:
     python3 artifacts/stock-scanner-api/tools/verify_inline_copies.py
 
-Exit 0 = all checks PASS or STRUCT_DIFF (structural difference noted, no silent skip)
+Exit 0 = all checks PASS
 Exit 1 = at least one FAIL or UNCHECKED
 
 Normalization applied before comparison:
@@ -27,13 +27,13 @@ UNCHECKED sentinel (Followup Item 1.2):
   as FAIL. This prevents the silent skip that occurred for _bs_d1d2_FIXED,
   _build_call_data, and _build_put_data in the first run.
 
-STRUCT_DIFF status:
-  Used when the canonical source is not a `def` block (e.g., an inline dict
-  literal). Extraction is not applicable; the divergence is stated explicitly.
-  STRUCT_DIFF is counted separately (not PASS, not FAIL) and printed with
-  explanation.  The caller must decide whether to add a field-level comparison.
+DICT_LITERAL status (Round 2):
+  When canonical_name == "DICT_LITERAL" the canonical source is an inline dict
+  literal (not a `def` block).  Extraction is not applicable; correctness is
+  instead delegated to verify_dict_literals.py which runs a field-level AST
+  comparison.  The result of that subprocess is reported as PASS or FAIL.
 
-Functions checked (7 verified + 3 new):
+Functions checked (7 def-copies + 2 dict-literal-verified):
   Scheduler def     → test copy                     file
   ─────────────────────────────────────────────────────────────────────
   _bs_d1d2          → _bs_d1d2          test_e2e_pipeline_replay.py
@@ -44,12 +44,13 @@ Functions checked (7 verified + 3 new):
   _pick_by_delta    → _pick_by_delta    test_real_chain_selection.py
   _pick_by_delta    → _pick_by_delta    test_e2e_pipeline_replay.py
   _bs_d1d2          → _bs_d1d2_FIXED   test_failure_reproduction.py  (alias)
-  dict literal 1920 → _build_call_data  test_e2e_pipeline_replay.py  (STRUCT_DIFF)
-  dict literal 1948 → _build_put_data   test_e2e_pipeline_replay.py  (STRUCT_DIFF)
+  dict literal 1920 → _build_call_data  test_e2e_pipeline_replay.py  (DICT_LITERAL)
+  dict literal 1948 → _build_put_data   test_e2e_pipeline_replay.py  (DICT_LITERAL)
 """
 
 import sys
 import re
+import subprocess
 import pathlib
 import datetime
 
@@ -58,10 +59,12 @@ SCHEDULER    = WORKSPACE / "artifacts/stock-scanner-api/aiem_options_scheduler.p
 TEST_UNIT    = WORKSPACE / "artifacts/stock-scanner-api/tests/test_real_chain_selection.py"
 TEST_E2E     = WORKSPACE / "artifacts/stock-scanner-api/tests/test_e2e_pipeline_replay.py"
 TEST_FAILURE = WORKSPACE / "artifacts/stock-scanner-api/tests/test_failure_reproduction.py"
+DICT_VERIFIER = WORKSPACE / "artifacts/stock-scanner-api/tools/verify_dict_literals.py"
 
 # ── Master registry ──────────────────────────────────────────────────────────
 # Each entry: (canonical_name, copy_name, test_file, note)
-#   canonical_name = None → canonical is a dict literal (STRUCT_DIFF)
+#   canonical_name = "DICT_LITERAL" → canonical is a dict literal;
+#                                      correctness verified by verify_dict_literals.py
 #   copy_name     → function name in test file
 FNS = [
     # ── Standard verbatim copies ──────────────────────────────────────────
@@ -76,24 +79,22 @@ FNS = [
     # _bs_d1d2_FIXED is a post-fix label copy of _bs_d1d2; docstring differs.
     ("_bs_d1d2",     "_bs_d1d2_FIXED", TEST_FAILURE,
      "alias: copy name differs from canonical; docstring divergence expected"),
-    # ── Structural: canonical is an inline dict literal (not a def) ────────
-    # call_data = {**base_fields, ...} at scheduler lines 1920-1947.
-    # The test wraps it in a helper function AND omits **base_fields entirely.
-    # _extract_function() cannot extract a dict literal → STRUCT_DIFF.
-    (None, "_build_call_data", TEST_E2E,
-     "canonical is inline dict literal (lines 1920-1947); "
-     "test copy omits **base_fields; field-level comparison required"),
-    # put_data = {**base_fields, ...} at scheduler lines 1948-1975.
-    (None, "_build_put_data",  TEST_E2E,
-     "canonical is inline dict literal (lines 1948-1975); "
-     "test copy omits **base_fields; field-level comparison required"),
+    # ── Dict-literal verified: canonical is an inline dict literal (not a def)
+    # Field-level AST comparison delegated to verify_dict_literals.py.
+    ("DICT_LITERAL", "_build_call_data", TEST_E2E,
+     "dict literal 1920-1947; verified by verify_dict_literals.py"),
+    ("DICT_LITERAL", "_build_put_data",  TEST_E2E,
+     "dict literal 1948-1975; verified by verify_dict_literals.py"),
 ]
 
 # ── Counters ─────────────────────────────────────────────────────────────────
 _PASS       = 0
 _FAIL       = 0
-_STRUCT     = 0
 checked     = set()   # (copy_name, test_file.name) — populated on every check
+
+# Cached result of verify_dict_literals.py (0=PASS, non-zero=FAIL).
+_DICT_VERIFIER_RC: int | None = None
+
 
 def _extract_function(lines: list, name: str) -> list:
     """
@@ -202,20 +203,55 @@ def _check(canonical_name: str, copy_name: str, test_file: pathlib.Path,
     checked.add(key)
 
 
-def _check_struct_diff(copy_name: str, test_file: pathlib.Path,
-                       test_lines: list, note: str) -> None:
-    """Canonical is not a def — report STRUCT_DIFF unconditionally."""
-    global _STRUCT
+def _check_dict_via_verifier(copy_name: str, test_file: pathlib.Path,
+                              test_lines: list, note: str) -> None:
+    """
+    Canonical is an inline dict literal.  Confirm the copy exists as a def,
+    then delegate field-level AST comparison to verify_dict_literals.py.
+    The subprocess is run once and its result is cached for both entries.
+    """
+    global _PASS, _FAIL, _DICT_VERIFIER_RC
 
     key = (copy_name, test_file.name)
 
+    # Confirm copy exists in test file.
     copy_ = _extract_function(test_lines, copy_name)
-    present = "present" if copy_ else "ABSENT"
+    if not copy_:
+        print(f"  FAIL   {copy_name}  ({test_file.name})  [dict-verified]")
+        print(f"         copy `{copy_name}` not found as def in {test_file.name}")
+        _FAIL += 1
+        checked.add(key)
+        return
 
-    print(f"  STRUCT_DIFF  {copy_name}  ({test_file.name})")
-    print(f"               copy in test file: {present}")
-    print(f"               {note}")
-    _STRUCT += 1
+    # Run verify_dict_literals.py once; cache across calls.
+    if _DICT_VERIFIER_RC is None:
+        result = subprocess.run(
+            [sys.executable, str(DICT_VERIFIER)],
+            capture_output=True, text=True
+        )
+        _DICT_VERIFIER_RC = result.returncode
+        # Echo a compact one-liner from the verifier's output.
+        for ln in result.stdout.splitlines():
+            if ln.startswith("RESULT"):
+                print(f"         [dict-verifier] {ln.strip()}")
+                break
+        else:
+            # No RESULT line found — print last non-empty line as fallback.
+            for ln in reversed(result.stdout.splitlines()):
+                if ln.strip():
+                    print(f"         [dict-verifier] {ln.strip()}")
+                    break
+
+    label = f"{copy_name}  ({test_file.name})  [dict-verified]"
+    if _DICT_VERIFIER_RC == 0:
+        print(f"  PASS   {label}")
+        _PASS += 1
+    else:
+        print(f"  FAIL   {label}")
+        if note:
+            print(f"         note: {note}")
+        _FAIL += 1
+
     checked.add(key)
 
 
@@ -246,13 +282,13 @@ for (canonical_name, copy_name, test_file, note) in FNS:
 
     test_lines = file_map[test_file]
 
-    if canonical_name is None:
-        _check_struct_diff(copy_name, test_file, test_lines, note)
+    if canonical_name == "DICT_LITERAL":
+        _check_dict_via_verifier(copy_name, test_file, test_lines, note)
     else:
         _check(canonical_name, copy_name, test_file, sched_lines, test_lines, note)
 
 # ── UNCHECKED sentinel (Followup Item 1.2) ───────────────────────────────────
-# Any name in FNS not reached via _check/_check_struct_diff → UNCHECKED FAIL.
+# Any name in FNS not reached via _check/_check_dict_via_verifier → UNCHECKED FAIL.
 # This should never fire with the explicit loop above, but guards against
 # future FNS additions whose check branch is accidentally skipped.
 print("\n--- UNCHECKED sentinel ---")
@@ -269,10 +305,9 @@ if not sentinel_fired:
 # ── Summary ──────────────────────────────────────────────────────────────────
 print()
 print("=" * 72)
-total   = _PASS + _FAIL
-verdict = "PASS" if _FAIL == 0 else "FAIL"
-print(f"RESULT   : {verdict}  ({_PASS} PASS  {_FAIL} FAIL  {_STRUCT} STRUCT_DIFF  "
-      f"of {total + _STRUCT} entries)")
+_TOTAL = _PASS + _FAIL
+print(f"RESULT   : {'PASS' if _FAIL == 0 else 'FAIL'}  "
+      f"({_PASS} PASS  {_FAIL} FAIL  of {_TOTAL} entries)")
 print(f"Completed: {datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')} UTC")
 print("=" * 72)
 
