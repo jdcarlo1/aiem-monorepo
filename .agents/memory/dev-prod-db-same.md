@@ -1,23 +1,31 @@
 ---
-name: Dev/prod shared DATABASE_URL
-description: Correction — dev workspace and GCE deployment share the same physical database. Earlier "separate DB" conclusion was wrong.
+name: Dev/prod separate databases — CORRECTED 2026-08-01
+description: Dev and prod use SEPARATE physical databases. Earlier entry was wrong. Dev=helium/heliumdb (Replit Postgres), Prod=Neon external PG.
 ---
 
 ## Rule
-Dev workspace workflows and GCE deployment processes ALL resolve to the same DATABASE_URL (same physical Replit PostgreSQL database). PGHOST=helium, PGDATABASE=heliumdb.
+Dev workspace and GCE deployment connect to **different** physical databases.
 
-**Why:**
-`process_lifecycle_log` shows entries from both sha=f08e877 (GCE deployment) and sha=c3f57a5 (dev workflow) in a single query from the workspace. If they were separate DBs, GCE entries wouldn't appear. Confirmed by preflight endpoint: pg_host and pg_database are identical from dev.
+- Dev: `pg_host="helium"`, `pg_database="heliumdb"` (Replit-managed Postgres)
+- Prod: `pg_host="ep-spring-flower-aqxm8amx.c-8.us-east-1.aws.neon.tech"`, `pg_database="neondb"` (Neon external Postgres)
 
-## What was wrong
-At 05:30 UTC 2026-08-01, the dev and GCE watchdog showed divergent alert sets (dev: aiem_auto_retire+vix_daily_fetch STALE; prod: aiem_morning_scan+aiem_continuous_research STALE). This was attributed to separate DBs. The correct cause: the GCE deployment was running sha=a9d9863 with different `_JOB_STALENESS_HOURS` thresholds than the dev workflow on sha=c3f57a5. Same DB, different code versions.
+**Why the old entry was wrong:**
+The earlier "same DB" conclusion relied on seeing GCE git_shas in `process_lifecycle_log` from the dev workspace. This was explained by the GCE process writing to the same DATABASE_URL at a time when both processes shared a single Replit DB. Later, Neon was introduced as the production DB while dev retained the Replit Postgres. The definitive proof was the preflight endpoint response 2026-08-01: `pg_host` differed between dev and prod.
 
-## Implications
-- All prior `psql "$DATABASE_URL"` queries in dev sessions DID reflect actual production state
-- Both processes write to the same tables simultaneously; dedup constraints prevent double-trades
-- The real duplicate-fire risk: both workspace scheduler AND GCE scheduler fire the same CronTrigger jobs against the same DB
+## Critical implications
+
+- `psql "$DATABASE_URL"` in a dev session queries **dev helium only** — NOT production-valid
+- Tables created in dev migrations may not exist on prod and vice versa (confirmed: `oe_daily_pipeline_jobs` absent from dev helium, present on prod Neon)
+- Job heartbeat data in dev reflects dev jobs; prod heartbeats are on a separate DB
+- The ADMIN_TOKEN env var differs between dev and prod — dev workspace `$ADMIN_TOKEN` will 401 on prod admin endpoints
+
+## How to access prod data
+- Use `GET /stock-api/admin/preflight` with `X-Diag-Token` — confirmed works cross-env (same DIAG_TOKEN)
+- Use `GET /stock-api/admin/pipeline-checkpoint` with prod ADMIN_TOKEN (different from dev token)
+- Direct psql to Neon: only possible with production DATABASE_URL (not available in dev workspace)
+- Cannot use `executeSql` callback for prod (that callback connects to Replit's managed PG, which is dev)
 
 ## How to apply
-- Every "live proof" query against dev DATABASE_URL is production-valid
-- When two running processes show different results for the same DB data, check code version (git_sha) before concluding separate DBs
-- The preflight endpoint (`GET /stock-api/admin/preflight`, X-Diag-Token) shows pg_host+pg_database for definitive DB identity confirmation per process
+- Never assume a dev DB query reflects prod state
+- When diagnosing prod-only failures (e.g. oe_daily_pipeline_jobs history), use prod HTTP admin endpoints with prod auth, not raw SQL from dev
+- The preflight endpoint (`X-Diag-Token`) is the universal prod-DB-identity check
