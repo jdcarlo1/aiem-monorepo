@@ -1,0 +1,83 @@
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -375,6 +375,43 @@
+     except Exception as e:
+         log.warning(f"[heartbeat] write failed: {e}")
+ 
++
++def _oe_record_run(job_name: str, success: bool, detail: str = None) -> None:
++    """Write a per-named-job success/failure row to job_heartbeats and
++    job_attempt_log.  Unlike _write_heartbeat, this accepts an explicit
++    job_name so canary/diagnostic entries are distinguishable from the main
++    pipeline rows that all share _HEARTBEAT_JOB_NAME.
++    Non-fatal: logs warning and returns on any DB error."""
++    try:
++        with psycopg2.connect(_DB_URL, connect_timeout=4) as _rc, _rc.cursor() as _cur:
++            if success:
++                _cur.execute("""
++                    INSERT INTO job_heartbeats
++                        (job_name, last_success, last_attempt, consecutive_failures)
++                    VALUES (%s, NOW(), NOW(), 0)
++                    ON CONFLICT (job_name) DO UPDATE SET
++                        last_success=NOW(), last_attempt=NOW(),
++                        consecutive_failures=0, last_error=NULL
++                """, (job_name,))
++            else:
++                _cur.execute("""
++                    INSERT INTO job_heartbeats
++                        (job_name, last_attempt, last_error, consecutive_failures)
++                    VALUES (%s, NOW(), %s, 1)
++                    ON CONFLICT (job_name) DO UPDATE SET
++                        last_attempt=NOW(), last_error=%s,
++                        consecutive_failures=job_heartbeats.consecutive_failures + 1
++                """, (job_name, detail or "unknown", detail or "unknown"))
++            _cur.execute("""
++                INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
++                VALUES (%s, NOW(), %s, %s)
++            """, (job_name, 'success' if success else 'failure',
++                  None if success else (detail or "unknown")))
++            _rc.commit()
++    except Exception as _e:
++        log.warning(f"[job_run] _oe_record_run failed for {job_name}: {_e}")
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # CHAIN HASH — Merkle-style tamper-evident log per completed job
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -3773,6 +3810,12 @@
+         f"[canary] grouped_daily={ok1} options_snapshot={ok2} "
+         f"alerts_fired={len(alerts)} force_fail={force_fail}"
+     )
++    if alerts:
++        _oe_record_run("polygon_canary_check", False,
++                       detail=f"alerts_fired={len(alerts)}")
++    else:
++        _oe_record_run("polygon_canary_check", True,
++                       detail=f"grouped_daily={ok1} options_snapshot={ok2}")
+     return {
+         "results":      results,
+         "alerts_fired": len(alerts),
+@@ -4287,6 +4330,11 @@
+             log.info(f"[morning_diag] {line}")
+         if res.returncode not in (0, 1):  # 1 = checks failed (expected); anything else is crash
+             log.error(f"[morning_diag] unexpected rc={res.returncode}")
++            _oe_record_run("morning_diagnostic", False,
++                           detail=f"rc={res.returncode}")
++        else:
++            _oe_record_run("morning_diagnostic", True,
++                           detail=f"rc={res.returncode}")
+ 
+     sched.add_job(
+         _morning_diagnostic_job,
+
+--- a/artifacts/stock-scanner-api/main.py
++++ b/artifacts/stock-scanner-api/main.py
+@@ -4791,6 +4791,8 @@
+     "vix_daily_fetch":          26,   # daily Mon-Fri 4:15 PM
+     "aiem_auto_retire":         170,  # weekly Sunday 6 PM
+     "aiem_model_retrain":      170,  # weekly Sunday 7 PM
++    "polygon_canary_check":    72,   # weekday-only canary; 72h avoids Sat/Sun false alerts
++    "morning_diagnostic":      72,   # weekday-only diagnostic; 72h avoids Sat/Sun false alerts
+ }
+ 
+ 

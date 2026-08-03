@@ -1,0 +1,100 @@
+# Directive — Monday Verification Report gaps (2026-08-03)
+
+Directive items D1–D9 are numbered independently of your report's items.
+
+## STANDING RULES (apply to every item below)
+- `git-autosync` must be STOPPED, not paused. Confirm with `pgrep -af "[g]it_autosync_daemon"` (expect EXIT:1) before any work and again at the end.
+- **No commits, no pushes, no `git add` this round.** `aiem_options_scheduler.py` matches PROTECTED_PATTERNS (`aiem_options_*.py`) and a TLA sitting is pending on the other track. All code below is delivered as UNTRACKED patch files under `tools/tla_patches/` only.
+- Raw command output only. A description of what a command would show is not evidence.
+
+---
+
+## D1 — job_attempt_log count does not reconcile (do this first)
+Your table sums 49 + 173 + 124 + 99 = **445**. Your claim and summary row say **438**.
+
+Paste raw:
+```
+psql "$DATABASE_URL" -c "\d job_attempt_log"
+psql "$DATABASE_URL" -c "SELECT job_name, count(*) FROM job_attempt_log WHERE attempt_time >= '2026-07-31' GROUP BY 1 ORDER BY 2 DESC;"
+psql "$DATABASE_URL" -c "SELECT attempt_time::date AS d, job_name, count(*) FROM job_attempt_log WHERE attempt_time >= '2026-07-31' GROUP BY 1,2 ORDER BY 1,3 DESC;"
+```
+State plainly which number is wrong and what wrote the 7-row difference. The append-only/no-overwrite claim covers only the rows you counted; it does not cover rows you did not.
+
+## D2 — Friday has fewer rows than Saturday. Explain. (report only)
+Friday is a trading day with 49 rows. Saturday, market closed, has 173. Either Friday rows are missing — which contradicts "no gaps" — or the worker retry-loops on non-trading days. 99 rows before 7:30 AM Monday is the same question.
+
+```
+psql "$DATABASE_URL" -c "SELECT date_trunc('hour',attempt_time) AS h, count(*) FROM job_attempt_log WHERE attempt_time >= '2026-07-31' GROUP BY 1 ORDER BY 1;"
+```
+Add a status/outcome breakdown using the real column names from D1's `\d`. No fix this round.
+
+## D3 — success leaves no DB record (the real finding in your report)
+Canary success, `morning_diagnostic` output, and `_BOOT_COMMIT` all go to a log that rotates. That is why your own items 1 and 2 could not be closed today, and it will be equally unclosable next Monday unless this changes.
+
+**D3a — full-scope check first.** Do not fix only the three jobs named. Enumerate every job registered on the scheduler and mark, per job, whether it writes any DB row on the SUCCESS path (Y/N) and which table. Paste as a table with file:line for each. This establishes the true size of the gap now instead of one job at a time.
+
+**D3b — schema/helper check.** Paste:
+```
+psql "$DATABASE_URL" -c "\d job_heartbeats"
+psql "$DATABASE_URL" -c "\d scheduler_run_audit"
+grep -n "def record_job_success\|def record_job_failure" aiem_options_scheduler.py main.py
+grep -rn "_BOOT_COMMIT" aiem_options_scheduler.py | head -30
+```
+If a boot-commit row is already persisted anywhere, say so and skip D3e.
+
+**D3c — `_polygon_canary_check()`.** Success path, immediately before the successful return:
+```python
+record_job_success("polygon_canary_check", detail=f"slot={slot} ok=True")
+```
+Failure path, alongside the existing Telegram send:
+```python
+record_job_failure("polygon_canary_check", str(exc))
+```
+
+**D3d — `morning_diagnostic` wrapper (line 4292).** Same pattern, `job_name="morning_diagnostic"`, `detail` = the one-line summary it already prints.
+
+**D3e — boot commit.** Immediately after the line-106 `[boot] pid=... commit=...` log call:
+```python
+record_job_success("scheduler_boot", detail=f"commit={_BOOT_COMMIT} pid={_BOOT_PID}")
+```
+
+**D3f — `_JOB_STALENESS_HOURS`.** Add `polygon_canary_check=72`, `morning_diagnostic=72`, `scheduler_boot=168`. 72, not 26: the watchdog has no day-of-week filter, so a weekday-only job at 26h alerts all weekend.
+
+**D3g — delivery.** One untracked patch, `tools/tla_patches/job_run_evidence_2026-08-03.patch`. Paste the patch BODY, its sha256, `git apply --stat`, and `git apply --check` exit code. Do not apply, stage, or commit.
+
+## D4 — did the canary actually fire today
+Your data pull was 7:30 ET; 7:45, 9:30 and 10:00 have all since passed. After 10:15 ET, paste with today's timestamps:
+- raw grep of the process log for the canary and `morning_diagnostic` log lines
+- `curl -s localhost:<port>/health`
+
+If the log has already rotated, say so plainly — that is the justification for D3, not a failure to report.
+
+## D5 — CI results: "unverifiable from this environment" is not a final answer
+**D5a** — try it and paste the raw body plus HTTP code:
+```
+curl -s -o /tmp/gh.json -w "%{http_code}\n" "https://api.github.com/repos/joeldcarlo/stocksaicom/actions/workflows/scheduler-smoke-test.yml/runs?per_page=10"
+```
+If 401/404, state whether the repo is private and whether any GitHub token exists in the environment.
+
+**D5b** — regardless of D5a, add an `if: success()` Telegram step to `scheduler-smoke-test.yml` so a green run is observable, not only a red one. Same untracked-patch rule; no commit this round.
+
+## D6 — 6th module lateness (your item 9) — the one gap actually worth fixing
+Add `classification_integrity_sweep` to `_SCHED_MONITOR_JOBS`. First paste the current `_SCHED_MONITOR_JOBS` definition and the lateness comparison inside `_schedule_integrity_check()`. If that comparison assumes a daily cadence, state exactly what would have to change for a 15-minute interval job and STOP. Do not invent a lateness threshold — propose one with reasoning; Joel picks it.
+
+## D7 — real unforced-miss test (replaces "wait for a real miss")
+Once D6 lands, a monitored job fires every 15 minutes and a genuine miss becomes cheap to produce. **Proposal only this round:** exact steps to stop the scheduler process for ~20 minutes AFTER 4:00 PM ET, restart it, and capture whether a RECOVERED row is written for a genuinely missed fire with no synthetic status write. State explicitly which jobs could fire in that window and confirm the trade risk is zero.
+
+## D8 — TLA per-file attribution (your item 7)
+A combined `staged_diff_sha256` makes per-file confirmation permanently impossible after the fact. Forward fix is for `issue_tla.py` to also write `per_file_sha256: {path: sha}`.
+
+**Do not write that patch now.** `issue_tla.py` has pending untracked patches (`retro_mint_2026-08-03.patch`) on the other track. Report only: does the pending retro_mint patch touch the record-writing block, and if so, at which line would this fold in.
+
+## D9 — accepted, no work required
+Your items 6 (835d1242) and 7 (e30ec95f) self-issued TLA findings are correct and match the already-documented `issue_tla.py` defect. Nothing further.
+
+---
+
+## End-of-round requirements
+- `pgrep -af "[g]it_autosync_daemon"` re-check, plus disclose any new platform auto-commit that landed during this round.
+- `git log --oneline -1` and `git status --porcelain`.
+- No commits, pushes, applies, or resets.

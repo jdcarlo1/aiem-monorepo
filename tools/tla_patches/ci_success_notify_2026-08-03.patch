@@ -1,0 +1,24 @@
+--- a/.github/workflows/scheduler-smoke-test.yml
++++ b/.github/workflows/scheduler-smoke-test.yml
+@@ -50,6 +50,21 @@
+           echo ""
+           SMOKE_FULL=1 python3 tools/scheduler_smoke_test.py
+ 
++      - name: "Telegram notification on success"
++        if: success()
++        env:
++          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
++          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
++        run: |
++          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
++          TEXT="✅ SCHEDULER SMOKE TEST PASSED%0ABranch: ${{ github.ref_name }}%0ACommit: ${{ github.sha }}%0ARun: ${RUN_URL}"
++          HTTP_STATUS=$(curl -s -o /tmp/tg_ok.json -w "%{http_code}" -X POST \
++            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
++            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${TEXT}" \
++            --max-time 10)
++          echo "Telegram sendMessage HTTP status: ${HTTP_STATUS} (delivery unconfirmed)"
++          cat /tmp/tg_ok.json
++
+       - name: "Telegram alert on failure (HTTP 200, delivery unconfirmed)"
+         if: failure()
+         env:
