@@ -1,0 +1,201 @@
+--- artifacts/stock-scanner-api/aiem_options_scheduler.py	2026-08-03 04:19:47.189816876 +0000
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py	2026-08-03 12:43:32.800746004 +0000
+@@ -375,6 +375,43 @@
+     except Exception as e:
+         log.warning(f"[heartbeat] write failed: {e}")
+ 
++
++def _oe_record_run(job_name: str, success: bool, detail: str = None) -> None:
++    """Write a per-named-job success/failure row to job_heartbeats and
++    job_attempt_log.  Unlike _write_heartbeat, this accepts an explicit
++    job_name so canary/diagnostic entries are distinguishable from the main
++    pipeline rows that all share _HEARTBEAT_JOB_NAME.
++    Non-fatal: logs warning and returns on any DB error."""
++    try:
++        with psycopg2.connect(_DB_URL, connect_timeout=4) as _rc, _rc.cursor() as _cur:
++            if success:
++                _cur.execute("""
++                    INSERT INTO job_heartbeats
++                        (job_name, last_success, last_attempt, consecutive_failures)
++                    VALUES (%s, NOW(), NOW(), 0)
++                    ON CONFLICT (job_name) DO UPDATE SET
++                        last_success=NOW(), last_attempt=NOW(),
++                        consecutive_failures=0, last_error=NULL
++                """, (job_name,))
++            else:
++                _cur.execute("""
++                    INSERT INTO job_heartbeats
++                        (job_name, last_attempt, last_error, consecutive_failures)
++                    VALUES (%s, NOW(), %s, 1)
++                    ON CONFLICT (job_name) DO UPDATE SET
++                        last_attempt=NOW(), last_error=%s,
++                        consecutive_failures=job_heartbeats.consecutive_failures + 1
++                """, (job_name, detail or "unknown", detail or "unknown"))
++            _cur.execute("""
++                INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
++                VALUES (%s, NOW(), %s, %s)
++            """, (job_name, 'success' if success else 'failure',
++                  None if success else (detail or "unknown")))
++            _rc.commit()
++    except Exception as _e:
++        log.warning(f"[job_run] _oe_record_run failed for {job_name}: {_e}")
++
++
+ # ─────────────────────────────────────────────────────────────────────────────
+ # CHAIN HASH — Merkle-style tamper-evident log per completed job
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -565,6 +602,8 @@
+         except Exception as _da_e:
+             log.debug(f"[drift] check failed: {_da_e}")
+ 
++    _oe_record_run("stale_recovery", True,
++                   detail=f"recovered={recovered} failed_perm={failed_perm}")
+     return {"recovered": recovered, "failed_permanently": failed_perm}
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -2294,6 +2333,8 @@
+                      f"call={call_score}  put={put_score}  margin={round(margin,1)} "
+                      f"chain={_nt_chain_hash[:16]}")
+             _write_heartbeat(True)
++            _oe_record_run("run_pipeline_worker", True,
++                           detail=f"NO_TRADE job_id={job_id} ticker={ticker}")
+             # ── Phase 3: root-cause + KB entry for NO_TRADE decisions ─────────
+             if _p3_ready:
+                 try:
+@@ -2967,6 +3008,8 @@
+             f"elapsed={elapsed}s trace_id={trace_id}"
+         )
+         _write_heartbeat(True)
++        _oe_record_run("run_pipeline_worker", True,
++                       detail=f"TRADE job_id={job_id} ticker={ticker} dir={direction}")
+ 
+         # ── Trace: PAPER_EXECUTION_OR_NO_TRADE (TRADE path) ───────────────────
+         if _strace_ctx is not None:
+@@ -3073,6 +3116,7 @@
+                 log.debug(f"[scheduler_trace] PAPER_EXEC hard-gate: {_st_fg_e}")
+ 
+         _write_heartbeat(False, err_msg)
++        _oe_record_run("run_pipeline_worker", False, detail=err_msg)
+         # ── Phase 4: record operational incident ─────────────────────────────
+         if _p4_ready:
+             try:
+@@ -3473,6 +3517,8 @@
+     except Exception as e:
+         log.warning(f"[sched_integrity] check error: {e}")
+ 
++    _oe_record_run("sched_integrity_check", len(overdue) == 0,
++                   detail=f"overdue={overdue}" if overdue else "all_clear")
+     return overdue
+ 
+ 
+@@ -3654,6 +3700,8 @@
+         log.error(f"[classify_fix] error: {e}")
+         return {"error": str(e)}
+ 
++    _oe_record_run("classification_integrity_sweep", True,
++                   detail=f"fixed={len(fixed)} dry_run_would_fix={len(dry_run_would_fix)}")
+     return {
+         "fixed":             fixed,
+         "dry_run_would_fix": dry_run_would_fix,
+@@ -3773,6 +3821,12 @@
+         f"[canary] grouped_daily={ok1} options_snapshot={ok2} "
+         f"alerts_fired={len(alerts)} force_fail={force_fail}"
+     )
++    if alerts:
++        _oe_record_run("polygon_canary_check", False,
++                       detail=f"alerts_fired={len(alerts)}")
++    else:
++        _oe_record_run("polygon_canary_check", True,
++                       detail=f"grouped_daily={ok1} options_snapshot={ok2}")
+     return {
+         "results":      results,
+         "alerts_fired": len(alerts),
+@@ -3791,6 +3845,8 @@
+         n = result.get("graded_count", 0)
+         log.info(f"[grade] graded={n}  wr={result.get('win_rate_pct')}%")
+         _write_heartbeat(True)
++        _oe_record_run("grade_outcomes", True,
++                       detail=f"graded={n} wr={result.get('win_rate_pct')}%")
+         # ── Phase 3: root-cause batch + scorecard rebuild after grading ────────
+         try:
+             import aiem_options_phase3 as _p3g
+@@ -3821,6 +3877,7 @@
+     except Exception as e:
+         log.error(f"[grade] error: {e}")
+         _write_heartbeat(False, str(e))
++        _oe_record_run("grade_outcomes", False, detail=str(e))
+         return {"error": str(e)}
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -4183,7 +4240,13 @@
+     # 07:30 ET — premarket intelligence scan (before market open)
+     def _premarket_job():
+         log.info("[scheduler] 07:30 premarket scan starting")
+-        premarket_scan_job()
++        try:
++            premarket_scan_job()
++            _oe_record_run("premarket_scan", True,
++                           detail="premarket_scan_job completed")
++        except Exception as _psj_e:
++            _oe_record_run("premarket_scan", False, detail=str(_psj_e))
++            raise
+ 
+     sched.add_job(_premarket_job, CronTrigger(day_of_week="mon-fri", hour=7, minute=30, timezone=_ET),
+                   id="premarket_scan", replace_existing=True)
+@@ -4205,6 +4268,10 @@
+                         log.debug(f"[pm_intraday] {t}: {_ue}")
+         except Exception as _pme:
+             log.warning(f"[pm_intraday] failed: {_pme}")
++            _oe_record_run("pm_intraday_update", False, detail=str(_pme))
++        else:
++            _oe_record_run("pm_intraday_update", True,
++                           detail="intraday PM update completed")
+ 
+     sched.add_job(_pm_intraday_update_job,
+                   CronTrigger(day_of_week="mon-fri", hour=9, minute=36, timezone=_ET),
+@@ -4230,6 +4297,10 @@
+                      f"decisions={_report['summary']['total_decisions']}")
+         except Exception as _dtr_e:
+             log.warning(f"[daily_trace_report] failed: {_dtr_e}")
++            _oe_record_run("daily_trace_report", False, detail=str(_dtr_e))
++        else:
++            _oe_record_run("daily_trace_report", True,
++                           detail="daily trace report saved")
+ 
+     sched.add_job(_daily_trace_report_job,
+                   CronTrigger(day_of_week="mon-fri", hour=16, minute=44, timezone=_ET),
+@@ -4287,6 +4358,11 @@
+             log.info(f"[morning_diag] {line}")
+         if res.returncode not in (0, 1):  # 1 = checks failed (expected); anything else is crash
+             log.error(f"[morning_diag] unexpected rc={res.returncode}")
++            _oe_record_run("morning_diagnostic", False,
++                           detail=f"rc={res.returncode}")
++        else:
++            _oe_record_run("morning_diagnostic", True,
++                           detail=f"rc={res.returncode}")
+ 
+     sched.add_job(
+         _morning_diagnostic_job,
+@@ -4355,8 +4431,11 @@
+             ).strftime("%Y-%m-%dT%H:%M:%SZ")
+             _result = _mod.run(since=_since, baseline=False)
+             log.info(f"[autosync-audit] completed: {_result}")
++            _oe_record_run("autosync_protected_file_audit", True,
++                           detail=str(_result)[:200])
+         except Exception as _ae:
+             log.error(f"[autosync-audit] job failed: {_ae}", exc_info=True)
++            _oe_record_run("autosync_protected_file_audit", False, detail=str(_ae))
+ 
+     sched.add_job(
+         _autosync_audit_job,
+--- artifacts/stock-scanner-api/main.py	2026-08-03 04:05:06.329816876 +0000
++++ b/artifacts/stock-scanner-api/main.py	2026-08-03 12:43:53.571307717 +0000
+@@ -4791,6 +4791,8 @@
+     "vix_daily_fetch":          26,   # daily Mon-Fri 4:15 PM
+     "aiem_auto_retire":         170,  # weekly Sunday 6 PM
+     "aiem_model_retrain":      170,  # weekly Sunday 7 PM
++    "polygon_canary_check":    72,   # weekday-only canary; 72h avoids Sat/Sun false alerts
++    "morning_diagnostic":      72,   # weekday-only diagnostic; 72h avoids Sat/Sun false alerts
+ }
+ 
+ 
