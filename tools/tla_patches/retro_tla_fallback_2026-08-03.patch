@@ -1,7 +1,7 @@
-diff --git a/tools/check_protected_push.py b/tmp/check_protected_push_retro.py
-index dab82e8..06ba3bf 100644
+diff --git a/tools/check_protected_push.py b/tools/check_protected_push.py
+index dab82e8..8338cb0 100644
 --- a/tools/check_protected_push.py
-+++ b/tmp/check_protected_push_retro.py
++++ b/tools/check_protected_push.py
 @@ -33,6 +33,7 @@ a BYPASS entry.
  from __future__ import annotations
  
@@ -10,14 +10,25 @@ index dab82e8..06ba3bf 100644
  import json
  import os
  import re
-@@ -101,6 +102,15 @@ def _load_approvals() -> list[dict]:
+@@ -101,6 +102,26 @@ def _load_approvals() -> list[dict]:
      return records
  
  
 +
 +def _compute_diff_sha(sha: str, protected_files: list[str]) -> str:
-+    """Compute sha256 of the raw unified diff for the commit's protected files."""
-+    rc, out, _ = _run(["git", "show", sha, "--"] + protected_files)
++    """Compute sha256 of the pinned-format diff for the commit's protected files.
++
++    Flags keep output byte-identical regardless of git config:
++      --no-pager    prevents pager injection
++      --no-color    no ANSI codes
++      --no-ext-diff no diff.external hook
++      --format=%H   commit header only (no message body)
++    Files are sorted so insertion order cannot change the hash.
++    """
++    rc, out, _ = _run(
++        ["git", "--no-pager", "show", "--no-color", "--no-ext-diff", "--format=%H",
++         sha, "--"] + sorted(protected_files)
++    )
 +    if rc != 0:
 +        return ""
 +    return hashlib.sha256(out.encode()).hexdigest()
@@ -26,7 +37,7 @@ index dab82e8..06ba3bf 100644
  # ── Core gate ─────────────────────────────────────────────────────────────────
  
  def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
-@@ -151,6 +161,20 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
+@@ -151,6 +172,20 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
  
          match = _TLA_RE.search(msg)
          if not match:

@@ -1,0 +1,99 @@
+diff --git a/tools/issue_tla.py b/tools/issue_tla.py
+index 9b391d8..d1be838 100755
+--- a/tools/issue_tla.py
++++ b/tools/issue_tla.py
+@@ -83,8 +83,42 @@ def get_staged_diff_sha256(files: list[str]) -> str:
+     return hashlib.sha256(result.stdout).hexdigest()
+ 
+ 
++
++def get_commit_protected_files(sha: str) -> list[str]:
++    """Return the protected files changed by an existing commit."""
++    result = subprocess.run(
++        ["git", "diff-tree", "--no-commit-id", "-r", "--name-only", sha],
++        capture_output=True, text=True, check=False
++    )
++    if result.returncode != 0:
++        return []
++    return sorted(p.strip() for p in result.stdout.splitlines()
++                  if p.strip() and is_protected(p.strip()))
++
++
++def get_retro_diff_sha(sha: str, protected_files: list[str]) -> str:
++    """Compute sha256 of the pinned-format diff for an existing commit.
++
++    Flags keep output byte-identical regardless of git config:
++      --no-pager    prevents pager injection
++      --no-color    no ANSI codes
++      --no-ext-diff no diff.external hook
++      --format=%H   commit header only (no message body)
++    Files are sorted so insertion order cannot change the hash.
++    """
++    result = subprocess.run(
++        ["git", "--no-pager", "show", "--no-color", "--no-ext-diff", "--format=%H",
++         sha, "--"] + sorted(protected_files),
++        capture_output=True, check=False
++    )
++    return hashlib.sha256(result.stdout).hexdigest()
++
++
+ def main():
+     parser = argparse.ArgumentParser(description="Issue a Trading Logic Approval record")
++    parser.add_argument("--retro", metavar="SHA",
++                        help="Retroactively authorize an existing commit (SHA). "
++                             "Writes a retroactive_for_commit record instead of reading staged diff.")
+     parser.add_argument("--note", default="", help="Free-text note (e.g. task/directive ref)")
+     parser.add_argument("--approved-by", required=True,
+                         help="Approver name — must be passed explicitly; no default accepted")
+@@ -114,6 +148,51 @@ def main():
+     repo_root = get_repo_root()
+     approvals_path = os.path.join(repo_root, "tools", "trading_logic_approvals.jsonl")
+ 
++    # ── Retroactive path ──────────────────────────────────────────────────────
++    if args.retro:
++        retro_sha = args.retro.lower().strip()
++        protected_in_commit = get_commit_protected_files(retro_sha)
++        if not protected_in_commit:
++            print(f"ERROR: no protected files found in commit {retro_sha[:12]}.")
++            print("       Verify the SHA and that it touches protected paths.")
++            sys.exit(1)
++        print(f"Retroactive authorization for commit: {retro_sha[:12]}")
++        print("Protected files in that commit:")
++        for f in protected_in_commit:
++            print(f"  {f}")
++        diff_sha = get_retro_diff_sha(retro_sha, protected_in_commit)
++        print(f"diff_sha (pinned): {diff_sha}")
++        confirm = input("\nType YES to issue a retroactive approval record: ")
++        if confirm.strip() != "YES":
++            print("Aborted.")
++            sys.exit(0)
++        now_utc = __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
++        id_input = (diff_sha + now_utc).encode()
++        approval_id = hashlib.sha256(id_input).hexdigest()[:8]
++        record = {
++            "approval_id":            approval_id,
++            "approved_by":            args.approved_by,
++            "approved_at":            now_utc,
++            "retroactive_for_commit": retro_sha,
++            "files_covered":          protected_in_commit,
++            "diff_sha":               diff_sha,
++            "used":                   True,
++            "used_at":                now_utc,
++            "self_issued":            False,
++            "note":                   args.note,
++        }
++        with open(approvals_path, "a") as fh:
++            fh.write(json.dumps(record) + "\n")
++        print(f"\nRetroactive approval written.")
++        print(f"approval_id: {approval_id}")
++        print(f"diff_sha:    {diff_sha}")
++        print(f"\nAdd this record to a commit with:")
++        print(f"  git add tools/trading_logic_approvals.jsonl")
++        print(f"  git commit -m \"Add retroactive TLA for {retro_sha[:12]} [TLA-{approval_id}]\"  # ledger-only commit passes Option B")
++        sys.exit(0)
++
++    approvals_path = os.path.join(repo_root, "tools", "trading_logic_approvals.jsonl")
++
+     staged = get_staged_files()
+     protected_staged = [f for f in staged if is_protected(f)]
+ 
