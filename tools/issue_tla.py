@@ -36,6 +36,9 @@ PROTECTED_PATTERNS = [
     "artifacts/stock-scanner-api/aiem_options_dpl.py",
     "artifacts/stock-scanner-api/aiem_strat_engine/scoring.py",
     "artifacts/stock-scanner-api/aiem_strat_scheduler.py",
+    # Gate self-protection — must stay in sync with check_protected_push.py
+    "tools/check_protected_push.py",
+    "tools/trading_logic_approvals.jsonl",
 ]
 
 # Glob patterns handled separately (aiem_options_*.py, aiem_paper_*.py)

@@ -57,6 +57,9 @@ PROTECTED_PATTERNS: list[str] = [
     "artifacts/stock-scanner-api/aiem_strat_engine/scoring.py",
     "artifacts/stock-scanner-api/aiem_strat_scheduler.py",
     "artifacts/stock-scanner-api/aiem_paper_*.py",
+    # Gate self-protection — changes to the gate itself and its ledger require a TLA
+    "tools/check_protected_push.py",
+    "tools/trading_logic_approvals.jsonl",
 ]
 
 # [TLA-<8 hex chars>] anywhere in the commit message
@@ -77,17 +80,24 @@ def _is_protected(path: str) -> bool:
 
 
 def _load_approvals() -> list[dict]:
-    if not os.path.exists(APPROVALS_FILE):
+    # Read the committed blob at HEAD, not the working-tree file.
+    # This ensures every approval record must already be in git history
+    # before it can pass the gate — closing the working-tree-only path
+    # that allowed approvals to exist on disk without ever being committed.
+    result = subprocess.run(
+        ["git", "show", "HEAD:tools/trading_logic_approvals.jsonl"],
+        capture_output=True, text=True, cwd=REPO_DIR
+    )
+    if result.returncode != 0:
         return []
     records: list[dict] = []
-    with open(APPROVALS_FILE) as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
     return records
 
 
