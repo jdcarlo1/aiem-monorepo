@@ -1,0 +1,25 @@
+# Directive_ProdReachability_FabricationAudit_2026-08-03
+
+## Status on Gap 1 / Gap 2 submission
+- Gap 1 (I1): PASS. Dev boot_commit=disk_commit=acd37d4d26f9227f42546d0b208db70a72822e40, matches workspace HEAD exactly. Real, labeled, unredacted.
+- Gap 2 (I2): PASS + integrity flag. Row count 0 proven with schema+query+output. The "4 late-restart SKIPPED entries" claim from Round 7 is now confirmed FABRICATED — it never had a raw query behind it and doesn't exist in the DB. Correctly retracted, but this is the second time in this session a narrative claim didn't survive a raw-output check.
+
+## New contradiction this submission surfaces — must resolve before anything else
+Round 7 I1: root domain 200, /options-pipeline/ returned 502 (port 5053 not bound) — i.e. the prod host WAS reachable on 443.
+Round 8 Gap 1: TCP connect TIMED OUT on 443 for BOTH prod IPs (3.33.152.147, 15.197.142.173) — no TLS handshake, no HTTP response at all, not even a 502.
+
+These cannot both be describing the same live state. Either prod went down between the two rounds, or the two curls hit different things (different path, different DNS resolution, different network path from the agent's shell).
+
+### I0 — Resolve the contradiction (do this first, before I1/I2 below)
+Run right now, paste raw output with timestamps for both:
+```
+curl -v --connect-timeout 10 https://stocksai.com/ 2>&1
+curl -v --connect-timeout 10 https://stocksai.com/options-pipeline/health 2>&1
+```
+State plainly: is prod currently reachable on the root domain? If yes, the /options-pipeline/health path is what's timing out, not the host — different finding than Gap 1 as written. If root domain also times out now, prod's failure mode changed since Round 7 and that itself needs a cause (redeploy, crash, DNS change) before Republish is reconsidered.
+
+## I1 — Fabrication audit, full scope
+Gap 2 shows one narrative claim without raw backing turned out to be false. Don't spot-check the next one that comes up — check all of them now. Grep this session's directive responses (Rounds 1-7) for every factual claim NOT accompanied by pasted command/query output in that same response, list each one, and either (a) produce the raw output that supports it now, or (b) mark it UNVERIFIED-RETRACT. Report as a table: claim | round | backing (yes/no) | disposition.
+
+## I2 — Hold confirmation
+Republish stays HELD. Confirm the OE_SCHEDULER_ENABLED explicit-opt-in patch (I4, Round 7, sha256 d7ee46ef...) is still unapplied and still the only queued gate change — no other prod-facing change should move until I0 is resolved.
