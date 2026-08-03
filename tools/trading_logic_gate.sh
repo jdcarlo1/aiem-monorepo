@@ -59,6 +59,10 @@ PROTECTED_PATTERNS=(
     "artifacts/stock-scanner-api/aiem_strat_engine/scoring.py"
     "artifacts/stock-scanner-api/aiem_strat_scheduler.py"
     "artifacts/stock-scanner-api/aiem_paper_*.py"
+    # Gate self-protection — changes to gate infrastructure require a TLA
+    "tools/check_protected_push.py"
+    "tools/issue_tla.py"
+    "tools/trading_logic_gate.sh"
 )
 
 # ── Detect staged protected files ─────────────────────────────────────────
@@ -114,12 +118,19 @@ if [ ! -f "$APPROVALS_FILE" ]; then
     exit 1
 fi
 
-# Compute staged diff sha256 for protected files only
-STAGED_DIFF_SHA=$(git diff --cached -- "${STAGED_PROTECTED[@]}" | sha256sum | awk '{print $1}')
+# Compute staged diff sha256 for protected files only.
+# trading_logic_approvals.jsonl is intentionally excluded — it is the output of
+# the approval process and cannot be inside the sha that covers it.
+SHA_INPUT_FILES=()
+for _f in "${STAGED_PROTECTED[@]}"; do
+    [[ "$_f" == "tools/trading_logic_approvals.jsonl" ]] && continue
+    SHA_INPUT_FILES+=("$_f")
+done
+STAGED_DIFF_SHA=$(git diff --cached -- "${SHA_INPUT_FILES[@]}" | sha256sum | awk '{print $1}')
 
 # Delegate all record lookup and validation to Python (cleaner JSON handling)
 GATE_RESULT=$(python3 - "${APPROVALS_FILE}" "${TLA_APPROVAL_ID}" "${STAGED_DIFF_SHA}" \
-    "${STAGED_PROTECTED[@]}" << 'PYEOF'
+    "${SHA_INPUT_FILES[@]}" << 'PYEOF'
 import sys, json, datetime, os
 
 approvals_path = sys.argv[1]

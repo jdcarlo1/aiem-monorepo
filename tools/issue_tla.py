@@ -36,9 +36,11 @@ PROTECTED_PATTERNS = [
     "artifacts/stock-scanner-api/aiem_options_dpl.py",
     "artifacts/stock-scanner-api/aiem_strat_engine/scoring.py",
     "artifacts/stock-scanner-api/aiem_strat_scheduler.py",
-    # Gate self-protection — must stay in sync with check_protected_push.py
+    # Gate self-protection — changes to gate infrastructure require a TLA
     "tools/check_protected_push.py",
     "tools/trading_logic_approvals.jsonl",
+    "tools/issue_tla.py",
+    "tools/trading_logic_gate.sh",
 ]
 
 # Glob patterns handled separately (aiem_options_*.py, aiem_paper_*.py)
@@ -126,7 +128,17 @@ def main():
     for f in protected_staged:
         print(f"  {f}")
 
-    diff_sha256 = get_staged_diff_sha256(protected_staged)
+    # trading_logic_approvals.jsonl is excluded from the sha — it is the output
+    # of this process and cannot be inside the sha it covers.
+    _LEDGER = "tools/trading_logic_approvals.jsonl"
+    sha_files = [f for f in protected_staged if f != _LEDGER]
+
+    if not sha_files:
+        print(f"Only the ledger ({_LEDGER}) is staged; excluded from sha computation.")
+        print("Stage the logic files you want to approve, then re-run.")
+        sys.exit(1)
+
+    diff_sha256 = get_staged_diff_sha256(sha_files)
     now_utc = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
     # approval_id = first 8 hex chars of sha256(diff_sha256 + timestamp)
@@ -142,7 +154,7 @@ def main():
     for rec in existing:
         if (rec.get('staged_diff_sha256') == diff_sha256
                 and not rec.get('used')
-                and rec.get('files_covered') == protected_staged):
+                and rec.get('files_covered') == sha_files):
             print(f"\nWARNING: an unused approval already exists for this exact diff:")
             print(f"  approval_id={rec['approval_id']}  issued_at={rec['approved_at']}")
             print("Issuing a second one anyway — use the one that matches.")
@@ -151,7 +163,7 @@ def main():
         "approval_id":        approval_id,
         "approved_by":        args.approved_by,
         "approved_at":        now_utc,
-        "files_covered":      protected_staged,
+        "files_covered":      sha_files,
         "staged_diff_sha256": diff_sha256,
         "used":               False,
         "used_at":            None,

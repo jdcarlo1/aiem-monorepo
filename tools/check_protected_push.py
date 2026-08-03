@@ -57,9 +57,11 @@ PROTECTED_PATTERNS: list[str] = [
     "artifacts/stock-scanner-api/aiem_strat_engine/scoring.py",
     "artifacts/stock-scanner-api/aiem_strat_scheduler.py",
     "artifacts/stock-scanner-api/aiem_paper_*.py",
-    # Gate self-protection — changes to the gate itself and its ledger require a TLA
+    # Gate self-protection — changes to gate infrastructure require a TLA
     "tools/check_protected_push.py",
     "tools/trading_logic_approvals.jsonl",
+    "tools/issue_tla.py",
+    "tools/trading_logic_gate.sh",
 ]
 
 # [TLA-<8 hex chars>] anywhere in the commit message
@@ -145,6 +147,14 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
             print(f"[pre-push-gate] {sha[:12]}: no protected files — PASS")
             continue
 
+        _LEDGER_PATH = "tools/trading_logic_approvals.jsonl"
+        if protected == [_LEDGER_PATH]:
+            ok, added = _is_ledger_append_only(sha)
+            if ok:
+                print(f"[pre-push-gate] {sha[:12]}: ledger append-only, +{added} record(s) - PASS")
+                continue
+            print(f"[pre-push-gate] {sha[:12]}: ledger commit NOT append-only", file=sys.stderr)
+
         rc_m, msg, _ = _run(["git", "log", "-1", "--format=%B", sha])
         if rc_m != 0:
             return False, sha[:12], "could not read commit message"
@@ -183,6 +193,23 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
         )
 
     return True, "", ""
+
+
+def _is_ledger_append_only(sha: str) -> tuple[bool, int]:
+    """Return (is_append_only, added_record_count) for the commit's ledger change."""
+    rc, out, _ = _run(["git", "show", sha, "--", "tools/trading_logic_approvals.jsonl"])
+    if rc != 0:
+        return (False, 0)
+    lines = out.splitlines()
+    if any(l.startswith("\\ No newline at end of file") for l in lines):
+        return (False, 0)
+    added = 0
+    for line in lines:
+        if line.startswith("-") and not line.startswith("---"):
+            return (False, 0)
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+    return (True, added)
 
 
 # ── Entry points ──────────────────────────────────────────────────────────────
@@ -233,12 +260,15 @@ def _range_mode(range_arg: str) -> int:
 
 def main() -> None:
     args = sys.argv[1:]
-    if len(args) >= 2 and args[0] == "--range":
+    if args and args[0] == "--range":
+        if len(args) != 2:
+            print("usage: check_protected_push.py --range <rev-range>", file=sys.stderr)
+            sys.exit(2)
         sys.exit(_range_mode(args[1]))
-    else:
-        # Hook mode: called by git with remote name + url as $1/$2,
-        # push targets on stdin.
-        sys.exit(_hook_mode())
+    if args:
+        print(f"unrecognized arguments: {args}", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(_hook_mode())
 
 
 if __name__ == "__main__":

@@ -47,8 +47,25 @@ def main() -> None:
     # --- 1. Read HEAD ledger ---
     with open(ledger_path, "r", encoding="utf-8") as f:
         head_lines = [ln.rstrip("\n") for ln in f if ln.strip()]
-    head_ids = {json.loads(ln)["approval_id"] for ln in head_lines}
+    head_ids = {json.loads(ln)["approval_id"] for ln in head_lines
+                if json.loads(ln).get("approval_id") is not None}
     before_count = len(head_lines)
+
+    # ── Idempotency guard — abort if any target id already reinstated ──────
+    pre_purge_ids_check = subprocess.run(
+        ["git", "show", f"{PURGE_COMMIT}^:{LEDGER}"],
+        capture_output=True, text=True, check=True
+    ).stdout
+    target_ids = {json.loads(l)["approval_id"]
+                  for l in pre_purge_ids_check.splitlines()
+                  if l.strip() and json.loads(l).get("approval_id") is not None}
+    already_reinstated = [json.loads(l) for l in head_lines
+                          if json.loads(l).get("reinstated") is True
+                          and json.loads(l).get("approval_id") in target_ids]
+    if already_reinstated:
+        print(f"Idempotency guard: {len(already_reinstated)} record(s) already "
+              f"carry reinstated=True — aborting to prevent duplicates.")
+        sys.exit(0)
 
     # --- 2. Read 3295e360^ ledger ---
     result = subprocess.run(
@@ -61,6 +78,8 @@ def main() -> None:
     missing = []
     for ln in pre_purge_lines:
         r = json.loads(ln)
+        if r.get("approval_id") is None:
+            continue
         if r["approval_id"] not in head_ids:
             missing.append(r)
 
@@ -76,6 +95,7 @@ def main() -> None:
     for r in missing:
         r["reinstated_from"]    = f"{PURGE_COMMIT}^"
         r["self_issued"]        = True
+        r["reinstated"]         = True
         r["reinstatement_note"] = (
             "original record purged by 3295e360; "
             "reinstated for audit continuity; "
