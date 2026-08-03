@@ -1,0 +1,81 @@
+# Directive_GateSelfProtection_OptionA_2026-08-03
+
+DECISION: Option A. Options B and C are rejected. Do not write any corrective ledger entry. Do not change any gate rule to tolerate `used: False`.
+
+Joel runs the Item 1 `issue_tla.py` sequence and the amend himself. You do STEP 1, STEP 2, and STEP 4 only. You perform NO git commit, amend, reset, or push in this directive.
+
+---
+
+## STEP 1 — Full-scope check FIRST (before writing any patch)
+
+Report raw output, not narrative:
+
+```
+grep -n "PROTECTED_PATTERNS" -A 40 tools/trading_logic_gate.sh
+grep -n "PROTECTED_PATTERNS" -A 40 tools/check_protected_push.py
+```
+
+Then answer explicitly:
+
+1. Full list of patterns in `trading_logic_gate.sh` (paste them).
+2. Full list of patterns in `check_protected_push.py` (paste them).
+3. The complete set-difference BOTH ways — every pattern in `check_protected_push.py` that is missing from `trading_logic_gate.sh`, and every pattern in `trading_logic_gate.sh` missing from `check_protected_push.py`.
+
+`tools/check_protected_push.py` is expected to be one of the missing entries. Report the FULL divergence, not just that one. If other files are also missing, they are in scope for the same patch.
+
+---
+
+## STEP 2 — Write the patch as an UNTRACKED file (do not stage, do not commit)
+
+Write to `tools/tla_patches/gate_self_protection_2026-08-03.patch`.
+
+Content: a unified diff against `tools/trading_logic_gate.sh` that adds to its `PROTECTED_PATTERNS` list, at minimum:
+
+```
+tools/check_protected_push.py
+tools/issue_tla.py
+tools/trading_logic_gate.sh
+tools/trading_logic_approvals.jsonl
+```
+
+plus every other pattern identified as missing in STEP 1 item 3.
+
+Match the exact syntax/quoting/indentation already used in that file's pattern list. Do not restructure the list, rename variables, or change any other logic in the file.
+
+Confirm with raw output:
+
+```
+git status --porcelain tools/tla_patches/
+sha256sum tools/tla_patches/gate_self_protection_2026-08-03.patch
+```
+
+The patch file must show as untracked (`??`). If it shows as staged, unstage it and report.
+
+---
+
+## STEP 3 — Joel only (no agent action)
+
+Joel runs, at his own TTY: the Item 1 `issue_tla.py` sequence, `git apply` of the patch, and the amend of `22d5e37` to include `[TLA-<approval_id>]`.
+
+Do not run, simulate, or "help with" any of these. Wait.
+
+---
+
+## STEP 4 — Post-amend verification (after Joel confirms STEP 3 is done)
+
+Report raw command output for each. No narrative summaries.
+
+1. `git log -1 --format=%B 22d5e37` (or the new SHA) — show the `[TLA-<id>]` token is present, in square brackets.
+2. Raw `grep` of the matching record in `tools/trading_logic_approvals.jsonl` — show `"used": true` and its `used_at`.
+3. State explicitly whether `used` was set by the pre-commit hook firing through the normal mechanism, or by any other means. If any file wrote it directly, say so.
+4. Run the pre-push gate check over the FULL commit range, not just this one commit. Paste real exit code and full output.
+5. `sha256sum tools/trading_logic_gate.sh` before and after the patch (use `git show <sha>:tools/trading_logic_gate.sh | sha256sum` for before).
+
+---
+
+## Constraints
+
+- No commits, amends, resets, or pushes by you in this directive.
+- No ledger edits by you. `used` is set by the hook or not at all.
+- No gate rule changes that tolerate `used: False`.
+- If any step fails, stop and report the failure with raw output. Do not work around it.
