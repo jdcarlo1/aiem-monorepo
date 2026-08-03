@@ -1,0 +1,28 @@
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -3021,7 +3021,16 @@
+ 
+     except Exception as e:
+         elapsed = round(time.time() - t_start, 2)
++        import traceback as _exec_tb
++        # Capture the full stack so the next occurrence of a TypeError such as
++        # "NoneType <= int" is self-identifying in job_attempt_log.error_text.
++        # Cap: last 3000 chars (approx 30 frames).  Rationale: actionable frames
++        # are at the bottom (most-recent call); Python/APScheduler internals at
++        # the top add noise.  3000 chars covers 5-10 scheduling-layer frames.
++        # error_text is unbounded TEXT so no DB-side cap is needed.
++        _exec_full_tb = _exec_tb.format_exc()[-3000:]
+         err_msg = str(e)[:500]
++        err_msg_with_tb = err_msg + "\n---TB---\n" + _exec_full_tb
+         # Classify outcome before logging so the label is accurate.
+         # Hard-gate rejection ("not ready_for_decision: BOTH DIRECTIONS REJECTED...")
+         # is a deliberate NO_TRADE decision by the quality gates — not a crash.
+@@ -3072,7 +3081,7 @@
+             except Exception as _st_fg_e:
+                 log.debug(f"[scheduler_trace] PAPER_EXEC hard-gate: {_st_fg_e}")
+ 
+-        _write_heartbeat(False, err_msg)
++        _write_heartbeat(False, err_msg_with_tb)
+         # ── Phase 4: record operational incident ─────────────────────────────
+         if _p4_ready:
+             try:

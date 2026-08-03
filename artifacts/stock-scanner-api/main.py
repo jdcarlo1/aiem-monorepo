@@ -4791,12 +4791,42 @@ _JOB_STALENESS_HOURS = {
     "vix_daily_fetch":          26,   # daily Mon-Fri 4:15 PM
     "aiem_auto_retire":         170,  # weekly Sunday 6 PM
     "aiem_model_retrain":      170,  # weekly Sunday 7 PM
+    "polygon_canary_check":    26,   # weekday-only; weekend threshold scaled by _WEEKDAY_ONLY_JOBS logic
+    "morning_diagnostic":      26,   # weekday-only; weekend threshold scaled by _WEEKDAY_ONLY_JOBS logic
 }
+
+# Jobs that only fire Mon-Fri.  On weekends, _run_health_watchdog uses a scaled
+# threshold instead of the bare 26h so Sat/Sun never fire false-stale alerts
+# for a job that ran Friday — but ALSO catches Friday misses by Saturday morning.
+#
+# Threshold on Saturday  (dow=5): 36h
+#   Friday run  (last_success ~24h ago) -> 24h < 36h -> NOT stale  (correct)
+#   Friday miss (last_success ~48h ago, i.e. Thursday) -> 48h > 36h -> ALERT  (correct)
+#
+# Threshold on Sunday    (dow=6): 60h
+#   Friday run  (last_success ~48h ago) -> 48h < 60h -> NOT stale  (correct)
+#   Friday miss (last_success ~72h ago) -> 72h > 60h -> ALERT  (correct)
+#
+# This replaces the previous 72h workaround (which let a Monday miss slip
+# to Thursday before alerting) and the proposed blanket skip (which let a
+# Friday miss sit unseen all weekend).
+_WEEKDAY_ONLY_JOBS = {"polygon_canary_check", "morning_diagnostic"}
 
 
 def _run_health_watchdog():
     """Scheduled every 30 min. Checks job heartbeats and emails owner on issues."""
-    result = check_job_health(_JOB_STALENESS_HOURS)
+    import datetime as _whd_dt
+    _whd_now_et = _whd_dt.datetime.now(_ET_TZ)
+    _whd_dow = _whd_now_et.weekday()  # 0=Mon ... 4=Fri, 5=Sat, 6=Sun
+    # Build an effective staleness map: scale weekday-only jobs on weekends
+    # (see _WEEKDAY_ONLY_JOBS comment above for the threshold derivation).
+    _effective_staleness = {}
+    for _whd_jn, _whd_hrs in _JOB_STALENESS_HOURS.items():
+        if _whd_jn in _WEEKDAY_ONLY_JOBS and _whd_dow >= 5:
+            _effective_staleness[_whd_jn] = 36 if _whd_dow == 5 else 60
+        else:
+            _effective_staleness[_whd_jn] = _whd_hrs
+    result = check_job_health(_effective_staleness)
     if result.get("status") == "error":
         print(f"[job_health] watchdog DB error: {result.get('error')}")
         return

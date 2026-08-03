@@ -1,18 +1,19 @@
---- artifacts/stock-scanner-api/aiem_options_scheduler.py	2026-08-03 04:19:47.189816876 +0000
-+++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py	2026-08-03 13:10:46.545456501 +0000
-@@ -3266,6 +3266,11 @@
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -3266,6 +3266,12 @@
       "expected_et": (9, 45),  "grace_minutes": 20},
      {"id": "grade_outcomes",        "desc": "16:46 grade outcomes",
       "expected_et": (16, 46), "grace_minutes": 10},
 +    # Interval-based (4h): max_gap_hours model — alert if no DB evidence in
-+    # the last N hours regardless of time-of-day. Requires job_heartbeats row
++    # the last N hours regardless of time-of-day. Requires a job_heartbeats row
 +    # written by _oe_record_run (available after job_coverage_extended patch).
-+    {"id": "classification_integrity_sw", "desc": "4h classification sweep",
++    # ID matches the APScheduler job id and _oe_record_run job_name exactly.
++    {"id": "classification_integrity_sweep", "desc": "4h classification sweep",
 +     "max_gap_hours": 5},
  ]
  
  
-@@ -3422,7 +3427,36 @@
+@@ -3422,7 +3428,35 @@
      try:
          with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
              for cfg in _SCHED_MONITOR_JOBS:
@@ -29,7 +30,6 @@
 +                    """, (jid, max_hrs))
 +                    if cur.fetchone():
 +                        continue  # ran within the window — OK
-+                    # Check if any record exists at all (NEVER RUN vs STALE)
 +                    cur.execute("SELECT last_success FROM job_heartbeats WHERE job_name=%s", (jid,))
 +                    row = cur.fetchone()
 +                    last_ok = row[0] if row else None
@@ -44,7 +44,7 @@
 +                    )
 +                    log.warning(f"[sched_integrity] OVERDUE interval job={jid} last_ok={last_ok}")
 +                    _tg(msg)
-+                    continue  # skip the expected_et block below
++                    continue
 +
 +                # ── expected_et model (daily cron jobs) ───────────────────────
                  h, m  = cfg["expected_et"]

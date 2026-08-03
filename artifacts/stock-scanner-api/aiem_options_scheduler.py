@@ -331,6 +331,12 @@ def _bootstrap_db() -> None:
 
 def _write_heartbeat(success: bool, error: str = None) -> None:
     try:
+        # Capture scheduler liveness BEFORE opening the DB connection so the
+        # flag reflects the state at the moment of the heartbeat write, not
+        # after a potential slow connect().
+        _sched_running = (
+            _scheduler_ref.running if _scheduler_ref is not None else False
+        )
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
             if success:
                 cur.execute("""
@@ -350,6 +356,9 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
             # Append-only attempt history — mirrors the job_attempt_log pattern
             # in main.py record_job_success/failure so OE scheduler heartbeats
             # are also queryable across time (not just current state).
+            # error_text always carries sched_running=<bool> so per-row queries
+            # can distinguish "process alive, scheduler dead" from "fully running".
+            # The status CHECK (success/failure) is unchanged.
             try:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS job_attempt_log (
@@ -361,13 +370,16 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
                         error_text   TEXT
                     )
                 """)
+                _jal_detail = f"sched_running={_sched_running}"
+                if not success:
+                    _jal_detail = f"sched_running={_sched_running}; {error or 'unknown'}"
                 cur.execute("""
                     INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
                     VALUES (%s, NOW(), %s, %s)
                 """, (
                     _HEARTBEAT_JOB_NAME,
                     'success' if success else 'failure',
-                    None if success else (error or "unknown"),
+                    _jal_detail,
                 ))
             except Exception as _jal_e:
                 log.debug(f"[heartbeat] job_attempt_log write skipped: {_jal_e}")
@@ -3021,7 +3033,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
     except Exception as e:
         elapsed = round(time.time() - t_start, 2)
+        import traceback as _exec_tb
+        # Capture the full stack so the next occurrence of a TypeError such as
+        # "NoneType <= int" is self-identifying in job_attempt_log.error_text.
+        # Cap: last 3000 chars (approx 30 frames).  Rationale: actionable frames
+        # are at the bottom (most-recent call); Python/APScheduler internals at
+        # the top add noise.  3000 chars covers 5-10 scheduling-layer frames.
+        # error_text is unbounded TEXT so no DB-side cap is needed.
+        _exec_full_tb = _exec_tb.format_exc()[-3000:]
         err_msg = str(e)[:500]
+        err_msg_with_tb = err_msg + "\n---TB---\n" + _exec_full_tb
         # Classify outcome before logging so the label is accurate.
         # Hard-gate rejection ("not ready_for_decision: BOTH DIRECTIONS REJECTED...")
         # is a deliberate NO_TRADE decision by the quality gates — not a crash.
@@ -3072,7 +3093,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except Exception as _st_fg_e:
                 log.debug(f"[scheduler_trace] PAPER_EXEC hard-gate: {_st_fg_e}")
 
-        _write_heartbeat(False, err_msg)
+        _write_heartbeat(False, err_msg_with_tb)
         # ── Phase 4: record operational incident ─────────────────────────────
         if _p4_ready:
             try:
@@ -3266,6 +3287,12 @@ _SCHED_MONITOR_JOBS = [
      "expected_et": (9, 45),  "grace_minutes": 20},
     {"id": "grade_outcomes",        "desc": "16:46 grade outcomes",
      "expected_et": (16, 46), "grace_minutes": 10},
+    # Interval-based (4h): max_gap_hours model — alert if no DB evidence in
+    # the last N hours regardless of time-of-day. Requires a job_heartbeats row
+    # written by _oe_record_run (available after job_coverage_extended patch).
+    # ID matches the APScheduler job id and _oe_record_run job_name exactly.
+    {"id": "classification_integrity_sweep", "desc": "4h classification sweep",
+     "max_gap_hours": 5},
 ]
 
 
@@ -3422,7 +3449,35 @@ def _schedule_integrity_check(force_now_et=None) -> list:
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
             for cfg in _SCHED_MONITOR_JOBS:
-                jid   = cfg["id"]
+                jid = cfg["id"]
+
+                # ── max_gap_hours model (interval-based jobs) ─────────────────
+                if "max_gap_hours" in cfg:
+                    max_hrs = cfg["max_gap_hours"]
+                    cur.execute("""
+                        SELECT last_success FROM job_heartbeats
+                        WHERE job_name = %s
+                          AND last_success >= NOW() - (make_interval(hours => %s))
+                    """, (jid, max_hrs))
+                    if cur.fetchone():
+                        continue  # ran within the window — OK
+                    cur.execute("SELECT last_success FROM job_heartbeats WHERE job_name=%s", (jid,))
+                    row = cur.fetchone()
+                    last_ok = row[0] if row else None
+                    overdue.append(jid)
+                    msg = (
+                        f"⚠️ <b>SCHEDULE MISS DETECTED (interval)</b>\n"
+                        f"Job: <code>{jid}</code>\n"
+                        f"Max gap: {max_hrs}h\n"
+                        f"Last success: {last_ok or 'NEVER'}\n"
+                        f"Detected at: {now_et.strftime('%H:%M:%S ET')}\n"
+                        f"Date: {today}"
+                    )
+                    log.warning(f"[sched_integrity] OVERDUE interval job={jid} last_ok={last_ok}")
+                    _tg(msg)
+                    continue
+
+                # ── expected_et model (daily cron jobs) ───────────────────────
                 h, m  = cfg["expected_et"]
                 grace = cfg["grace_minutes"]
                 alert_after = (
