@@ -1,0 +1,24 @@
+# Directive_PolygonScanner_And_TLA_Preflight_2026-08-03
+
+Item 0/1 (CAUSE=UNPROVEN) and Item 2 (OE_SCHEDULER_ENABLED gate) accepted. Item 7 capture plan stands as written — no changes. Four gaps before Republish:
+
+## I1 — Prod 502 root cause
+`curl -v <prod-root-domain>/` (not just /health) and paste raw response + headers.
+Verdict required: CRASHED | ASLEEP/COLD-START | MID-DEPLOY | OTHER.
+This must be answered BEFORE Republish — if prod is down for a reason unrelated to the scheduler gate, Item 2 alone won't fix Tuesday.
+
+## I2 — Polygon scanner root cause (the actual Tuesday blocker)
+polygon_market_daily hasn't updated since 2026-07-31. This is the real blocker — Item 5 already shows REGISTRY_STALE_DATA will reject every trade Tuesday even with the scheduler gate fixed.
+1. `grep -n "polygon_market_daily\|def.*polygon.*scan\|CronTrigger" aiem_options_scheduler.py` — find the job that populates this table + its registration.
+2. Paste last execution attempt from job_attempt_log or equivalent for that specific job (not the shared scheduler heartbeat) — exact error if failing, exact "never registered" if missing.
+3. State explicitly: is this job gated by the same OE_SCHEDULER_ENABLED flag as Item 2? If yes, say so — it means the scanner fix is just "same gate, different job," not a separate bug.
+4. Deliver a fix (patch, same format as Item 2) or, if root cause needs more digging, say exactly what's blocking a same-day fix. Do not defer to a future round without a concrete reason.
+
+## I3 — TLA for Item 2, done correctly this time
+Issue the TLA record for the aiem_options_scheduler.py edit through the normal interactive process — NOT `--approved-by` CLI bypass (that pattern has been flagged self-issued twice already this week). Paste the resulting trading_logic_approvals.jsonl line. `human_review_status` must show a real confirmation, not "no human-entered source confirmed."
+
+## I4 — Apply-check against origin/main
+`git apply --check` the Item 2 diff against origin/main HEAD (eddb522, post PR#8 merge) — not against the local working tree. Paste the command and output. If it conflicts, resolve and re-paste the diff + new SHA256.
+
+## Go/no-go
+Do NOT Republish until I2 has either a fix or a same-day ETA. Fixing only the scheduler gate and republishing now produces a scheduler that starts and immediately zero-trades on stale data — same outcome as today, one layer deeper.
