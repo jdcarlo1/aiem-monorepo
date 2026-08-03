@@ -55,16 +55,6 @@ _Describe the high-level user-facing capabilities of this app once they exist._
   repo. If a test fails, fix the underlying code — never delete, weaken, or
   skip a failing test to make the suite pass.
 
-## Git hooks setup (one-time per clone)
-
-Tracked hooks live in `tools/hooks/`.  After cloning, install them with:
-
-```bash
-bash tools/hooks/install.sh
-```
-
-This copies `tools/hooks/prepare-commit-msg` → `.git/hooks/prepare-commit-msg` (auto-injects `[TLA-<id>]` into commit messages when `TLA_APPROVAL_ID` is set, preventing the colon-format bug that breaks the pre-push gate).  Re-run after pulling updates to `tools/hooks/`.
-
 ## Gotchas
 
 _Populate as you build — sharp edges, "always run X before Y" rules._
