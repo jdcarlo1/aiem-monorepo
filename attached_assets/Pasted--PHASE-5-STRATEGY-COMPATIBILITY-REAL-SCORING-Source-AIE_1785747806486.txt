@@ -1,0 +1,39 @@
+# PHASE 5 — STRATEGY COMPATIBILITY + REAL SCORING
+Source: AIEM_OPTIONS_AUTONOMY_MASTER_DIRECTIVE.txt §7, §8
+Target: aiem_strat_engine/selector.py, scoring.py
+Depends on: Phase 4 CLOSED (chain gate live)
+Scope: Options Engine only. Paper trading only.
+
+## Requirements
+1. Before scoring the 155 strategies, filter by direction, confidence,
+   volatility regime, expected move, event context, horizon, liquidity,
+   portfolio exposure, defined-risk status. Implement the minimum mappings
+   listed in §7 (bullish/bearish x low/high IV, neutral, event cases).
+   Only AUTONOMOUS + defined-risk strategies may paper-execute. Keep
+   NO_TRADE as a scored candidate — winner must beat it by a configured margin.
+2. The existing scorer must receive REAL values (not hidden defaults) for:
+   pattern_score, pm_intel_score, mtf_alignment_score, iv_rank, iv_percentile,
+   market_regime, volatility_regime, liquidity_score, signal_quality,
+   direction_confidence, expected_slippage, fill_probability.
+   Persist score inputs, weights, penalties, and output.
+
+## Evidence required (master §14 items 6, 7, 15)
+- Item 6/7: one real high-IV case and one real low-IV case showing the
+  correct strategy family selected per §7's mapping table.
+- Item 15: one real case where NO_TRADE outscores every built strategy —
+  raw scores for NO_TRADE vs. the candidates, showing the configured margin.
+- For each of the 12 score inputs: grep + one live example proving it's a
+  real computed/fetched value reaching the scorer, not a default.
+
+## Out of scope this phase
+Trigger engine, autonomy cadence, position management — Phases 6-8.
+
+## STANDING CHECKLIST (applies to every item below)
+- Raw evidence only: terminal output, raw grep -n/sed -n for any code-location/behavior claim, exact git diff, sha256 before/after for changed files, full SQL query + complete result set. No narrative/paraphrased "fixed/tested/confirmed" claims.
+- Run all evidence commands through tools/verified_run.sh; validate log with verify_chain.sh before declaring anything complete. Paste sha256sum of both tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical — mismatch voids the submission.
+- No-hardcoded-values check: list every hardcoded-looking constant introduced this phase + one-line trace to its live source (API/DB/formula). Negative control proving any new conditional gate actually blocks under the failing condition.
+- Data Immutability Rule: no DELETE/TRUNCATE/UPDATE/overwrite of any row or file — including test/synthetic data — without Joel's explicit prior approval this session.
+- "PASS" is reserved for items with nothing outstanding, nothing deferred, nothing accepted-as-risk. Otherwise label exactly: "closed via accepted-risk," "cleared to proceed," or "partial" — never blend with "passed."
+- A verifier PASS is not autonomous-execution authorization. Phase-completion and clearance-to-run-unsupervised are separate approvals requiring separate evidence.
+- Once a phase fully closes, agent commits a permanent record file to the repo: /docs/verification/phase{N}-{name}-FINAL.md with verdict, evidence summary, and commit hash verified against.
+- Lean output format: raw command + output only, no restated headers/summary tables/narrative. State plainly if a claim can't be backed by real output — no padding.

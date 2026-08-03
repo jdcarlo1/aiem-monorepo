@@ -98,11 +98,22 @@ def score_thesis_fit(
     thesis: str,
     strategy_vol_thesis: str,
     vol_regime: str,
+    direction_confidence: Optional[float] = None,
 ) -> float:
     """
     Reward strategies that align with the stated thesis and vol regime.
+
+    direction_confidence [0,1] — when provided, scales the direction match
+    component: high conviction amplifies alignment; low conviction damps it.
+    None = not available; confidence term is skipped (original formula applies).
     """
     dir_match  = 1.0 if strategy_direction in (thesis, "ANY", "NEUTRAL") else 0.2
+    if direction_confidence is not None:
+        # Map [0,1] confidence to [0.5, 1.0] scale factor so even 0 confidence
+        # never fully suppresses a direction match (would create divide-by-zero
+        # instabilities in renormalization); 1.0 confidence = full score.
+        dc_scale = 0.5 + 0.5 * _clamp(direction_confidence)
+        dir_match = dir_match * dc_scale
     vol_match  = 1.0 if strategy_vol_thesis in (vol_regime, "NEUTRAL", "ANY") else 0.4
     return (dir_match * 0.6 + vol_match * 0.4)
 
@@ -219,9 +230,20 @@ def compute_capital_compounding_score(
     pattern_score:      Optional[float] = None,    # None = module unavailable
     pm_intel_score:     Optional[float] = None,    # None = module unavailable
     mtf_alignment_score:Optional[float] = None,    # None = module unavailable
+    signal_quality:     Optional[float] = None,    # None = unavailable (Phase 5 §8)
+    direction_confidence: Optional[float] = None,  # None = unavailable (Phase 5 §8)
 ) -> Dict[str, float]:
     """
     Compute the Capital Compounding Score and all individual components.
+
+    Phase 5 §8 — Two new real-valued inputs accepted:
+      signal_quality     [0,1] — composite signal confidence from the pattern engine
+                                 (pass_only_score / confidence field). When provided
+                                 and pattern_score is None, acts as the pattern_confirmation
+                                 component value. When both are provided, their mean is used.
+      direction_confidence [0,1] — directional conviction supplied to score_thesis_fit()
+                                 to scale the direction-match component: high conviction
+                                 amplifies alignment; low conviction damps it.
 
     Optional components: pattern_confirmation, pm_intel_score, mtf_alignment_score,
     vol_regime_fit, and diversification_value may be None (module unavailable or
@@ -231,13 +253,10 @@ def compute_capital_compounding_score(
         active_weight_sum = Σ w_j  for j where component_j is not None
         w_active_i        = w_i / active_weight_sum   (for each active component i)
 
-    Example — pattern_confirmation (w=0.03) unavailable:
-        active_weight_sum = 1.00 − 0.03 = 0.97
-        renorm_factor     = 1 / 0.97 ≈ 1.0309
-        w_pop_active      = 0.18 × 1.0309 ≈ 0.1856  (all active weights scale identically)
-
     Returns a dict with every component (None-valued optionals recorded as -1.0
     sentinel so downstream logging can distinguish "not computed" from "scored 0").
+    The returned dict also includes score_signal_quality and direction_confidence_used
+    for full audit transparency.
     """
     w = SCORE_WEIGHTS
 
@@ -248,16 +267,30 @@ def compute_capital_compounding_score(
     sc_def     = score_defined_risk(risk_class, execution_mode)
     sc_capeff  = score_capital_efficiency(ev_after_costs, return_on_risk)
     sc_liq     = score_liquidity(liquidity)
-    sc_thesis  = score_thesis_fit(strategy_direction, thesis, strategy_vol_thesis, vol_regime)
+    # Phase 5: pass direction_confidence into thesis_fit scorer
+    sc_thesis  = score_thesis_fit(
+        strategy_direction, thesis, strategy_vol_thesis, vol_regime,
+        direction_confidence=direction_confidence,
+    )
     sc_regime  = score_regime_fit(strategy_direction, market_regime)
 
     # ── Optional component scores (None = unavailable → excluded + renormalized) ─
     # score_vol_fit / score_diversification now return None when input is missing
     sc_vol     = score_vol_fit(strategy_vol_thesis, iv_rank)
     sc_divers  = score_diversification(strategy_family, existing_families)
-    sc_pattern = _clamp(float(pattern_score))    if pattern_score      is not None else None
     sc_pm      = _clamp(float(pm_intel_score))   if pm_intel_score     is not None else None
     sc_mtf     = _clamp(float(mtf_alignment_score)) if mtf_alignment_score is not None else None
+
+    # Phase 5 §8: signal_quality — if pattern_score unavailable, signal_quality fills it;
+    # if both available, use the mean so neither dominates; if only pattern_score, use it.
+    if pattern_score is not None and signal_quality is not None:
+        sc_pattern = _clamp((float(pattern_score) + float(signal_quality)) / 2.0)
+    elif pattern_score is not None:
+        sc_pattern = _clamp(float(pattern_score))
+    elif signal_quality is not None:
+        sc_pattern = _clamp(float(signal_quality))
+    else:
+        sc_pattern = None  # both unavailable → excluded + weight renormalized
 
     # ── Weight renormalization ────────────────────────────────────────────────
     component_scores: Dict[str, Optional[float]] = {
@@ -315,6 +348,9 @@ def compute_capital_compounding_score(
         "active_weight_sum":          round(active_weight_sum,   4),
         "penalty_total":              round(total_penalty,        4),
         "capital_compounding_score":  round(final_score,          4),
+        # Phase 5 §8 — audit fields: persisted so we can prove real values reached scorer
+        "score_signal_quality":       round(float(signal_quality), 4) if signal_quality is not None else _na,
+        "direction_confidence_used":  round(float(direction_confidence), 4) if direction_confidence is not None else _na,
     }
 
 

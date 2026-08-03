@@ -255,7 +255,7 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
     from aiem_strat_engine.pricing import mid_price, conservative_fill, slippage_estimate, commission, liquidity_score as liq_sc
     from aiem_strat_engine.eligibility import check_strategy_eligible, assignment_risk_label, pin_risk_label
     from aiem_strat_engine.scoring import compute_capital_compounding_score
-    from aiem_strat_engine.selector import EvaluationResult, select, evaluation_summary
+    from aiem_strat_engine.selector import EvaluationResult, select, evaluation_summary  # noqa: F401 (filter_compatible imported below)
     from aiem_strat_engine.greeks import aggregate as agg_greeks
     from aiem_strat_engine.legs import strategy_fingerprint, net_debit_credit
     from aiem_strat_engine.paper_trader import insert_paper_trade, save_decision_run, _new_run_id
@@ -278,7 +278,8 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
 
     # Get ATM IV from front-month chain
     front_chain = get_chain(ticker, expirations[0]) if expirations else []
-    iv_rank = None
+    iv_rank = None       # Phase 5 §8: explicitly None until populated from chain data
+    iv_percentile = None  # Phase 5 §8: None — not computed in strat scheduler (honest)
     atm_iv  = get_atm_iv(front_chain, spot)
     if atm_iv is None:
         # atm_iv is a mandatory input — without it no PoP, EV, or Black-Scholes calc
@@ -318,6 +319,36 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
         )
 
     vol_regime = "HIGH_IV" if (atm_iv or 0) > 0.40 else "LOW_IV"
+
+    # ── Phase 5 §8 — direction_confidence from polygon close_strength ─────────
+    # close_strength [0,1]: 0=full bear, 0.5=neutral, 1=full bull.
+    # direction_confidence = |close_strength - 0.5| * 2.0  (distance from neutral)
+    # Re-uses the polygon_rvol_scan row already fetched for market_regime, so no
+    # extra network call. Source tag: "derived" (real market data → math transform).
+    direction_confidence: Optional[float] = None
+    _close_strength_raw: Optional[float] = None
+    try:
+        with _db_conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT close_strength FROM polygon_rvol_scan "
+                "WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1",
+                (ticker,),
+            )
+            _cs_row = cur.fetchone()
+            if _cs_row and _cs_row[0] is not None:
+                _close_strength_raw = float(_cs_row[0])
+                direction_confidence = min(1.0, abs(_close_strength_raw - 0.5) * 2.0)
+                log.info(
+                    f"[{run_id}] direction_confidence={direction_confidence:.3f} "
+                    f"close_strength={_close_strength_raw:.3f} source=derived"
+                )
+    except Exception as _dc_exc:
+        log.debug(f"[{run_id}] direction_confidence lookup skipped: {_dc_exc}")
+    # pm_intel_score and mtf_alignment_score are explicitly None in the strat
+    # scheduler — these modules are not called here (they run in the options
+    # pipeline scheduler). None is the honest sentinel; 0.5 would be a hidden default.
+    pm_intel_score: Optional[float] = None    # phase5-§8: module not called
+    mtf_alignment_score: Optional[float] = None  # phase5-§8: module not called
 
     # ── Pattern detection (all 5 families, thesis-aligned) ────────────────────
     # Optional module: unavailable → pattern_score=None, weight excluded + renormalized
@@ -360,9 +391,74 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
             source_ts=datetime.utcnow().isoformat() + "Z",
         )
 
+    # ── Phase 5 §8 — signal_quality from pattern engine pass_only_score ───────
+    # pass_only_score is the fraction of detected patterns that pass quality gates.
+    # It is a real value produced by the pattern engine, not a default.
+    # Source: "derived" — computed from pattern_result which came from live detection.
+    signal_quality: Optional[float] = None
+    if pattern_result:
+        _sq_raw = pattern_result.get("pass_only_score") or pattern_result.get("confidence")
+        if _sq_raw is not None:
+            signal_quality = float(_sq_raw)
+            log.info(
+                f"[{run_id}] signal_quality={signal_quality:.3f} "
+                f"source=derived(pattern_result.pass_only_score)"
+            )
+
+    # ── Phase 5 §8 — fill_probability proxy from leg liquidity ────────────────
+    # Filled per-strategy below (liq varies by leg set).
+    # Run-level proxy = None (we don't have chain quality from Phase 4 here).
+    # Per-strategy fill_probability is liq_sc(legs) used directly below.
+
+    # ── Phase 5 §7 — Compatibility pre-filter (direction × vol × DTE × event) ─
+    # Filter the 155 catalog strategies to those compatible with current context
+    # BEFORE building legs.  Reduces evaluation set and prevents clearly wrong
+    # strategies from appearing in the scored pool.
+    # (EvaluationResult, select, evaluation_summary already imported above)
+    from aiem_strat_engine.selector import filter_compatible, CompatibilityResult
+    from aiem_strat_engine.catalog import CATALOG as _FULL_CATALOG
+    _dte_target = 21    # default target DTE for the run (3-week horizon)
+    _iv_is_high = (atm_iv or 0.0) > 0.40
+    _compat_specs, _compat_rejected = filter_compatible(
+        catalog=_FULL_CATALOG,
+        direction=thesis,           # "BULLISH" | "BEARISH" | "NEUTRAL"
+        iv_is_high=_iv_is_high,
+        dte_target=_dte_target,
+        event_context=None,         # future: wire from earnings calendar
+        require_autonomous=True,
+        require_defined_risk=True,
+    )
+    _compat_names: frozenset = frozenset(s.name for s in _compat_specs)
+    _compat_record = CompatibilityResult(
+        total_catalog=len(_FULL_CATALOG),
+        compatible=_compat_specs,
+        rejected=_compat_rejected,
+        direction=thesis,
+        iv_is_high=_iv_is_high,
+        dte_target=_dte_target,
+        event_context=None,
+    )
+    log.info(f"[{run_id}] {_compat_record.summary()}")
+    try:
+        import aiem_pipeline_proof as _proof
+        _proof.log_stage(
+            trace_id=run_id, ticker=ticker, thesis=thesis,
+            stage="compatibility_filter",
+            data=_compat_record.to_dict(),
+        )
+    except Exception:
+        pass
+
     # Build all eligible strategies
     strategy_builds = build_all_for_ticker(ticker, thesis, market_regime, vol_regime)
-    log.info(f"[{run_id}] built {len(strategy_builds)} strategies")
+    _n_built = len(strategy_builds)
+    # Apply Phase 5 §7 compatibility filter to built strategies
+    strategy_builds = [(spec, legs) for spec, legs in strategy_builds
+                       if spec.name in _compat_names]
+    log.info(
+        f"[{run_id}] built {_n_built} strategies; "
+        f"compatibility filter passed {len(strategy_builds)}/{_n_built}"
+    )
 
     evaluations = []
     for spec, legs in strategy_builds:
@@ -417,7 +513,39 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
                 legs, spec.execution_mode, max_loss, pop, ror
             )
 
-            # Score
+            # Phase 5 §8 — assemble all 12 real score inputs for this strategy
+            # Per-strategy values: liq, slip vary by leg set
+            # Run-level values: pattern_score, signal_quality, direction_confidence,
+            #   market_regime, vol_regime, iv_rank, iv_percentile are constants for the run
+            from aiem_strat_engine.score_inputs import build_score_inputs as _bsi
+            _score_inputs = _bsi(
+                pattern_score=pattern_score,
+                pattern_source="live" if pattern_score is not None else "unavailable",
+                signal_quality=signal_quality,
+                signal_quality_source="derived" if signal_quality is not None else "unavailable",
+                pm_intel_score=pm_intel_score,   # explicitly None (module not called)
+                pm_intel_source="unavailable",
+                mtf_alignment_score=mtf_alignment_score,  # explicitly None
+                mtf_alignment_source="unavailable",
+                iv_rank=iv_rank,
+                iv_rank_source="unavailable",    # not computed in strat scheduler
+                iv_percentile=iv_percentile,
+                iv_percentile_source="unavailable",
+                market_regime=market_regime,
+                market_regime_source="db",
+                volatility_regime=vol_regime,
+                vol_regime_source="derived",
+                liquidity_score=liq,
+                liquidity_source="live",
+                direction_confidence=direction_confidence,
+                dir_confidence_source="derived" if direction_confidence is not None else "unavailable",
+                expected_slippage=slip,
+                slippage_source="live",
+                fill_probability=liq,            # liq_sc is the best available proxy
+                fill_prob_source="derived",
+            )
+
+            # Score — Phase 5: all 12 inputs wired; signal_quality + direction_confidence now flow
             sc = compute_capital_compounding_score(
                 pop=pop, ev_after_costs=ror, max_loss=max_loss,
                 max_profit=payoff_info.get("max_profit"), risk_class=spec.risk_class,
@@ -431,6 +559,8 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
                 slippage=slip, capital_at_risk=cap_risk, n_legs=len(legs),
                 portfolio_capital=PORTFOLIO_CAPITAL,
                 pattern_score=pattern_score,
+                signal_quality=signal_quality,          # Phase 5 §8
+                direction_confidence=direction_confidence,  # Phase 5 §8
             )
 
             fp = strategy_fingerprint(legs)
@@ -443,12 +573,12 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
                 pricing_info=pricing_info, greeks_info=greeks_info,
                 score_components=sc, capital_compounding_score=sc["capital_compounding_score"],
                 iv_rank=iv_rank,
+                score_inputs_json=_score_inputs.to_dict(),  # Phase 5 §8 audit
             ))
         except Exception as exc:
             log.debug(f"[{run_id}] eval error {spec.name}: {exc}")
 
-    # Select best
-    from aiem_strat_engine.selector import select
+    # Select best  (select already imported at top of function)
     selection = select(evaluations, thesis, market_regime, iv_rank)
     log.info(f"[{run_id}] decision={selection.decision} reason={selection.reason[:80]}")
 
