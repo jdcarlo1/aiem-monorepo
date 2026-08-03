@@ -3909,6 +3909,8 @@ class _HealthHandler(BaseHTTPRequestHandler):
             "scheduler": "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped",
             "service":   _SCHEDULER_NAME,
             "ts":        datetime.utcnow().isoformat() + "Z",
+            "oe_scheduler_enabled": os.environ.get("OE_SCHEDULER_ENABLED", "unset"),
+            "replit_deployment":    os.environ.get("REPLIT_DEPLOYMENT", "unset"),
         }
         try:
             with psycopg2.connect(_DB_URL, connect_timeout=2) as conn, conn.cursor() as cur:
@@ -4456,33 +4458,39 @@ def main():
             f"verified in globals() — no jobs blocked"
         )
 
-    # ── Scheduler gate ────────────────────────────────────────────────────────
-    # REPLIT_DEPLOYMENT was intended to gate APScheduler to production only,
-    # but Replit does NOT reliably set it to "1" in the deployed environment
-    # (confirmed 2026-08-03: production health showed scheduler=stopped).
-    # Dev and production use SEPARATE databases (heliumdb vs Neon), so running
-    # APScheduler in both is safe — each fires against its own DB, no duplicates.
-    _env_flag = os.environ.get("REPLIT_DEPLOYMENT", "unset")
+    # ── Scheduler gate (OE_SCHEDULER_ENABLED explicit opt-in) ─────────────────
+    # REPLIT_DEPLOYMENT was intended as the gate but Item 0 preflight analysis
+    # (2026-08-03) showed it IS set to "1" in production yet scheduler=stopped,
+    # so cause (a) is unproven — root cause is still UNPROVEN (Items 1/7).
+    # OE_SCHEDULER_ENABLED is a fail-closed explicit opt-in: set it to "1" ONLY
+    # in the production Deployment secrets. Workspace stays unset → no cronjobs fire.
+    # External surfaces (Polygon quota, Tradier, Telegram) are NOT safe to double-fire.
+    _oe_enabled  = os.environ.get("OE_SCHEDULER_ENABLED") == "1"
+    _replit_dep  = os.environ.get("REPLIT_DEPLOYMENT")
     log.info(
-        "[startup] REPLIT_DEPLOYMENT=%s — APScheduler starting unconditionally "
-        "(gate removed 2026-08-03: env var never reliably set in prod).", _env_flag
+        f"[startup] OE_SCHEDULER_ENABLED={_oe_enabled!r} REPLIT_DEPLOYMENT={_replit_dep!r} "
+        f"boot_commit={_BOOT_COMMIT}"
     )
+    _is_gce = _oe_enabled
+    if _is_gce:
+        sched.start()
+        _scheduler_ref = sched
+        log.info(f"[startup] APScheduler STARTED boot_commit={_BOOT_COMMIT}")
 
-    sched.start()
-    _scheduler_ref = sched
+        # Log next run times
+        for job in sched.get_jobs():
+            log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
 
-    # Log next run times
-    for job in sched.get_jobs():
-        log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
-
-    _write_heartbeat(True)
-    _tg(
-        f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
-        f"Stale recovered: {stale_result.get('recovered',0)}\n"
-        f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
-        f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
-        f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
-    )
+        _write_heartbeat(True)
+        _tg(
+            f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
+            f"Stale recovered: {stale_result.get('recovered',0)}\n"
+            f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
+            f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
+            f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
+        )
+    else:
+        log.warning("[startup] OE_SCHEDULER_ENABLED != '1' — APScheduler NOT started")
 
     log.info("[startup] entering keepalive loop")
     try:
@@ -4490,7 +4498,8 @@ def main():
             time.sleep(60)
     except (KeyboardInterrupt, SystemExit):
         log.info("[shutdown] stopping")
-        sched.shutdown(wait=False)
+        if _is_gce:
+            sched.shutdown(wait=False)
 
 if __name__ == "__main__":
     main()

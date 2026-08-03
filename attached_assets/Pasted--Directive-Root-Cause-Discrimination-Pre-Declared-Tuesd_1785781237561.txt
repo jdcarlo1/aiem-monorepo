@@ -1,0 +1,151 @@
+# Directive — Root Cause Discrimination + Pre-Declared Tuesday Proof
+2026-08-03 · OE / AIEM · Republish REMAINS HELD until Items 0–2 and Item 6 are answered
+
+## Standing rule for this round
+`REPLIT_DEPLOYMENT` being unset is a real defect. It is **not yet proven to be the cause** of the 9:45 AM OE failure. Every item below exists to discriminate between causes, not to confirm the one already chosen. No new root cause may be named after tomorrow's data lands — the prediction is written tonight (Item 6).
+
+---
+
+## ITEM 0 — The preflight contradiction (blocking, do first)
+
+Two claims in the record cannot both be true:
+- **2026-08-01**, post-redeploy: prod `/stock-api/admin/preflight` returned `is_deployment: "1"`.
+- **2026-08-03**: "`REPLIT_DEPLOYMENT` is never set to `1` in Replit's deployment environment."
+
+Deliver:
+
+```bash
+grep -n "is_deployment" main.py
+grep -n "REPLIT_DEPLOYMENT" main.py aiem_options_scheduler.py
+```
+
+Then paste, verbatim, the preflight handler lines that compute `is_deployment`.
+
+Answer explicitly: **does `is_deployment` read the same environment variable as the `sched.start()` gate — yes or no?**
+- If NO → name both variables. The 08-01 preflight was correct and today's conclusion is a misread of your own endpoint.
+- If YES → one of the two readings is wrong; state which and how you know.
+
+---
+
+## ITEM 1 — Discriminate the four causes of `"scheduler": "stopped"` (blocking)
+
+Prod `/health` returning `"scheduler":"stopped"` is consistent with **at least four** causes. You selected (a) without excluding the others:
+
+| # | Cause | Discriminator |
+|---|---|---|
+| a | Gate evaluated false | prod stdout contains the exact line `[startup] REPLIT_DEPLOYMENT != '1' — workspace dev process. APScheduler NOT started.` |
+| b | `sched.start()` raised | traceback in prod stdout at/after the gate line; no "scheduler started" line |
+| c | Module load halted in the ~29315–41826 dead zone | `_MODULE_FULLY_LOADED` absent; startup log truncates before the scheduler block |
+| d | Scheduler started, then died | a "started" line exists, followed by a `process_lifecycle_log` restart or thread death |
+
+Required evidence: **the raw prod deployment log for the most recent boot**, from process start through the scheduler block. Not the workspace log. Not a summary. If you cannot retrieve prod stdout, say so in one line and mark cause (a) **UNPROVEN** rather than confirmed.
+
+State the verdict as: `CAUSE = a | b | c | d | UNPROVEN`.
+
+---
+
+## ITEM 2 — Replace the hardcoded gate (build only, do not deploy yet)
+
+`_is_gce = True` is not acceptable: it starts APScheduler in the workspace permanently, and dev/prod share external surfaces (Polygon 5 req/min quota, Tradier, the Telegram bot) even though the databases are separate.
+
+Replace at `main.py` ~4409 with fail-closed explicit opt-in:
+
+```python
+_oe_enabled = os.environ.get("OE_SCHEDULER_ENABLED") == "1"
+_replit_dep = os.environ.get("REPLIT_DEPLOYMENT")
+log.info(f"[startup] OE_SCHEDULER_ENABLED={_oe_enabled!r} REPLIT_DEPLOYMENT={_replit_dep!r} boot_commit={_BOOT_COMMIT}")
+_is_gce = _oe_enabled
+if _is_gce:
+    sched.start()
+    log.info(f"[startup] APScheduler STARTED boot_commit={_BOOT_COMMIT}")
+else:
+    log.warning("[startup] OE_SCHEDULER_ENABLED != '1' — APScheduler NOT started")
+```
+
+Also add both resolved values to the `/health` JSON body so this contradiction can never recur silently.
+
+`OE_SCHEDULER_ENABLED=1` is set **only** in the production Deployment secrets. It stays unset in the workspace.
+
+Deliver: full `git diff`, `sha256sum main.py` before and after, and the TLA status of this edit (`main.py` matches PROTECTED_PATTERNS). Do not apply out of the queued patch order without saying so.
+
+---
+
+## ITEM 3 — Prod stage ladder: what CAN be read today
+
+The OE 9:45 run has nine sequential stages. For each, state the **prod** table/endpoint, the exact query or curl, and whether it is readable today without new code.
+
+| # | Stage | Prod evidence | Readable now? |
+|---|---|---|---|
+| 1 | Process alive | `process_lifecycle_log` | |
+| 2 | APScheduler running | `/health` | |
+| 3 | 9:45 job fired | `scheduler_run_audit` / `daily_pipeline_runs` | |
+| 4 | Upstream data present | `polygon_market_daily`, `options_structure_scan` for the correct date | |
+| 5 | Seed wrote jobs | `options_pipeline_jobs` `scan_date=today` | |
+| 6 | Worker claimed | job status transition | |
+| 7 | Decision reached | `oe_decision_records` / `oe_no_trade_candidates` | |
+| 8 | Gates evaluated | rejection reason per candidate | |
+| 9 | Trade written | `oe_trade_records` | |
+
+Note which of these are reachable via the already-deployed `/stock-api/admin/preflight` (X-Diag-Token), and which require the five unapplied patches. **The first empty stage tomorrow is the answer — not a narrative.**
+
+---
+
+## ITEM 4 — Prod commit reconciliation
+
+The stage ladder is meaningless if prod is running code we haven't read.
+
+```bash
+curl -s "$PROD/health" | jq '.boot_commit'
+git rev-parse HEAD
+git log --oneline origin/main -1
+```
+
+State the prod boot commit, the dev HEAD, and **every fix in the list below that is NOT in the prod build**: OI/vol `None` defaults (5ba52f6), Fix3 bid/ask wiring (1fe78da), misfire grace 600s, seed fallback date fix, rvol single-call rate-limit fix.
+
+---
+
+## ITEM 5 — Backfill freshness (answer required BEFORE Republish)
+
+On first boot after Republish, prod will see a missed 2026-08-03 9:45 job. Answer:
+1. Does prod backfill it? Give the file:line of the backfill window filter.
+2. Is there any price/quote freshness check before execution? File:line, or state NONE.
+3. If NONE — what stops a 9:45 AM strategy executing on stale or next-day prices?
+
+If the answer to (1) is yes and (3) is unguarded, propose the guard. Do not Republish until this is answered.
+
+---
+
+## ITEM 6 — Pre-declared prediction (write tonight, before Republish)
+
+For **Tuesday 2026-08-04**, write the expected value of every row below *before* any deployment. This is the whole point of the round: tomorrow is graded against tonight's prediction.
+
+| Stage | Table / field | Predicted value | Actual (fill Tue) | P/F |
+|---|---|---|---|---|
+| 2 | `/health` `.scheduler` | | | |
+| 2 | `/health` `.boot_commit` | | | |
+| 3 | `daily_pipeline_runs` today `completed_at` | | | |
+| 4 | `polygon_rvol_scan` MAX(scan_date) | | | |
+| 4 | `polygon_market_daily` MAX(scan_date) | | | |
+| 5 | `options_pipeline_jobs` count scan_date=2026-08-04 | | | |
+| 7 | `oe_decision_records` + `oe_no_trade_candidates` rows | | | |
+| 9 | `oe_trade_records` rows | | | |
+
+Rules:
+- Every prediction is a **prod** value.
+- All-rejected-by-gate is a legitimate predicted outcome — but you must predict *which* gate and give the expected rejection reason string.
+- Any stage you cannot predict, mark `UNOBSERVABLE` now. Do not discover that tomorrow.
+
+---
+
+## ITEM 7 — Tuesday capture (no interpretation)
+
+At **10:15 AM ET 2026-08-04**, run the Item 3 ladder against prod top to bottom and paste raw output for all nine stages, including the empty ones. Fill the Item 6 table. Then, and only then, write one paragraph of interpretation — clearly separated from the raw output.
+
+Do not fix anything before the capture is complete.
+
+---
+
+## Constraints
+- No commits, pushes, or patch applies this round beyond Item 2's build.
+- Republish stays HELD until Items 0, 1, 2 and 6 are delivered.
+- Every claim about production must name the command that produced it. "Prod is healthy" sourced from the `options_pipeline_scheduler` heartbeat is not evidence — that row is written by `_heartbeat_loop`, which stays alive while APScheduler is dead.
