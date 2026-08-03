@@ -10,6 +10,7 @@ from .config import (
     MIN_DTE, MAX_BID_ASK_WIDTH, MIN_OPEN_INTEREST, MIN_VOLUME,
     MIN_IV, MAX_IV, MIN_PoP, MAX_SPREAD_PER_FILL,
     MAX_CAPITAL_PER_TRADE, MAX_CAPITAL_AT_RISK_PCT, PORTFOLIO_CAPITAL,
+    QUOTE_STALE_SECONDS,
 )
 
 _OPTION_TYPES = {"CALL", "PUT"}
@@ -181,6 +182,8 @@ def check_strategy_eligible(
         check_volume(legs),
         check_iv_range(legs),
         check_greeks_present(legs),
+        check_chain_completeness(legs),       # Phase 4 — incomplete chain
+        check_quote_age(legs),                # Phase 4 — stale quotes
         check_max_loss_defined(max_loss, execution_mode),
         check_capital_limits(max_loss),
     ]
@@ -218,9 +221,28 @@ def pin_risk_label(legs: List[Leg], spot: float) -> str:
     return "LOW"
 
 
+def check_chain_completeness(legs: List[Leg]) -> Tuple[bool, List[str]]:
+    """
+    Reject when any option leg is missing fields required for pricing:
+    bid, ask, iv, delta must all be present and non-zero.
+    A leg with all these absent indicates an incomplete chain fetch.
+    """
+    reasons = []
+    for lg in _option_legs(legs):
+        label   = lg.option_symbol or str(lg.strike)
+        missing = []
+        if lg.bid   is None: missing.append("bid")
+        if lg.ask   is None: missing.append("ask")
+        if lg.iv    is None: missing.append("iv")
+        if lg.delta is None: missing.append("delta")
+        if missing:
+            reasons.append(f"Incomplete chain — missing {missing} for {label}")
+    return len(reasons) == 0, reasons
+
+
 def check_quote_age(
     legs: List[Leg],
-    max_age_seconds: int = 300,
+    max_age_seconds: int = QUOTE_STALE_SECONDS,
 ) -> Tuple[bool, List[str]]:
     """
     Reject stale options chains.
@@ -240,12 +262,22 @@ def check_quote_age(
             reasons.append(f"No quote timestamp for {label} — treating as stale")
             continue
         parsed = None
+        # ISO string formats first
         for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
-                parsed = datetime.strptime(str(ts)[:19], fmt).replace(tzinfo=timezone.utc)
+                parsed = datetime.strptime(str(ts)[:19].rstrip("Z"), fmt).replace(tzinfo=timezone.utc)
                 break
             except ValueError:
                 continue
+        # Unix timestamp fallback (Tradier trade_date is milliseconds)
+        if parsed is None:
+            try:
+                val = float(str(ts))
+                if val > 1_000_000_000_000:   # milliseconds
+                    val /= 1000.0
+                parsed = datetime.fromtimestamp(val, tz=timezone.utc)
+            except (ValueError, OSError):
+                pass
         if parsed is None:
             reasons.append(f"Unparseable timestamp '{ts}' for {label}")
             continue
