@@ -1,0 +1,120 @@
+# Directive_FullRangeEnum_And_LedgerDeadlock_2026-08-03
+
+STANDING RULE (unchanged): `git-autosync` stays fully STOPPED, not pause-flagged, for the remainder of Phase 3. No commits, pushes, merges, resets, amends, or `git apply` this round. Patch files only, untracked, `--check` only.
+
+ACCEPTED from your last submission: Item 1 (exclusion path exercised with ledger staged — both filters dropped it, both shas matched 84a1b43457…aa1f6, cleanup verified with real exit-1 output), Item 4 (identical-hash explanation confirmed and correct), and Item 2.2 (self-caught malformed invocation). Item 2.3 is incomplete. Item 3 raises a blocker that must be resolved before the patch is applied.
+
+---
+
+## STEP 1 — Full-range enumeration, without the gate
+
+Item 2.3 left 15 of 18 commits as "unknown until gate is unblocked." The gate short-circuits; enumeration does not need the gate. Enumerate all 18 directly.
+
+1a. First confirm the helper name:
+
+```bash
+grep -n "^def .*protect\|^PROTECTED_PATTERNS" tools/check_protected_push.py
+```
+
+Paste raw output. Use the actual function name in the script below (`is_protected` is a placeholder).
+
+1b. Run:
+
+```bash
+python3 - <<'PY'
+import subprocess, sys, re, json, os
+sys.path.insert(0, "tools")
+import check_protected_push as g
+
+def sh(*a):
+    return subprocess.run(a, capture_output=True, text=True).stdout
+
+ledger = sh("git","show","HEAD:tools/trading_logic_approvals.jsonl")
+recs = {}
+for l in ledger.splitlines():
+    if l.strip():
+        r = json.loads(l)
+        recs[r.get("approval_id")] = r
+
+for s in sh("git","rev-list","--reverse","origin/main..HEAD").split():
+    files = sh("git","diff-tree","--no-commit-id","--name-only","-r",s).split()
+    prot  = [f for f in files if g.is_protected(f)]
+    body  = sh("git","log","-1","--format=%B",s)
+    date  = sh("git","log","-1","--format=%cI",s).strip()
+    m     = re.search(r"\[TLA-([0-9a-f]+)\]", body)
+    if not prot:
+        v = "PASS-no-protected"
+    elif not m:
+        v = "BLOCK-no-token"
+    else:
+        r = recs.get(m.group(1))
+        if r is None:      v = f"BLOCK-token-{m.group(1)}-not-in-HEAD-ledger"
+        elif not r.get("used"): v = f"BLOCK-token-{m.group(1)}-used=False"
+        else:              v = f"PASS-token-{m.group(1)}"
+    print(f"{s[:8]} | {date} | {v} | {','.join(prot) or 'none'} | {body.splitlines()[0][:60]}")
+PY
+```
+
+Paste raw output, all 18 lines, unedited. Then state plainly: how many commits in `origin/main..HEAD` will block, and for what reason each.
+
+---
+
+## STEP 2 — Did the malformed invocation produce a false PASS anywhere else?
+
+`check_protected_push.py origin/main HEAD` silently fell to `_hook_mode()`, read no stdin, and exited 0. Any prior clearance obtained that way is void.
+
+2a. Find every call site:
+
+```bash
+grep -rn "check_protected_push" .git/hooks/ tools/ .github/ docs/ 2>/dev/null
+```
+
+Paste raw output. For each call site, state whether it uses `--range` correctly or the positional form.
+
+2b. State yes/no with evidence: was the 2026-08-02 "TLA gate: PASS across all 100+ commits, exit 0" result produced through a correctly-invoked path, or through this same fail-open route?
+
+2c. Fail-open defect. The script exits 0 on an unrecognized invocation. Write this exact replacement for `main()` into an UNTRACKED patch file at `tools/tla_patches/gate_argcheck_2026-08-03.patch`. Do not apply it.
+
+```python
+def main() -> None:
+    args = sys.argv[1:]
+    if args and args[0] == "--range":
+        if len(args) != 2:
+            print("usage: check_protected_push.py --range <rev-range>", file=sys.stderr)
+            sys.exit(2)
+        sys.exit(_range_mode(args[1]))
+    if args:
+        print(f"unrecognized arguments: {args}", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(_hook_mode())
+```
+
+Report `git apply --check` exit code, the patch's sha256, and `git status --porcelain` showing it untracked.
+
+---
+
+## STEP 3 — Ledger-only commits can no longer be authorized (report only)
+
+Confirmed by your Item 2.1 and Item 3: `bd1b341` is ledger-only with no token; the ledger IS in `check_protected_push.py`'s PROTECTED_PATTERNS so the push gate demands one; and the revised patch's `sha_files = [f for f in protected_staged if f != _LEDGER] -> empty -> sys.exit(1)` removes the only route to mint one.
+
+This is not a `bd1b341` problem. It is a permanent class: after the patch, **every future ledger-correction commit is unauthorizable**. Ledger corrections are routine — one was issued this week.
+
+Report only, no changes:
+
+3a. Confirm or refute in one line: post-patch, is there any invocation of `issue_tla.py` that mints a token for a staged set containing only the ledger?
+
+3b. Give three options with the exact lines each would change:
+- **A** — remove `tools/trading_logic_approvals.jsonl` from `check_protected_push.py`'s PROTECTED_PATTERNS (ledger-only commits need no token). State what tamper-detection is lost.
+- **B** — keep it protected, but have the push gate apply an **append-only check** to ledger-only commits instead of a TLA lookup: block if `git show <sha> -- tools/trading_logic_approvals.jsonl` contains any `-` line other than the `---` header. Show the exact function you would add.
+- **C** — anything you consider better.
+
+3c. State which you recommend and why, in under 10 lines.
+
+---
+
+## STEP 4 — Constraints
+
+- No `git apply`, no commits, no pushes, no amends, no resets, no branch deletions.
+- The revised list-sync patch stays unapplied until STEP 3 is decided.
+- If any protected file ends up staged at any point, `git restore --staged` it immediately and report it.
+- Confirm daemon still down: `pgrep -f git_autosync_daemon` plus the `.replit` task-list check, both raw.
