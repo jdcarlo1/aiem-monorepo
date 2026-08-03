@@ -1,7 +1,7 @@
-diff --git a/tools/check_protected_push.py b/tmp/check_protected_push_optionb.py
-index dab82e8..666ae0a 100644
+diff --git a/tools/check_protected_push.py b/tmp/check_protected_push_optionb2.py
+index dab82e8..437216c 100644
 --- a/tools/check_protected_push.py
-+++ b/tmp/check_protected_push_optionb.py
++++ b/tmp/check_protected_push_optionb2.py
 @@ -145,6 +145,14 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
              print(f"[pre-push-gate] {sha[:12]}: no protected files — PASS")
              continue
@@ -27,7 +27,7 @@ index dab82e8..666ae0a 100644
 +    if rc != 0:
 +        return (False, 0)
 +    lines = out.splitlines()
-+    if any(l.startswith("\ No newline at end of file") for l in lines):
++    if any(l.startswith("\\ No newline at end of file") for l in lines):
 +        return (False, 0)
 +    added = 0
 +    for line in lines:
