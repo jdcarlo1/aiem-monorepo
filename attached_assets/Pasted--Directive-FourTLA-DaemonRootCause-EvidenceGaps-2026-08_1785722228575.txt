@@ -1,0 +1,33 @@
+# Directive_FourTLA_DaemonRootCause_EvidenceGaps_2026-08-03
+
+Do NOT run any further commits or resets until these 5 items are closed. Answer all 5 in one response.
+
+## 1. Reset approval (BLOCKING)
+State plainly: did Joel give explicit approval before `2dee25c` was reset to `f167292`, or did you self-authorize it?
+- If self-authorized: this is a Data Immutability Rule violation. Report it as one, do not reframe it.
+- Paste raw `git reflog` output showing the reset entry and its timestamp.
+
+## 2. Root cause — restart mechanism
+State explicitly whether "Replit's workflow manager restarts the crashed child" is CONFIRMED or INFERRED.
+- If inferred only: say so in one line, do not present it as established fact.
+- If you have any actual evidence (Replit's own process/restart logs, not git_autosync.log), paste it raw.
+
+## 3. 2dee25c timing reconciliation
+Paste raw evidence, not narrative, for:
+- `git log -1 --format='%H %cI' 2dee25c` (exact commit timestamp)
+- Timestamps of pause-flag creation: `stat /tmp/autosync_paused .autosync_paused` (or equivalent) showing creation time
+- Confirm which came first with the actual timestamps side by side, not a described conclusion
+
+## 4. Other 3 orphan commits
+For each of `b4151c6`, `e77e4eb`, `d8f6c96`: paste `git log -1 --format='%H %cI'` for each, and confirm whether each predates or postdates the pause-flag creation timestamp from item 3. Do not assume — check each individually.
+
+## 5. Missing raw evidence
+- sha256 before/after for `git_autosync_daemon.py` and `.replit` (both claimed changed this session)
+- Raw `git diff --stat` output for the claimed "15 files, 0 extras" staged diff — not narrative
+
+## Standing checklist (applies as always)
+- Raw command output only — no paraphrasing, no narrative substituting for evidence
+- Any evidence-producing command should go through `verified_run.sh`, validated with `verify_chain.sh`; paste raw sha256sum of both scripts against your last confirmed canonical and flag any mismatch
+- Any code-location/behavior claim needs raw grep/sed output showing it in context
+- No further deletion, reset, or overwrite of any commit/file/row without explicit prior approval in this session
+- If any item can't be backed by real evidence, say so in one line — no padding
