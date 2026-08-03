@@ -1,0 +1,18 @@
+# Directive_RejectSquash_ResumeReinstateGuard_2026-08-03
+
+## REJECTED: the 37-commit squash-and-recommit plan
+Do not run it, do not propose it again. Reasons:
+- 3295e360 is not a plain tokenless commit — it's a non-append-only ledger rewrite that purged 25 approval records, 5 of which severed the audit trail of commits already in origin/main. That requires the append-only reinstatement + reinstated-guard patch, not burial inside a squash.
+- 22d5e377 already has a resolved path: self-protection patch + its own retroactive TLA.
+- bd1b3410 already confirmed clean under Option B (ledger_append_only) — needs nothing further.
+- Squashing 37 commits into 1 destroys the per-commit granularity this entire audit has been built on (token reuse, the purge, the severed trail). Not acceptable at any point in this process.
+
+## Resume exactly where you left off
+You still owe the full response to Directive_ReinstateGuard_And_UsedFlagSweep_2026-08-03. Deliver all 6 items, nothing else:
+
+1. Prove-then-guard the reinstatement: raw trading_logic_gate.sh + check_range() code, state --no-verify yes/no, then exact guard code + generation recipe producing reinstate_guard_2026-08-03.patch layered on top of the other 3 patches (list_sync_revised, gate_argcheck, ledger_append_only), reinstate_purged_2026-08-03.py updated to write the 4th key (`reinstated: true`).
+2. `git cat-file -e edb1d2829bfc` + `git rev-parse edb1d2829bfc` (prove the object exists or doesn't) and `git show --stat 72115db0`.
+3. Table of the 13 "PASS (token+ledger+used)" origin/main-audit records: for each, whether `used=true` came from trading_logic_gate.sh's pre-commit hook firing, or was written inline at mint by an agent commit.
+4. The 4 sitting amendments: step-0 daemon check, per-commit `git show --stat HEAD` after each commit, explicit recovery command `git reset --mixed $BASE` (never --hard) if a platform auto-commit lands mid-sequence, and BASE pinned via `BASE=$(git rev-parse HEAD)` immediately before the first commit.
+5. Confirm sequencing: 3295e360 disposition (reinstate + guard) must land before any retroactive TLA is issued for it.
+6. No commits, pushes, applies, or resets — report only until this is reviewed.
