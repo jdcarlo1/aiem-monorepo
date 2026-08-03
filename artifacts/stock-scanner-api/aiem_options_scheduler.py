@@ -4456,35 +4456,33 @@ def main():
             f"verified in globals() — no jobs blocked"
         )
 
-    # ── GCE-only gate: APScheduler runs ONLY in the production GCE deployment ──
-    # REPLIT_DEPLOYMENT is set to "1" by Replit's GCE VM environment. It is
-    # absent/unset in the workspace dev environment (confirmed via preflight
-    # is_deployment="0" on dev, "1" on prod — 2026-08-01).
-    # This gate ensures exactly ONE process fires scheduled jobs, eliminating
-    # the duplicate-fire risk when both workspace and GCE are running.
-    _is_gce = os.environ.get("REPLIT_DEPLOYMENT") == "1"
-    if _is_gce:
-        sched.start()
-        _scheduler_ref = sched
+    # ── Scheduler gate ────────────────────────────────────────────────────────
+    # REPLIT_DEPLOYMENT was intended to gate APScheduler to production only,
+    # but Replit does NOT reliably set it to "1" in the deployed environment
+    # (confirmed 2026-08-03: production health showed scheduler=stopped).
+    # Dev and production use SEPARATE databases (heliumdb vs Neon), so running
+    # APScheduler in both is safe — each fires against its own DB, no duplicates.
+    _env_flag = os.environ.get("REPLIT_DEPLOYMENT", "unset")
+    log.info(
+        "[startup] REPLIT_DEPLOYMENT=%s — APScheduler starting unconditionally "
+        "(gate removed 2026-08-03: env var never reliably set in prod).", _env_flag
+    )
 
-        # Log next run times
-        for job in sched.get_jobs():
-            log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
+    sched.start()
+    _scheduler_ref = sched
 
-        _write_heartbeat(True)
-        _tg(
-            f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
-            f"Stale recovered: {stale_result.get('recovered',0)}\n"
-            f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
-            f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
-            f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
-        )
-    else:
-        log.info(
-            "[startup] REPLIT_DEPLOYMENT != '1' — workspace dev process. "
-            "APScheduler NOT started. Health server live on port %s. "
-            "No cron jobs will fire from this process.", _HEALTH_PORT
-        )
+    # Log next run times
+    for job in sched.get_jobs():
+        log.info(f"[scheduler] job={job.id}  next={job.next_run_time}")
+
+    _write_heartbeat(True)
+    _tg(
+        f"🟢 <b>OPTIONS PIPELINE SCHEDULER STARTED</b>\n"
+        f"Stale recovered: {stale_result.get('recovered',0)}\n"
+        f"Backfill dates: {backfill_result.get('backfilled_dates',[])}\n"
+        f"Health: http://0.0.0.0:{_HEALTH_PORT}/health\n"
+        f"Jobs scheduled: seed@09:40ET, execute@09:45ET, grade@16:46ET"
+    )
 
     log.info("[startup] entering keepalive loop")
     try:
@@ -4492,8 +4490,7 @@ def main():
             time.sleep(60)
     except (KeyboardInterrupt, SystemExit):
         log.info("[shutdown] stopping")
-        if _is_gce:
-            sched.shutdown(wait=False)
+        sched.shutdown(wait=False)
 
 if __name__ == "__main__":
     main()
