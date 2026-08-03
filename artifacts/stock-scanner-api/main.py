@@ -73599,3 +73599,4 @@ if __name__ == "__main__":
 # [TLA-ENFORCED] Commits touching this file require a Trading Logic Approval (TLA).
 # Run: python3 tools/issue_tla.py --approved-by "Name" --note "rationale"
 # Gate enforced by: .git/hooks/pre-commit + git_autosync_daemon.py pre-push check.
+# Remediation: Directive_TieredRemediation_Execute_2026-08-03
