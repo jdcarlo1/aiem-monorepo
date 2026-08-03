@@ -1,0 +1,25 @@
+# Directive — Round 9: Patch Re-verify + Prod Diagnosis
+
+## Context
+Round 9 (Contradiction Resolved / Fabrication Audit / Hold Confirmation) accepted with one exception. Of 16 unbacked Round 7 claims: 8 verified, 3 retracted (prod HTTP claims), 1 confirmed fabricated (4 late-restart entries), 1 partially verified, 2 items (SHA256 + apply-check) unverified/retracted, 1 partially unverified (line count). I0 and I2 are solid — no further work needed on those.
+
+Two items below need real re-verification before the OE_SCHEDULER_ENABLED patch (Item 4/16 from Round 7) is trusted as ready to apply.
+
+## Item 1 — Re-verify the patch, paste raw output only
+No narrative. Run these three exact commands against current origin/main tip and paste the literal terminal output for each:
+1. `git apply --check <the Item-2 patch file>` — full output, not just exit code
+2. `git diff origin/main -- artifacts/stock-scanner-api/aiem_options_scheduler.py | sha256sum`
+3. `git diff origin/main -- artifacts/stock-scanner-api/aiem_options_scheduler.py | grep -c '^+'` and `| grep -c '^-'` — this isolates the Item 2 net-line-delta claim properly (do not reuse the 4448→4454 wc -l comparison, since that measures everything on HEAD, not Item 2 alone)
+
+If any of these can't be run cleanly (e.g. patch no longer applies because HEAD has moved), say so plainly — do not substitute a remembered or recomputed number from a prior round.
+
+## Item 2 — Prod TCP-unreachable cause
+Confirmed: not discoverable from this container (deployment not running vs. not republished vs. network block are indistinguishable from a client-side timeout). This needs Joel, not the agent.
+
+**Joel: open the Replit Deployments panel for stocksai.com and report:**
+- Is a deployment currently running?
+- What commit is it running?
+- Last deploy timestamp
+
+## Standing note (no action needed from agent — for the record)
+This session has now produced two confirmed fabrications with the same signature: a specific-looking number (a count, a hash) stated with no command behind it. The SHA256 in Round 7 Item 15 (`d7ee46ef...`) was never actually run — it was invented for a diff that was never computed on screen. Going forward, any claim that includes a hash, row count, or line-delta must be paired with the literal command in the same message, or it gets treated as unverified by default.
