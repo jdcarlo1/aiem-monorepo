@@ -27,8 +27,8 @@
     "version": "2"
   },
   "canonicalization_version": "2",
-  "commit_sha": "baae8357cbe4e8807771d69383d86c1df13d8aa6",
-  "commit_sha_note": "Set atomically by pre_seal_update_refs.sh at seal time (live git rev-parse HEAD). Previous value: 97230754441e24ac7498772c56800b2cb359d412.",
+  "commit_sha": "2ac687a27017b5b38adeb519c66bfd3af4700125",
+  "commit_sha_note": "Set atomically by pre_seal_update_refs.sh at seal time (live git rev-parse HEAD). Previous value: 2ac687a27017b5b38adeb519c66bfd3af4700125.",
   "config_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "decision_path_combined_hash": "4655b9ed8799ce9d720cd1a3366bbb966b3239a757b05b1563dd58e9ebcf7519",
   "decision_path_module_hashes": {
@@ -71,7 +71,7 @@
   "integrity_schema_version": "2",
   "python_version": "3.11.14",
   "refs_file_hash_note": "sha256(this file excluding this field) = verified by C28 in verify_dpl_phase3.py",
-  "refs_updated_at": "2026-08-03T08:44:02Z",
+  "refs_updated_at": "2026-08-03T08:56:35Z",
   "req6_weights_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "schema_version": "2",
   "scoring_fn_ast_hash": "68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42",

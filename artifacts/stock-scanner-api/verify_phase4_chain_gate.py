@@ -470,6 +470,8 @@ n_fail = sum(1 for r in _results if r["status"] == _FAIL)
 n_info = sum(1 for r in _results if r["status"] == _INFO)
 
 print(f"\n[{_ts()}] ===== SUMMARY =====")
+# PSV8-compatible line — post_seal_verify.sh requires a "SUMMARY:" literal
+print(f"SUMMARY: PASS={n_pass} FAIL={n_fail} INFO={n_info} TOTAL={n_pass+n_fail}")
 print(f"[{_ts()}] PASS={n_pass}  FAIL={n_fail}  INFO={n_info}  TOTAL_CHECKS={n_pass+n_fail}")
 for r in _results:
     if r["status"] == _FAIL:
