@@ -37,13 +37,13 @@ describe("Login page", () => {
 
   it("renders the AIEM brand heading and institutional subtitle", () => {
     renderLogin();
-    expect(screen.getByText("AIEM")).toBeInTheDocument();
-    expect(screen.getByText(/Institutional Terminal/i)).toBeInTheDocument();
+    expect(screen.getByText("AIEM Terminal")).toBeInTheDocument();
+    expect(screen.getByText(/INSTITUTIONAL ACCESS/i)).toBeInTheDocument();
   });
 
   it("shows password mode by default with username and password fields", () => {
     renderLogin();
-    expect(screen.getByPlaceholderText("admin")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Enter username")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("••••••••")).toBeInTheDocument();
   });
 
@@ -53,10 +53,10 @@ describe("Login page", () => {
 
     await user.click(screen.getByText("Admin Token"));
 
+    expect(screen.getByPlaceholderText("Paste token…")).toBeInTheDocument();
     expect(
-      screen.getByPlaceholderText("Enter or paste token…")
-    ).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("admin")).not.toBeInTheDocument();
+      screen.queryByPlaceholderText("Enter username")
+    ).not.toBeInTheDocument();
   });
 
   it("submit button is disabled when token field is empty in token mode", async () => {
@@ -65,7 +65,7 @@ describe("Login page", () => {
     await user.click(screen.getByText("Admin Token"));
 
     const submit = screen.getByRole("button", {
-      name: /Initialize Connection/i,
+      name: /Authenticate/i,
     });
     expect(submit).toBeDisabled();
   });
@@ -77,12 +77,10 @@ describe("Login page", () => {
 
     await user.click(screen.getByText("Admin Token"));
     await user.type(
-      screen.getByPlaceholderText("Enter or paste token…"),
+      screen.getByPlaceholderText("Paste token…"),
       "my-secret-token"
     );
-    await user.click(
-      screen.getByRole("button", { name: /Initialize Connection/i })
-    );
+    await user.click(screen.getByRole("button", { name: /Authenticate/i }));
 
     expect(setToken).toHaveBeenCalledWith("my-secret-token");
     expect(mockSetLocation).toHaveBeenCalledWith("/command");
@@ -98,11 +96,9 @@ describe("Login page", () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByPlaceholderText("admin"), "baduser");
+    await user.type(screen.getByPlaceholderText("Enter username"), "baduser");
     await user.type(screen.getByPlaceholderText("••••••••"), "badpass");
-    await user.click(
-      screen.getByRole("button", { name: /Initialize Connection/i })
-    );
+    await user.click(screen.getByRole("button", { name: /Sign In/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/Invalid credentials/i)).toBeInTheDocument();
@@ -119,11 +115,9 @@ describe("Login page", () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByPlaceholderText("admin"), "user");
+    await user.type(screen.getByPlaceholderText("Enter username"), "user");
     await user.type(screen.getByPlaceholderText("••••••••"), "pass");
-    await user.click(
-      screen.getByRole("button", { name: /Initialize Connection/i })
-    );
+    await user.click(screen.getByRole("button", { name: /Sign In/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/Too many attempts/i)).toBeInTheDocument();
@@ -138,11 +132,9 @@ describe("Login page", () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByPlaceholderText("admin"), "user");
+    await user.type(screen.getByPlaceholderText("Enter username"), "user");
     await user.type(screen.getByPlaceholderText("••••••••"), "pass");
-    await user.click(
-      screen.getByRole("button", { name: /Initialize Connection/i })
-    );
+    await user.click(screen.getByRole("button", { name: /Sign In/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/Network error/i)).toBeInTheDocument();
@@ -160,10 +152,10 @@ describe("Login page", () => {
     const user = userEvent.setup();
     renderLogin();
 
-    await user.type(screen.getByPlaceholderText("admin"), "user");
+    await user.type(screen.getByPlaceholderText("Enter username"), "user");
     await user.type(screen.getByPlaceholderText("••••••••"), "pass");
 
-    const submit = screen.getByRole("button", { name: /Initialize Connection/i });
+    const submit = screen.getByRole("button", { name: /Sign In/i });
     await user.click(submit);
 
     await waitFor(() => {
