@@ -316,6 +316,13 @@ def _bootstrap_db() -> None:
                 log.info("[bootstrap] oe_registries (Phase III Phase 1) tables ready")
             except Exception as _rb_e:
                 log.warning(f"[bootstrap] oe_registries bootstrap skipped: {_rb_e}")
+            # Phase 6 — bootstrap trigger engine tables (idempotent, non-fatal)
+            try:
+                import aiem_options_trigger_engine as _ote_boot
+                _ote_boot.bootstrap_trigger_engine(_DB_URL)
+                log.info("[bootstrap] oe_execution_plans (Phase 6 trigger engine) ready")
+            except Exception as _ote_be:
+                log.warning(f"[bootstrap] trigger_engine bootstrap skipped: {_ote_be}")
             return
         except Exception as e:
             last_exc = e
@@ -4301,6 +4308,20 @@ def main():
     sched.add_job(recover_stale_jobs,
                   CronTrigger(minute="*/5"),
                   id="stale_recovery", replace_existing=True)
+
+    # Every 5 min — Phase 6: evaluate pending execution plans + expire stale ones
+    def _check_trigger_plans_job():
+        try:
+            import aiem_options_trigger_engine as _ote
+            # snapshot_fn: Phase 7 will wire live Polygon/Tradier quotes here;
+            # Phase 6 scope is plan lifecycle (create/expire/cancel) — pass empty
+            # snapshot so evaluate_trigger falls through to expiry-only behaviour.
+            _ote.check_all_pending_plans(lambda _t: {}, _DB_URL)
+        except Exception as _ote_cj_e:
+            log.warning(f"[trigger_plans] check job error (non-fatal): {_ote_cj_e}")
+    sched.add_job(_check_trigger_plans_job,
+                  CronTrigger(minute="*/5"),
+                  id="trigger_plan_check", replace_existing=True)
 
     # ── Runtime Integrity Monitoring ─────────────────────────────────────────
 
