@@ -512,6 +512,11 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             "components":        components,
             "flags":             flags,
             "regime":            regime,
+            # Durable field for layer9_scores.xmom_zscore (Layer9 write path).
+            "xmom_zscore":       (
+                round(_safe_float(xmom_zscore, 0.0), 6)
+                if xmom_zscore is not None else None
+            ),
             "timestamp":         datetime.now(timezone.utc).isoformat(),
         }
 

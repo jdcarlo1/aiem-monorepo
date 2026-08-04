@@ -60890,6 +60890,8 @@ def _init_layer9_scores_table():
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS pca_factor1_var FLOAT",
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS stat_arb_coint_pvalue FLOAT",
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS absorption_ratio_val  FLOAT",
+                # Cross-sectional momentum z from Layer9 bg scan (PR14 item 6).
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS xmom_zscore FLOAT",
             ]:
                 try:
                     _cu.execute(_col_sql)
@@ -61125,6 +61127,14 @@ def _run_layer9_bg_scan():
 
     # Sanitise: letters only, 1-6 chars
     _universe = {t for t in _universe if t and t.isalpha() and len(t) <= 6}
+    # Optional force-universe for verification / ops (comma-separated tickers).
+    _force_raw = (os.environ.get("LAYER9_FORCE_TICKERS") or "").strip()
+    if _force_raw:
+        _universe = {
+            t.strip().upper() for t in _force_raw.split(",")
+            if t.strip() and t.strip().isalpha() and len(t.strip()) <= 6
+        }
+        print(f"[layer9_bg] LAYER9_FORCE_TICKERS override → {sorted(_universe)}")
     if not _universe:
         # Fallback: always-liquid benchmark universe so layer9 never stays empty
         # (weekends, fresh deploys, or days before the Polygon 8:35 AM scan runs)
@@ -61185,7 +61195,8 @@ def _run_layer9_bg_scan():
             with _psycopg2.connect(_DB_URL, connect_timeout=5,
                                    options="-c statement_timeout=12000") as _fbc,                  _fbc.cursor() as _fbcu:
                 _fbcu.execute("""
-                    SELECT ticker, scan_date, open, high, low, close, volume
+                    SELECT ticker, scan_date, open_price, high_price, low_price,
+                           close_price, volume
                     FROM polygon_market_daily
                     WHERE ticker = ANY(%s)
                       AND scan_date >= CURRENT_DATE - INTERVAL '180 days'
@@ -61415,6 +61426,10 @@ def _run_layer9_bg_scan():
                     _pca1_var = _pca_var_by_ticker.get(_t)
                     _sarb_c   = _comps.get("stat_arb_cointegration", {})
                     _ar_c     = _comps.get("absorption_ratio", {})
+                    _xmom_c   = _comps.get("cross_sectional_momentum", {})
+                    _xmom_val = _res.get("xmom_zscore")
+                    if _xmom_val is None and _xmom_c.get("raw") is not None:
+                        _xmom_val = _xmom_c.get("raw")
                     _cu.execute("""
                         INSERT INTO layer9_scores
                             (ticker, computed_at, scan_date,
@@ -61423,8 +61438,9 @@ def _run_layer9_bg_scan():
                              entropy_score, tail_score, vrp_score, amihud_score,
                              cs_spread_raw, rnd_skew, rnd_available, pca_factor1_var,
                              stat_arb_coint_pvalue, absorption_ratio_val,
+                             xmom_zscore,
                              error)
-                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (ticker, scan_date) DO UPDATE SET
                             computed_at           = EXCLUDED.computed_at,
                             statistical_score     = EXCLUDED.statistical_score,
@@ -61442,6 +61458,7 @@ def _run_layer9_bg_scan():
                             pca_factor1_var       = EXCLUDED.pca_factor1_var,
                             stat_arb_coint_pvalue = EXCLUDED.stat_arb_coint_pvalue,
                             absorption_ratio_val  = EXCLUDED.absorption_ratio_val,
+                            xmom_zscore           = EXCLUDED.xmom_zscore,
                             error                 = EXCLUDED.error
                     """, (
                         _t, _today,
@@ -61460,6 +61477,7 @@ def _run_layer9_bg_scan():
                         _pca1_var,
                         float(_sarb_c.get("raw_coint_pvalue"))           if _sarb_c.get("raw_coint_pvalue") is not None else None,
                         float(_ar_c.get("raw"))                          if _ar_c.get("raw") is not None else None,
+                        float(_xmom_val) if _xmom_val is not None else None,
                         _err_val,
                     ))
                     if _err_val:
