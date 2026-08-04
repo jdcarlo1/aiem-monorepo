@@ -164,6 +164,73 @@ _REQ6_SCORING_WEIGHTS = {
     "D12_historical_performance":    0.02,
 }
 
+
+def _d12_historical_performance_score(direction: str) -> int:
+    """Win-rate score from graded oe_trade_records (last 90d). Fail-open to 50.
+
+    Prefer direction-specific sample when n >= 10; otherwise use overall.
+    Neutral 50 when n < 5 or any DB/query failure.
+    Win = return_pct > 0 when present, else realized_pnl > 0.
+    Score = win-rate percentage (0-100).
+    """
+    db_url = _DB_URL or os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        return 50
+    dir_u = (direction or "").strip().upper()
+    # Map CALL/PUT onto common direction labels stored on oe_trade_records
+    if dir_u in ("CALL", "LONG_CALL", "BULLISH"):
+        dir_aliases = ("CALL", "LONG_CALL", "BULLISH")
+    elif dir_u in ("PUT", "LONG_PUT", "BEARISH"):
+        dir_aliases = ("PUT", "LONG_PUT", "BEARISH")
+    else:
+        dir_aliases = (dir_u,) if dir_u else ()
+
+    def _query_wr(cur, use_direction: bool):
+        sql = """
+            SELECT
+                COUNT(*)::int AS n,
+                COUNT(*) FILTER (
+                    WHERE CASE
+                        WHEN return_pct IS NOT NULL THEN return_pct > 0
+                        WHEN realized_pnl IS NOT NULL THEN realized_pnl > 0
+                        ELSE FALSE
+                    END
+                )::int AS wins
+            FROM oe_trade_records
+            WHERE exit_ts IS NOT NULL
+              AND (return_pct IS NOT NULL OR realized_pnl IS NOT NULL)
+              AND COALESCE(exit_ts, created_at, entry_ts) >= NOW() - INTERVAL '90 days'
+        """
+        params = []
+        if use_direction and dir_aliases:
+            placeholders = ",".join(["%s"] * len(dir_aliases))
+            sql += f" AND UPPER(COALESCE(direction, '')) IN ({placeholders})"
+            params.extend(dir_aliases)
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        if not row:
+            return 0, 0
+        return int(row[0] or 0), int(row[1] or 0)
+
+    try:
+        with psycopg2.connect(
+            db_url,
+            connect_timeout=3,
+            options="-c statement_timeout=2000",
+        ) as conn, conn.cursor() as cur:
+            n, wins = 0, 0
+            if dir_aliases:
+                n, wins = _query_wr(cur, use_direction=True)
+            if n < 10:
+                n, wins = _query_wr(cur, use_direction=False)
+            if n < 5:
+                return 50
+            wr_pct = (wins / n) * 100.0
+            return max(0, min(100, int(round(wr_pct))))
+    except Exception:
+        return 50
+
+
 def compute_req6_score(
     contract_data: dict,
     direction: str,         # "CALL" or "PUT"
@@ -187,7 +254,7 @@ def compute_req6_score(
       D9  market_regime_fit         (GEX regime × direction alignment)
       D10 technical_confirmation    (VWAP, close_strength, close vs open)
       D11 options_flow_confirmation (IV skew × term structure alignment)
-      D12 historical_performance    (placeholder — returns 50 for neutral)
+      D12 historical_performance    (graded oe_trade_records win-rate; 50 if n<5)
     """
     scores = {}
 
@@ -309,7 +376,7 @@ def compute_req6_score(
     scores["D11_options_flow_confirmation"] = max(0, min(100, 60 + skew_bonus + iv_penalty + iv_rank_penalty))
 
     # ── D12: Historical performance ────────────────────────────────────────────
-    scores["D12_historical_performance"] = 50   # neutral — no historical win rate yet
+    scores["D12_historical_performance"] = _d12_historical_performance_score(direction)
 
     # ── Final 0-100 score (weighted average) ──────────────────────────────────
     weights = _REQ6_SCORING_WEIGHTS

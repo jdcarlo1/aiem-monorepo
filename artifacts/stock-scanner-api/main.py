@@ -8196,7 +8196,8 @@ try:
             _CT_aiem(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
             id="signal_bridge_daily", replace_existing=True,
         )
-        # Auto-retire decaying signals: every Sunday 6 PM ET (before Loop A research)
+        # Recommend retire for decaying signals: every Sunday 6 PM ET (before Loop A research).
+        # Recommends only — Module 4 human gate applies status changes.
         _scheduler.add_job(
             lambda: (record_job_success("aiem_auto_retire")
                      if not _mkt_auto_retire_decaying_discoveries().get("status") == "error"
@@ -36634,10 +36635,10 @@ def _mkt_classify_vix_regime(vix_value):
 # ── Enhancement #8: Automated decay-based auto-retirement ─────────────────────
 def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30,
                                            historical_days=90):
-    """Weekly scheduled job: re-test every validated discovery\'s recent edge vs
-    historical edge. Auto-demote to \'retired\' if decayed past threshold. This is the
-    mechanism that makes the system actually improve over time - not just accumulate
-    stale signals."""
+    """Weekly scheduled job: re-test every validated discovery's recent edge vs
+    historical edge. Recommends retirement candidates for Module 4 human review
+    when decayed past threshold — does NOT flip status itself. Module 4 human
+    gate applies status changes."""
     import psycopg2 as _pg_ar, json as _j_ar
     try:
         with _pg_ar.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
@@ -36652,12 +36653,12 @@ def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30
             all_dates = [str(r[0]) for r in cur.fetchall()]
 
         if len(all_dates) < recent_days + 5:
-            return {"status": "ok", "checked": 0, "retired": 0,
+            return {"status": "ok", "checked": 0, "recommended": 0, "candidates": [],
                     "note": "Not enough date history yet"}
 
         recent_dates = all_dates[:recent_days]
         hist_dates = all_dates[recent_days:historical_days]
-        retired = 0
+        candidates = []
 
         for disc_id, cond_json in discoveries:
             try:
@@ -36681,18 +36682,48 @@ def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30
 
                 drift = hist_res.get("edge_winrate", 0) - recent_res.get("edge_winrate", 0)
                 if drift > decay_threshold_pp:
+                    note = (f" [RETIRE-RECOMMEND: edge decayed {drift:.1f}pp"
+                            f" — Module 4 human review required]")
                     with _pg_ar.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
                         cur.execute(
-                            "UPDATE aiem_signal_discoveries SET status=\'retired\', "
-                            "notes = COALESCE(notes,\'\') || %s WHERE id=%s",
-                            (f" [AUTO-RETIRED: edge decayed {drift:.1f}pp]", disc_id),
+                            "UPDATE aiem_signal_discoveries SET "
+                            "notes = COALESCE(notes,\'\') || %s WHERE id=%s "
+                            "AND status=\'validated\'",
+                            (note, disc_id),
                         )
-                    retired += 1
-                    print(f"[auto_retire] discovery #{disc_id} retired - decayed {drift:.1f}pp")
+                    candidates.append({
+                        "discovery_id": disc_id,
+                        "drift_pp": round(float(drift), 1),
+                        "recent_edge": recent_res.get("edge_winrate"),
+                        "hist_edge": hist_res.get("edge_winrate"),
+                    })
+                    print(f"[auto_retire] discovery #{disc_id} recommended for retirement "
+                          f"- decayed {drift:.1f}pp (status unchanged; Module 4 gate)")
             except Exception as _e_ar:
                 print(f"[auto_retire] error on #{disc_id}: {_e_ar}")
 
-        return {"status": "ok", "checked": len(discoveries), "retired": retired}
+        if candidates:
+            lines = [
+                "⚠️ <b>RETIRE RECOMMENDATIONS</b> (Module 4 human review)",
+                f"Candidates: {len(candidates)} — status NOT changed",
+            ]
+            for c in candidates[:25]:
+                lines.append(
+                    f"#{c['discovery_id']}: decayed {c['drift_pp']}pp "
+                    f"(hist={c.get('hist_edge')}, recent={c.get('recent_edge')})"
+                )
+            msg = "\n".join(lines)
+            try:
+                _tg_send(msg, signal_source="auto_retire_recommend", alert_class="INFO")
+            except Exception as _tg_e:
+                print(f"[auto_retire] telegram notify failed: {_tg_e}\n{msg}")
+
+        return {
+            "status": "ok",
+            "checked": len(discoveries),
+            "recommended": len(candidates),
+            "candidates": candidates,
+        }
     except Exception as _e:
         return {"status": "error", "error": str(_e)}
 
@@ -72942,6 +72973,54 @@ def admin_governance_decisions():
         if "does not exist" in str(_e):
             return jsonify({"count": 0, "limit": limit, "rows": [],
                             "elapsed_ms": round((_time_gd.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/governance-modes", methods=["GET"])
+def admin_governance_modes():
+    """Return d3_checkpoint_config checkpoint → mode (SHADOW/ENFORCE/OFF) map."""
+    import hmac as _hmac_gm
+    import psycopg2 as _pg_gm, os as _os_gm, time as _time_gm
+
+    _t0 = _time_gm.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_gm.compare_digest(tok, _os_gm.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        with _pg_gm.connect(_os_gm.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT checkpoint, mode, updated_by, updated_at, note
+                    FROM d3_checkpoint_config
+                    ORDER BY checkpoint
+                """)
+                rows = []
+                modes = {}
+                for checkpoint, mode, updated_by, updated_at, note in cur.fetchall():
+                    modes[checkpoint] = mode
+                    rows.append({
+                        "checkpoint": checkpoint,
+                        "mode": mode,
+                        "updated_by": updated_by,
+                        "updated_at": updated_at.isoformat() if updated_at is not None else None,
+                        "note": note,
+                    })
+                return jsonify({
+                    "modes": modes,
+                    "checkpoints": rows,
+                    "count": len(rows),
+                    "elapsed_ms": round((_time_gm.monotonic() - _t0) * 1000),
+                })
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({
+                "modes": {},
+                "checkpoints": [],
+                "count": 0,
+                "elapsed_ms": round((_time_gm.monotonic() - _t0) * 1000),
+            }), 200
         return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
 
 
