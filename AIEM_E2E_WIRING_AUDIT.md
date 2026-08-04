@@ -49,11 +49,11 @@ None of the **routed** pages call a missing route. All listed GET/POST paths res
 
 | Endpoint | Defined | Consumed by UI? | Status |
 |---|---|---|---|
-| `GET /stock-api/admin/paper-job-ledger` | `main.py` L72790 | smoke test only | **UNWIRED** (API ready, no page) |
-| `GET /stock-api/admin/daily-pipeline-runs` | `main.py` L72841 | smoke test only | **UNWIRED** (Options page should own this) |
-| `GET /stock-api/admin/governance-decisions` | `main.py` L72888 | smoke test only | **UNWIRED** |
-| `GET /stock-api/admin/trace-explorer` | `main.py` L73008 | **nothing** (not even smoke list) | **UNWIRED** |
-| `GET /stock-api/options/reconcile` | `main.py` L1965 | only orphan `Dashboard.tsx` | **UNWIRED** to live UI |
+| `GET /stock-api/admin/paper-job-ledger` | `main.py` | PaperTrades.tsx | **WIRED** |
+| `GET /stock-api/admin/daily-pipeline-runs` | `main.py` | Options.tsx | **WIRED** |
+| `GET /stock-api/admin/governance-decisions` | `main.py` | Decisions.tsx | **WIRED** |
+| `GET /stock-api/admin/trace-explorer` | `main.py` | **nothing** | **UNWIRED** (API ready, no page) |
+| `GET /stock-api/options/reconcile` | `main.py` | only orphan `Dashboard.tsx` | **UNWIRED** to live UI |
 | Many other admin/tooling routes (`/admin/emergency-run`, discovery-cycle, 0dte, model/*, etc.) | `main.py` | intentionally ops/API, not terminal screens | out of dashboard scope |
 
 ### Dead / stub UI controls
