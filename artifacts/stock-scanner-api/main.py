@@ -48279,6 +48279,9 @@ def _init_aiem_paper_trades_table():
             # ever run once per trade, no matter which code path (autonomous
             # MTM exit, manual/admin close, or backfill) triggers the close.
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS learning_loop_fired_at TIMESTAMPTZ")
+            # Durable close-funnel PPO outcome (Item 5 / PR14) — not audit-text only.
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS ppo_trained BOOLEAN")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS ppo_trained_at TIMESTAMPTZ")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS exit_reason TEXT")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'BULLISH'")
             _c.commit()
@@ -49774,6 +49777,8 @@ def _aiem_close_paper_trade_and_run_loop(
                     (_ppo_close_res or {}).get("trained")
                     or (_ppo_close_res or {}).get("gradient_step_completed")
                 )
+                # Durable per-trade column (not audit-text only).
+                _acll_ppo_close.persist_ppo_trained(_id, _ppo_trained_flag)
             except Exception as _ppo_close_e:
                 print(f"[closed_loop] close-funnel PPO skipped (non-fatal): {_ppo_close_e}")
 
