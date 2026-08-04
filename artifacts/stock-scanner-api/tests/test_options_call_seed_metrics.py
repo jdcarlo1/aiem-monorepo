@@ -13,8 +13,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 def test_seed_lane_limits_call_bias():
     from aiem_options_scheduler import _seed_lane_limits
 
-    assert _seed_lane_limits(6) == (3, 3)
-    assert _seed_lane_limits(5) == (3, 2)
+    assert _seed_lane_limits(15) == (10, 5)
+    assert _seed_lane_limits(8) == (5, 3)
+    assert _seed_lane_limits(6) == (4, 2)
     assert _seed_lane_limits(2) == (1, 1)
 
 

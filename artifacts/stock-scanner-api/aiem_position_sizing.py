@@ -88,6 +88,9 @@ _OVERNIGHT_HOLD_ALLOWED: Dict[str, bool] = {
     "aiem_v3_discovery":       False,
     "fear_premium_gex":        False,
     "gap_down_distribution":   False,
+    "washout_reclaim":         True,   # multi-day reclaim after capitulation
+    "momentum_continuation":   False,
+    "thrust_pullback":         False,
 }
 
 
@@ -360,6 +363,16 @@ _STOP_REGISTRY = {
 
     # gap_down_distribution: bearish gap+RVOL distribution; 8% stop
     "gap_down_distribution":   _stop_pct_below_entry(0.08, "gap_down_distribution"),
+
+    # washout_reclaim: 2d capitulation BEFORE bounce (AEHR/NBIS/MU cohort);
+    # wide 10% — washout reversals shake out early longs.
+    "washout_reclaim":         _stop_pct_below_entry(0.10, "washout_reclaim"),
+
+    # momentum_continuation: post-bounce follow-through; 8% stop
+    "momentum_continuation":   _stop_pct_below_entry(0.08, "momentum_continuation"),
+
+    # thrust_pullback: mild digests-the-move red day (ORCL class); 7% stop
+    "thrust_pullback":         _stop_pct_below_entry(0.07, "thrust_pullback"),
 }
 
 

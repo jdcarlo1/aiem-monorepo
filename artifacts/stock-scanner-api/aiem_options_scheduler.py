@@ -591,30 +591,66 @@ def recover_stale_jobs() -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Leveraged / inverse ETFs — noisy for single-name CALL selection.
-_LEVERAGED_ETF_DENYLIST = (
-    "TQQQ", "SQQQ", "UPRO", "SPXU", "SOXL", "SOXS", "TECL", "TECS",
-    "TNA", "TZA", "FAS", "FAZ", "UDOW", "SDOW", "QLD", "QID",
-    "SPXL", "SPXS", "LABU", "LABD", "DPST",
-)
+# Shared list with AIEM pre-move scanner (TQQQ allowed — explicit user target).
+try:
+    from aiem_pre_move_signals import LEVERAGED_ETF_DENYLIST as _LEVERAGED_ETF_DENYLIST
+except Exception:
+    _LEVERAGED_ETF_DENYLIST = (
+        "SQQQ", "UPRO", "SPXU", "SOXL", "SOXS", "TECL", "TECS",
+        "TNA", "TZA", "FAS", "FAZ", "UDOW", "SDOW", "QLD", "QID",
+        "SPXL", "SPXS", "LABU", "LABD", "DPST",
+    )
 
 
 def _seed_lane_limits(limit: int) -> tuple:
-    """Split daily seed budget: slight CALL bias (user ask: catch up-day bulls).
+    """Split daily seed budget: CALL-heavy (pre-move + CALL_SKEW).
 
-    limit=6 → (3 CALL, 3 PUT); limit=5 → (3 CALL, 2 PUT).
+    limit=15 → (10 CALL, 5 PUT); limit=8 → (5 CALL, 3 PUT).
     """
     limit = max(2, int(limit))
-    call_n = max(1, (limit + 1) // 2)
+    call_n = max(1, (limit * 2) // 3)  # ~2/3 CALL
     put_n = max(1, limit - call_n)
     return call_n, put_n
 
 
+def _fetch_washout_call_seed_rows(cur, call_n: int) -> list:
+    """Leading pre-move setups from PMD — wide net, not a tiny top-N."""
+    try:
+        import aiem_pre_move_signals as _pms
+        asof = _pms.latest_pmd_date(cur)
+        if not asof:
+            return []
+        # Prefer the union so washout + thrust + continuation all seed.
+        # call_n is a soft cap after ranking; pull a wide pool first.
+        setups = _pms.scan_all_pre_move(
+            cur, asof=asof,
+            washout_limit=max(call_n * 4, 40),
+            continuation_limit=max(call_n, 15),
+            thrust_limit=max(call_n, 15),
+        )[: max(call_n, 1)]
+        return [
+            (
+                s["ticker"], asof, s.get("d2_pct") or s.get("gap_pct"),
+                "PRE_MOVE", str(s.get("source", "WASHOUT")).upper(), "CALL",
+            )
+            for s in setups
+        ]
+    except Exception as _we:
+        log.warning(f"[seed] washout CALL lane failed: {_we}")
+        return []
+
+
 def _fetch_call_seed_rows(cur, oss_scan_date, call_n: int) -> list:
-    """Bullish CALL lane: morning momentum vs prior close + CALL_SKEW flow.
+    """Bullish CALL lane: washout leaders first, then OSS momentum/CALL_SKEW.
 
     Prior seed ordered only by pc_skew_pp DESC → exclusively FEAR_PREMIUM puts.
-    This lane ranks names already up on the open / with call-side skew.
+    Washout lane catches AEHR/NBIS/MU-class names days before the rip even when
+    they are absent from options_structure_scan.
     """
+    washout_n = max(2, (call_n + 1) // 2)
+    oss_n = max(1, call_n - washout_n)
+    washout_rows = _fetch_washout_call_seed_rows(cur, washout_n)
+
     cur.execute(
         """
         SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag,
@@ -648,9 +684,10 @@ def _fetch_call_seed_rows(cur, oss_scan_date, call_n: int) -> list:
           o.pc_skew_pp ASC NULLS LAST
         LIMIT %s
         """,
-        (oss_scan_date, list(_LEVERAGED_ETF_DENYLIST), call_n),
+        (oss_scan_date, list(_LEVERAGED_ETF_DENYLIST), oss_n),
     )
-    return cur.fetchall()
+    oss_rows = cur.fetchall()
+    return _merge_seed_lanes(washout_rows, oss_rows)
 
 
 def _fetch_put_seed_rows(cur, oss_scan_date, put_n: int) -> list:
@@ -689,7 +726,7 @@ def _merge_seed_lanes(call_rows: list, put_rows: list) -> list:
     return merged
 
 
-def seed_daily_candidates(scan_date: date = None, limit: int = 6) -> dict:
+def seed_daily_candidates(scan_date: date = None, limit: int = 15) -> dict:
     """
     Insert PENDING jobs for today's top options candidates.
 

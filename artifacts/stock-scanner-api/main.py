@@ -18777,6 +18777,11 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         # Gate: hypothesis_text='Short_Squeeze_Reversion' status='validated'
         # — never true in production; same unreachable-in-practice reasoning.
         "squeeze_reversion",
+        # EOD PMD leading indicators (washout before bounce / post-bounce cont).
+        # Snapshot as of latest polygon_market_daily — pass-through at open.
+        "washout_reclaim",
+        "momentum_continuation",
+        "thrust_pullback",
     }
 
     # ── 6. DB-backed source metadata ──────────────────────────────────────
@@ -48261,6 +48266,38 @@ def _aiem_paper_pick_candidates(
                 _score = 5.0 + 4.0 * _score_raw / (_score_raw + 50.0) if _score_raw > 0 else 5.0
                 _add(_t, _score, "STOCK", "gap_volume",
                      f"gap={_gp:.1f}% rvol={_rv:.1f}x")
+
+            # ── 4b. Washout reclaim (LEADING — day BEFORE the rip) ────────────
+            # Empirical: AEHR/AXTI/NBIS/IREN/MU/WOLF/… on 2026-07-29 showed
+            # 2d drawdown + capitulation CS + elevated RVOL, then +10–30% Jul 30.
+            # Seeds CALL_OPTION so options path and stock path both see them.
+            try:
+                import aiem_pre_move_signals as _pms
+                _asof_wr = _pms.latest_pmd_date(_cu)
+                if _asof_wr:
+                    # Wide net: queue every qualifying pre-move name (AIEM
+                    # ranking/gates still decide what actually trades).
+                    for _wr in _pms.scan_washout_reclaim(_cu, asof=_asof_wr, limit=500):
+                        _add(
+                            _wr["ticker"], float(_wr["score"]),
+                            "CALL_OPTION", "washout_reclaim",
+                            _wr["detail"], direction="BULLISH",
+                        )
+                    for _mc in _pms.scan_momentum_continuation(_cu, asof=_asof_wr, limit=50):
+                        _add(
+                            _mc["ticker"], float(_mc["score"]),
+                            "CALL_OPTION", "momentum_continuation",
+                            _mc["detail"], direction="BULLISH",
+                        )
+                    for _tp in _pms.scan_thrust_pullback(_cu, asof=_asof_wr, limit=40):
+                        _add(
+                            _tp["ticker"], float(_tp["score"]),
+                            "CALL_OPTION", "thrust_pullback",
+                            _tp["detail"], direction="BULLISH",
+                        )
+                    print(f"[aiem_paper] pre_move wide-net asof={_asof_wr}")
+            except Exception as _wre:
+                print(f"[aiem_paper] washout_reclaim source skipped: {_wre}")
 
             # ── 5. Recent AIEM AI trade picks (high conviction) ───────────────
             _cu.execute("""
