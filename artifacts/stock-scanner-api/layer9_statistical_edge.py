@@ -40,10 +40,136 @@ try:
         variance_risk_premium,
         risk_neutral_density,
         absorption_ratio as _absorption_ratio_fn,
+        pca_factor_decomposition,
+        cross_sectional_momentum_zscore,
+        skew_velocity,
     )
     _INDICATORS_AVAILABLE = True
 except ImportError:
     _INDICATORS_AVAILABLE = False
+    pca_factor_decomposition = None  # type: ignore
+    cross_sectional_momentum_zscore = None  # type: ignore
+    skew_velocity = None  # type: ignore
+    _absorption_ratio_fn = None  # type: ignore
+
+
+def compute_cross_sectional_inputs(returns_matrix: "pd.DataFrame") -> dict:
+    """
+    Single source of truth for cross-sectional Layer9 inputs.
+    Calls advanced_quant_indicators: pca_factor_decomposition, absorption_ratio,
+    cross_sectional_momentum_zscore. Used by bg scan and orchestrator path.
+    """
+    out = {
+        "pca_factor1_var": None,
+        "absorption_ratio_val": None,
+        "xmom_zscore_map": {},
+        "error": None,
+    }
+    if not _INDICATORS_AVAILABLE or returns_matrix is None or returns_matrix.empty:
+        out["error"] = "indicators_unavailable_or_empty_matrix"
+        return out
+    try:
+        pca_result = pca_factor_decomposition(returns_matrix)
+        evr = pca_result.get("explained_variance_ratio")
+        if evr is not None and len(evr) > 0:
+            out["pca_factor1_var"] = float(evr[0])
+    except Exception as exc:
+        out["error"] = f"pca:{exc}"
+    try:
+        out["absorption_ratio_val"] = float(_absorption_ratio_fn(returns_matrix))
+    except Exception as exc:
+        out["error"] = ((out.get("error") or "") + f" absorption:{exc}").strip()
+    try:
+        xmom_df = cross_sectional_momentum_zscore(returns_matrix, lookback=21)
+        for col in xmom_df.columns:
+            series = xmom_df[col].dropna()
+            if len(series):
+                out["xmom_zscore_map"][col] = float(series.iloc[-1])
+    except Exception as exc:
+        out["error"] = ((out.get("error") or "") + f" xmom:{exc}").strip()
+    return out
+
+
+def load_cross_sectional_from_db(
+    ticker: str,
+    db_url: str,
+    peer_limit: int = 40,
+    lookback_days: int = 80,
+) -> dict:
+    """Build peer returns matrix from polygon_market_daily and compute CS inputs."""
+    empty = {
+        "pca_factor1_var": None,
+        "absorption_ratio_val": None,
+        "xmom_zscore": None,
+        "xmom_zscore_map": {},
+        "error": None,
+    }
+    if not db_url:
+        empty["error"] = "no_db_url"
+        return empty
+    try:
+        import psycopg2
+        with psycopg2.connect(db_url, connect_timeout=6) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ticker FROM layer9_scores
+                WHERE computed_at >= NOW() - INTERVAL '48 hours'
+                ORDER BY computed_at DESC LIMIT %s
+                """,
+                (peer_limit,),
+            )
+            peers = [r[0] for r in cur.fetchall()]
+            if ticker.upper() not in peers:
+                peers = [ticker.upper()] + peers
+            peers = list(dict.fromkeys(peers))[:peer_limit]
+            if len(peers) < 3:
+                # Fall back to mega-cap peers so CS calcs can still run.
+                peers = list(dict.fromkeys(
+                    [ticker.upper(), "SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL"]
+                ))
+            cur.execute(
+                """
+                SELECT ticker, scan_date, close_price
+                FROM polygon_market_daily
+                WHERE ticker = ANY(%s)
+                  AND scan_date >= CURRENT_DATE - %s
+                  AND close_price IS NOT NULL
+                ORDER BY ticker, scan_date
+                """,
+                (peers, lookback_days),
+            )
+            rows = cur.fetchall()
+        series = {}
+        for t, _sd, px in rows:
+            series.setdefault(t, []).append(float(px))
+        ret = {}
+        for t, closes in series.items():
+            if len(closes) < 25:
+                continue
+            s = pd.Series(closes).pct_change().dropna()
+            if len(s) >= 20:
+                ret[t] = s.reset_index(drop=True)
+        if len(ret) < 3:
+            empty["error"] = f"insufficient_peers n={len(ret)}"
+            return empty
+        ret_df = pd.DataFrame(ret).dropna(how="any")
+        if len(ret_df) < 10:
+            empty["error"] = f"aligned_matrix_too_short n={len(ret_df)}"
+            return empty
+        cs = compute_cross_sectional_inputs(ret_df)
+        empty.update({
+            "pca_factor1_var": cs.get("pca_factor1_var"),
+            "absorption_ratio_val": cs.get("absorption_ratio_val"),
+            "xmom_zscore_map": cs.get("xmom_zscore_map") or {},
+            "xmom_zscore": (cs.get("xmom_zscore_map") or {}).get(ticker.upper()),
+            "error": cs.get("error"),
+            "n_peers": len(ret_df.columns),
+            "n_bars": len(ret_df),
+        })
+        return empty
+    except Exception as exc:
+        empty["error"] = str(exc)
+        return empty
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -380,10 +506,11 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
         # BACKFILL LAG: first usable after ≥5 days of daily pc_skew_pp rows for
         # this ticker exist in options_structure_scan. Data accumulates from the
         # nightly options structure scan. Column set = options_structure_scan.pc_skew_pp.
-        if db_url:
+        # skew_velocity: value from advanced_quant_indicators.skew_velocity (module import).
+        # Local code only fetches pc_skew_pp history + maps velocity → 0-100 score.
+        if db_url and skew_velocity is not None:
             try:
                 import psycopg2 as _sv_pg
-                from advanced_quant_indicators import skew_velocity as _sv_fn
                 with _sv_pg.connect(db_url, connect_timeout=3) as _svc, _svc.cursor() as _svcu:
                     _svcu.execute("""
                         SELECT pc_skew_pp FROM options_structure_scan
@@ -393,7 +520,7 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                     _sv_rows = [float(r[0]) for r in _svcu.fetchall()]
                 if len(_sv_rows) >= 5:
                     _sv_series = pd.Series(list(reversed(_sv_rows)))  # oldest→newest
-                    _sv_val = float(_sv_fn(_sv_series, window=5).iloc[-1])
+                    _sv_val = float(skew_velocity(_sv_series, window=5).iloc[-1])
                     flags["skew_velocity"] = round(_sv_val, 5)
                     _sv_score = min(100.0, max(0.0, 50.0 - _sv_val * 2000.0))
                     components["skew_velocity"] = {
@@ -425,17 +552,23 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                 "note": "Engle-Granger p-value from stat_arb_pairs; <0.05→+4, <0.15→+2, else 0",
             }
 
-        # ── 12. PCA factor1 variance (cross-sectional, passed in pre-computed) ──
-        # Source: advanced_quant_indicators.pca_factor_decomposition(returns_matrix)
-        # called in _run_layer9_bg_scan BEFORE batch_layer9_scores so the value is
-        # available at score time (not post-hoc). Cross-sectional: same value for
-        # all tickers in the batch.
-        # pca_factor1_var ∈ [0,1]: fraction of cross-sectional return variance
-        # explained by the first principal component.
-        # Named weight: bounded ±4-point adjustment.
-        #   >=0.60 → -4  (one factor dominates: systemic risk, low idiosyncratic edge)
-        #   <0.35  → +4  (low PC1 share: stock-picker's market)
-        #   else   →  0
+        # ── 12–14. Cross-sectional: PCA / absorption / xmom ─────────────
+        # Prefer caller-supplied values (batch path). If missing and db_url is
+        # set, compute via compute_cross_sectional_inputs → advanced_quant
+        # (pca_factor_decomposition, _absorption_ratio_fn, cross_sectional_momentum_zscore).
+        _cs_meta = None
+        if (
+            (pca_factor1_var is None or absorption_ratio_val is None or xmom_zscore is None)
+            and db_url
+        ):
+            _cs_meta = load_cross_sectional_from_db(ticker, db_url)
+            if pca_factor1_var is None:
+                pca_factor1_var = _cs_meta.get("pca_factor1_var")
+            if absorption_ratio_val is None:
+                absorption_ratio_val = _cs_meta.get("absorption_ratio_val")
+            if xmom_zscore is None:
+                xmom_zscore = _cs_meta.get("xmom_zscore")
+
         pca_adjustment = 0.0
         if pca_factor1_var is not None:
             _pca = _safe_float(pca_factor1_var, 0.5)
@@ -446,19 +579,10 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             components["pca_factor1"] = {
                 "raw":        round(_pca, 4),
                 "adjustment": pca_adjustment,
-                "note": "cross-sectional PC1 variance share; >=0.60→-4, <0.35→+4, else 0",
+                "note": "pca_factor_decomposition; >=0.60→-4, <0.35→+4, else 0",
+                "source": "passed_in" if _cs_meta is None else "load_cross_sectional_from_db",
             }
 
-        # ── 13. Absorption Ratio (Kritzman et al., via _absorption_ratio_fn) ──
-        # Source: advanced_quant_indicators.absorption_ratio(returns_matrix) called
-        # in _run_layer9_bg_scan alongside PCA BEFORE batch_layer9_scores. The
-        # import _absorption_ratio_fn is declared at module level above so this
-        # module owns the dependency even though the value is passed pre-computed.
-        # Fraction of total cross-sectional variance in top N principal components.
-        # Named weight: bounded ±5-point adjustment (same scale as RND).
-        #   >0.75 → -5  (highly correlated/fragile: idiosyncratic edges overrun)
-        #   <0.35 → +5  (idiosyncratic market: stock-picking environment)
-        #   else  →  0
         absorption_adjustment = 0.0
         if absorption_ratio_val is not None:
             _ar = _safe_float(absorption_ratio_val, 0.5)
@@ -469,15 +593,10 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             components["absorption_ratio"] = {
                 "raw":        round(_ar, 4),
                 "adjustment": absorption_adjustment,
-                "note": "Kritzman absorption ratio; >0.75→-5, <0.35→+5, else 0",
+                "note": "advanced_quant_indicators.absorption_ratio via _absorption_ratio_fn",
+                "source": "passed_in" if _cs_meta is None else "load_cross_sectional_from_db",
             }
 
-        # ── 14. Cross-sectional momentum z-score (passed in from batch) ──
-        # Source: advanced_quant_indicators.cross_sectional_momentum_zscore
-        # computed once per bg_scan over the aligned returns matrix.
-        #   z >  1.0 → +4 (relative strength vs peers)
-        #   z < -1.0 → -4 (relative weakness)
-        #   else     →  0
         xmom_adjustment = 0.0
         if xmom_zscore is not None:
             _xz = _safe_float(xmom_zscore, 0.0)
@@ -489,7 +608,10 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                 "raw":        round(_xz, 4),
                 "adjustment": xmom_adjustment,
                 "note": "cross_sectional_momentum_zscore; >1→+4, <-1→-4, else 0",
+                "source": "passed_in" if _cs_meta is None else "load_cross_sectional_from_db",
             }
+        if _cs_meta and _cs_meta.get("error"):
+            flags["cross_sectional_error"] = str(_cs_meta["error"])[:200]
 
         # ── Compute weighted final score ─────────────────────────────
         weight_sum  = sum(weights.values())

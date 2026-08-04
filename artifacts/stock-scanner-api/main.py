@@ -61322,19 +61322,14 @@ def _run_layer9_bg_scan():
         print(f"[layer9_bg] GARCH persistence block skipped: {_ge}")
 
     # ── 3c. Cross-sectional PCA + Absorption Ratio (run BEFORE batch_layer9_scores) ──
-    # Both signals are cross-sectional: one value per batch, passed INTO the scoring
-    # function so they affect statistical_score at compute time, not post-hoc.
-    # Reorder reason: pca_factor_decomposition and absorption_ratio both need the full
-    # aligned returns matrix (all tickers × days) which is already built here.
+    # Single source of truth: layer9_statistical_edge.compute_cross_sectional_inputs
+    # → advanced_quant_indicators (pca / absorption_ratio / xmom). No inline reimplementation.
     _pca_factor1_var_scalar:   "float | None" = None   # same for all tickers in batch
     _absorption_ratio_scalar:  "float | None" = None   # same for all tickers in batch
     _pca_var_by_ticker: dict = {}                       # kept for upsert column write
     _xmom_zscore_map: dict = {}                         # per-ticker cross-sectional mom z
     try:
-        from advanced_quant_indicators import (
-            pca_factor_decomposition as _pca_fn,
-            absorption_ratio as _ar_fn,
-        )
+        from layer9_statistical_edge import compute_cross_sectional_inputs as _l9_cs_fn
         _ret_series = {}
         for _pt, _pdf in _histories.items():
             _c_col = "close" if "close" in _pdf.columns else ("Close" if "Close" in _pdf.columns else None)
@@ -61344,34 +61339,21 @@ def _run_layer9_bg_scan():
             import pandas as _l9pd_pca
             _ret_df = _l9pd_pca.DataFrame(_ret_series).dropna(how="any")
             if len(_ret_df) >= 10:
-                # PCA — PC1 variance fraction
-                _pca_result  = _pca_fn(_ret_df)
-                _factor1_var = _pca_result.get("explained_variance_ratio", [None])[0]
-                if _factor1_var is not None:
-                    _pca_factor1_var_scalar = float(_factor1_var)
+                _cs = _l9_cs_fn(_ret_df)
+                if _cs.get("pca_factor1_var") is not None:
+                    _pca_factor1_var_scalar = float(_cs["pca_factor1_var"])
                     for _pt in _ret_series:
                         _pca_var_by_ticker[_pt] = _pca_factor1_var_scalar
-                    print(f"[layer9_bg] PCA factor1 variance={_factor1_var:.4f} ({len(_ret_series)} tickers)")
-                # Absorption Ratio — Kritzman systemic risk measure (same matrix)
-                try:
-                    _absorption_ratio_scalar = float(_ar_fn(_ret_df))
+                    print(f"[layer9_bg] PCA factor1 variance={_pca_factor1_var_scalar:.4f} ({len(_ret_series)} tickers)")
+                if _cs.get("absorption_ratio_val") is not None:
+                    _absorption_ratio_scalar = float(_cs["absorption_ratio_val"])
                     print(f"[layer9_bg] absorption_ratio={_absorption_ratio_scalar:.4f} ({len(_ret_series)} tickers)")
-                except Exception as _are:
-                    print(f"[layer9_bg] absorption_ratio failed: {_are}")
-                # Cross-sectional momentum z-score (per ticker, latest bar)
-                try:
-                    from advanced_quant_indicators import (
-                        cross_sectional_momentum_zscore as _xmom_fn,
-                    )
-                    _xmom_df = _xmom_fn(_ret_df, lookback=21)
-                    for _xt in _xmom_df.columns:
-                        _xs = _xmom_df[_xt].dropna()
-                        if len(_xs):
-                            _xmom_zscore_map[_xt] = float(_xs.iloc[-1])
+                _xmom_zscore_map = dict(_cs.get("xmom_zscore_map") or {})
+                if _xmom_zscore_map:
                     print(f"[layer9_bg] cross_sectional_momentum z-scores for "
                           f"{len(_xmom_zscore_map)} tickers")
-                except Exception as _xme:
-                    print(f"[layer9_bg] cross_sectional_momentum failed: {_xme}")
+                if _cs.get("error"):
+                    print(f"[layer9_bg] compute_cross_sectional_inputs note: {_cs['error']}")
     except Exception as _pca_e:
         print(f"[layer9_bg] PCA/absorption computation skipped: {_pca_e}")
 

@@ -357,6 +357,24 @@ class AEIMMasterOrchestrator:
             "output_keys": list((output or {}).keys()),
             "output":      output or {},
         })
+        # Durable flush — aiem_diagnostics + aiem_pipeline (Part C)
+        try:
+            import aiem_stage_diagnostics as _asd
+            _asd.persist_stage(
+                trace_id=packet.packet_id,
+                ticker=packet.ticker,
+                stage_name=module,
+                module_name=module,
+                status=status,
+                payload={
+                    "output_keys": list((output or {}).keys()),
+                    "output": output or {},
+                    "handler": f"_h_{module}" if hasattr(self, f"_h_{module}") else module,
+                    "source_file": AEIM_MODULES.get(module),
+                },
+            )
+        except Exception as _pe:
+            print(f"[orchestrator] durable persist failed ({module}): {_pe}")
 
     def _run(self, packet: AEIMTradePacket, module: str,
              handler: Callable[[AEIMTradePacket], Dict]) -> Dict:
@@ -486,7 +504,7 @@ class AEIMMasterOrchestrator:
                 FROM polygon_market_daily
                 WHERE ticker = %s
                 ORDER BY scan_date DESC
-                LIMIT 120
+                LIMIT 320
             """, (packet.ticker,))
             rows = [dict(r) for r in cur.fetchall()]
             conn.close()
@@ -934,32 +952,56 @@ class AEIMMasterOrchestrator:
         return result or {"status": "no_signal"}
 
     def _h_selloff_reversion(self, packet: AEIMTradePacket) -> Dict:
-        closes = packet.market_data.get("closes", [])
-        highs  = packet.market_data.get("highs",  [])
-        lows   = packet.market_data.get("lows",   [])
-        if len(closes) >= 10:
-            result = {
-                "atr_pct":  self._sr._atr_pct(highs, lows, closes) if hasattr(self._sr, "_atr_pct") else None,
-                "rsi":      self._sr._rsi(closes) if hasattr(self._sr, "_rsi") else None,
-                "sma20":    self._sr._sma(closes, 20) if hasattr(self._sr, "_sma") else None,
-                "status":   "computed",
-            }
-        else:
-            result = {"status": "insufficient_data", "bars": len(closes)}
-        packet.technical["selloff_reversion"] = result
-        return result
+        # market_data is newest-first; compute_signal expects chronological ascending
+        closes  = list(reversed(packet.market_data.get("closes",  []) or []))
+        highs   = list(reversed(packet.market_data.get("highs",   []) or []))
+        lows    = list(reversed(packet.market_data.get("lows",    []) or []))
+        volumes = list(reversed(packet.market_data.get("volumes", []) or []))
+        raw_dates = list(reversed(packet.market_data.get("dates", []) or []))
+        dates = []
+        for d in raw_dates:
+            if hasattr(d, "year"):
+                dates.append(d)
+            else:
+                try:
+                    dates.append(date.fromisoformat(str(d)[:10]))
+                except Exception:
+                    dates.append(d)
+        if len(closes) < 210:
+            result = {"status": "insufficient_data", "bars": len(closes), "min_required": 210}
+            packet.technical["selloff_reversion"] = result
+            return result
+        conn = _db_conn()
+        cur  = conn.cursor()
+        try:
+            result = self._sr.compute_signal(
+                ticker=packet.ticker,
+                closes=closes,
+                highs=highs,
+                lows=lows,
+                volumes=volumes,
+                dates=dates,
+                cur=cur,
+                conn=conn,
+            )
+        except Exception as exc:
+            result = {"status": "error", "error": str(exc)}
+        finally:
+            try: conn.close()
+            except Exception: pass
+        packet.technical["selloff_reversion"] = result or {"status": "no_signal"}
+        return result or {"status": "no_signal"}
 
     def _h_short_squeeze(self, packet: AEIMTradePacket) -> Dict:
         conn = _db_conn()
         cur  = conn.cursor()
-        si   = self._sq._get_si_for_signal(packet.ticker, date.today(), cur)
-        conn.close()
-        out  = {
-            "short_interest": si,
-            "si_pct":         si.get("short_pct_float") if si else None,
-            "dtc":            si.get("days_to_cover")   if si else None,
-            "data_available": si is not None,
-        }
+        try:
+            out = self._sq.compute_signal(packet.ticker, cur=cur, conn=conn)
+        except Exception as exc:
+            out = {"status": "error", "error": str(exc)}
+        finally:
+            try: conn.close()
+            except Exception: pass
         packet.technical["short_squeeze"] = out
         return out
 
@@ -1129,68 +1171,108 @@ class AEIMMasterOrchestrator:
         return result
 
     def _h_intraday_continuation(self, packet: AEIMTradePacket) -> Dict:
-        """Wire daily OHLCV proxy features + live RF model when promoted."""
+        """Real module path: self._ic.compute_intraday_features + scan_end_of_day_candidates."""
+        import pandas as pd
         rows = packet.market_data.get("rows", [])
-        closes = packet.market_data.get("closes", [])
-        highs  = packet.market_data.get("highs", [])
-        lows   = packet.market_data.get("lows", [])
-        opens  = packet.market_data.get("opens", [])
-        volumes = packet.market_data.get("volumes", [])
+        closes = packet.market_data.get("closes", []) or []
+        highs = packet.market_data.get("highs", []) or []
+        lows = packet.market_data.get("lows", []) or []
+        volumes = packet.market_data.get("volumes", []) or []
         out: Dict[str, Any] = {
             "module": "intraday_continuation_scanner",
-            "entry_point": "scan_end_of_day_candidates / get_live_intraday_model",
-            "mode": "daily_proxy",
+            "entry_point": "intraday_continuation_scanner.compute_intraday_features",
+            "mode": "module_compute_intraday_features",
         }
-        if len(closes) >= 5 and len(highs) >= 1 and len(lows) >= 1:
-            h, l, c = float(highs[0]), float(lows[0]), float(closes[0])
-            o = float(opens[0]) if opens else c
-            prev = float(closes[1]) if len(closes) > 1 else c
-            day_range = h - l
-            close_pos = ((c - l) / day_range) if day_range > 0 else 0.5
-            hl_count = 0
-            for i in range(min(4, len(lows) - 1)):
-                if float(lows[i]) > float(lows[i + 1]):
-                    hl_count += 1
-            avg_vol = (sum(float(v) for v in volumes[:30]) / max(1, min(30, len(volumes)))) if volumes else 1.0
-            rel_vol = (float(volumes[0]) / avg_vol) if volumes and avg_vol > 0 else 1.0
-            gap_pct = ((o - prev) / prev * 100.0) if prev else 0.0
-            day_ret = ((c - prev) / prev * 100.0) if prev else 0.0
-            features = {
-                "close_position_in_range": round(close_pos, 4),
-                "afternoon_morning_volume_ratio": 1.0,
-                "higher_lows_count": hl_count,
-                "closing_range_trend_3day": 0.0,
-                "relative_volume_vs_30day_avg": round(rel_vol, 4),
-                "day_total_return_pct": round(day_ret, 2),
-                "gap_at_open_pct": round(gap_pct, 2),
-            }
-            heuristic = 50.0 + (close_pos - 0.5) * 40.0 + max(-10.0, min(10.0, (rel_vol - 1.0) * 8.0))
-            model_score = None
-            held_out = None
-            try:
-                import aiem_wiring_infra as _awi_ic
-                live = _awi_ic.get_live_intraday_model()
-                if live and live.get("model") is not None:
-                    import numpy as _np
-                    import intraday_continuation_scanner as _ics
-                    x = _np.array([[features[f] for f in _ics.FEATURE_NAMES]])
-                    proba = float(live["model"].predict_proba(x)[0, 1])
-                    model_score = round(proba * 100.0, 2)
-                    held_out = live.get("held_out_precision")
-                    out["mode"] = "live_rf_daily_proxy"
-            except Exception as _ice:
-                out["model_error"] = str(_ice)
-            out.update({
-                "features": features,
-                "continuation_score": model_score if model_score is not None else round(float(max(0.0, min(100.0, heuristic))), 2),
-                "heuristic_score": round(float(max(0.0, min(100.0, heuristic))), 2),
-                "model_score": model_score,
-                "held_out_precision": held_out,
-                "bars_used": len(closes),
-            })
-        else:
+        if len(closes) < 5 or not highs or not lows:
             out["status"] = "insufficient_data"
             out["bars"] = len(rows)
+            packet.statistical["intraday_continuation"] = out
+            return out
+
+        # Synthesize >=10 intraday bars from today's OHLC path so the real
+        # compute_intraday_features entry can run without a minute-bar feed.
+        h, l, c = float(highs[0]), float(lows[0]), float(closes[0])
+        o = float((packet.market_data.get("opens") or [c])[0] or c)
+        v_day = float(volumes[0]) if volumes else 0.0
+        synth = []
+        for i in range(12):
+            t = (i + 1) / 12.0
+            # Open → high → low → close path approximation
+            if t <= 0.33:
+                px = o + (h - o) * (t / 0.33)
+            elif t <= 0.66:
+                px = h + (l - h) * ((t - 0.33) / 0.33)
+            else:
+                px = l + (c - l) * ((t - 0.66) / 0.34)
+            synth.append({
+                "time": i,
+                "high": max(px, h * 0.999),
+                "low": min(px, l * 1.001) if l > 0 else px,
+                "close": px,
+                "volume": max(1.0, v_day / 12.0),
+            })
+        intraday_bars = pd.DataFrame(synth)
+        # daily_history: prior closes ascending (oldest→newest), last = yesterday
+        prior_closes = list(reversed(closes[1:31]))  # exclude today
+        daily_history = pd.DataFrame({"close": prior_closes if prior_closes else [c]})
+        avg_vol_30d = (
+            sum(float(v) for v in volumes[1:31]) / max(1, min(30, max(0, len(volumes) - 1)))
+            if len(volumes) > 1 else max(1.0, v_day)
+        )
+        # 3-day closing-range trend from daily highs/lows/closes (newest-first lists)
+        cr_vals = []
+        for i in range(min(3, len(closes), len(highs), len(lows))):
+            rng = float(highs[i]) - float(lows[i])
+            cr_vals.append(((float(closes[i]) - float(lows[i])) / rng) if rng > 0 else 0.5)
+        closing_range_trend_3day = 0.0
+        if len(cr_vals) >= 2:
+            closing_range_trend_3day = float(cr_vals[0] - cr_vals[-1])
+
+        features = self._ic.compute_intraday_features(
+            intraday_bars,
+            daily_history,
+            avg_volume_30d=float(avg_vol_30d),
+            closing_range_trend_3day=closing_range_trend_3day,
+        )
+        if not features:
+            out["status"] = "features_none"
+            packet.statistical["intraday_continuation"] = out
+            return out
+
+        model_score = None
+        held_out = None
+        candidates = []
+        try:
+            import aiem_wiring_infra as _awi_ic
+            live = _awi_ic.get_live_intraday_model()
+            if live and live.get("model") is not None:
+                held_out = live.get("held_out_precision")
+                candidates = self._ic.scan_end_of_day_candidates(
+                    live["model"],
+                    {packet.ticker: features},
+                    held_out_precision=held_out,
+                    probability_threshold=0.0,  # always return this ticker's score
+                )
+                if candidates:
+                    model_score = round(
+                        float(candidates[0]["next_day_continuation_probability"]) * 100.0, 2
+                    )
+                    out["mode"] = "live_rf_via_scan_end_of_day_candidates"
+                    out["entry_point"] = (
+                        "compute_intraday_features + scan_end_of_day_candidates"
+                    )
+        except Exception as _ice:
+            out["model_error"] = str(_ice)
+
+        out.update({
+            "features": features,
+            "continuation_score": model_score if model_score is not None else None,
+            "model_score": model_score,
+            "held_out_precision": held_out,
+            "candidates_head": candidates[:3] if candidates else [],
+            "bars_used": len(closes),
+            "status": "ok",
+        })
         packet.statistical["intraday_continuation"] = out
         return out
 
