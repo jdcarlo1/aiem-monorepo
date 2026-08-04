@@ -8578,6 +8578,80 @@ try:
     )
     print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET | literature: Sun 05:00 ET")
 
+    # Paper position reconciler — after MTM (16:10 ET), never uses mock_position_source
+    def _run_paper_reconcile():
+        try:
+            import aiem_wiring_infra as _awi_rec
+            _res = _awi_rec.run_paper_reconciliation()
+            print(f"[position_reconciler] paper reconcile: mismatch={_res.get('mismatch_found')} "
+                  f"open={_res.get('broker_position_count')}")
+        except Exception as _rec_e:
+            print(f"[position_reconciler] error: {_rec_e}")
+    _scheduler.add_job(
+        _run_paper_reconcile,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
+        id="paper_position_reconcile",
+        replace_existing=True,
+    )
+
+    # Research → hypothesis bridge (Sun 05:30 ET, after literature)
+    def _run_research_bridge():
+        try:
+            import aiem_wiring_infra as _awi_rb
+            _res = _awi_rb.promote_research_insights_to_hypothesis()
+            print(f"[research_bridge] {_res}")
+        except Exception as _rb_e:
+            print(f"[research_bridge] error: {_rb_e}")
+    _scheduler.add_job(
+        _run_research_bridge,
+        CronTrigger(day_of_week="sun", hour=5, minute=30, timezone=_ET),
+        id="research_hypothesis_bridge",
+        replace_existing=True,
+    )
+
+    # Intraday continuation train (Sun 06:00 ET) — daily OHLCV proxies
+    def _run_intraday_train():
+        try:
+            import aiem_wiring_infra as _awi_ic
+            # Train + auto-promote only when held-out precision looks usable
+            _res = _awi_ic.train_intraday_from_daily_proxies(promote=False)
+            if _res.get("status") == "ok":
+                _prec = ((_res.get("held_out") or {}).get("precision_at_70pct_confidence"))
+                if _prec is not None and float(_prec) >= 0.55:
+                    _res2 = _awi_ic.train_intraday_from_daily_proxies(promote=True)
+                    print(f"[intraday_train] promoted: {_res2}")
+                else:
+                    print(f"[intraday_train] saved pending promote (prec={_prec}): {_res}")
+            else:
+                print(f"[intraday_train] {_res}")
+        except Exception as _ic_e:
+            print(f"[intraday_train] error: {_ic_e}")
+    _scheduler.add_job(
+        _run_intraday_train,
+        CronTrigger(day_of_week="sun", hour=6, minute=0, timezone=_ET),
+        id="intraday_continuation_train",
+        replace_existing=True,
+    )
+
+    # Deep RL train from closed paper (Sun 06:30 ET)
+    def _run_deep_rl_train():
+        try:
+            import aiem_wiring_infra as _awi_dr
+            _res = _awi_dr.train_deep_rl_from_paper(promote=False)
+            if _res.get("status") == "ok" and float(_res.get("held_out_avg_reward") or -1) > 0:
+                _res2 = _awi_dr.train_deep_rl_from_paper(promote=True)
+                print(f"[deep_rl_train] promoted: {_res2}")
+            else:
+                print(f"[deep_rl_train] {_res}")
+        except Exception as _dr_e:
+            print(f"[deep_rl_train] error: {_dr_e}")
+    _scheduler.add_job(
+        _run_deep_rl_train,
+        CronTrigger(day_of_week="sun", hour=6, minute=30, timezone=_ET),
+        id="deep_rl_paper_train",
+        replace_existing=True,
+    )
+
     _scheduler.start()
     # ── Protection #4: internal paper trade watchdog ────────────────────────
     try:
@@ -20464,6 +20538,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 # individually isolated so one honest FAIL never blocks the rest.
                 _d2_candidate_id = None  # set inside D2 block; used in INSERT below
                 _exec_plan_id    = None  # generated at stage 17; persisted to aiem_paper_trades
+                _d2_mandatory_failures = []  # integrity fail-closed accumulator
                 try:
                     import uuid as _d2_uuid
                     import aiem_master_orchestrator as _amo
@@ -20515,6 +20590,21 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                 )
                         except Exception as _d2_stage_e:
                             print(f"[diagram2] stage {stage_order} ({stage_name}) FAILED for {_t}: {_d2_stage_e}")
+                            if int(stage_order) <= 17:
+                                _d2_mandatory_failures.append(int(stage_order))
+                            # Re-enter execute_stage with a failing fn so G2 completeness
+                            # observes the FAIL (exception outside execute_stage was invisible).
+                            try:
+                                def _fail_fn(_err=str(_d2_stage_e)):
+                                    raise RuntimeError(f"stage_failed:{_err}")
+                                with _d3_gov_ctx.trace_context(root_trace_id=_d2_trace_id, is_test_record=False):
+                                    _d2_orch.execute_stage(
+                                        _d2_trace_id, _t, stage_order, stage_name, display,
+                                        runtime_fn_name, _fail_fn, paper_trade_id=None,
+                                        candidate_id=_d2_candidate_id,
+                                    )
+                            except Exception:
+                                pass
                             return None
 
                     _d2_run(1, "scanner_signals", "Scanner Signals",
@@ -20622,17 +20712,23 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     except Exception as _sup_h3_e:
                         print(f"[supervisor] hook3_final_decision skipped: {_sup_h3_e}")
 
+                # Hard fail-closed: mandatory D2 stage exceptions before G2
+                if _d2_mandatory_failures:
+                    print(f"[aiem_paper] D2 mandatory stage FAIL for {_t}: "
+                          f"stages={_d2_mandatory_failures} — skipping INSERT (integrity fail-closed)")
+                    continue
+
                 # ── G2 pre-decision trace-integrity checkpoint (Path B P4) ────
                 # Real per-CANDIDATE DB-backed check, immediately before THIS
                 # candidate's trade is inserted into aiem_paper_trades.
                 # Confirms every mandatory D2 stage (1-17) was actually
                 # observed via the real CommunicationBus for _d2_trace_id.
-                # While G2 is in SHADOW mode (the only mode it runs in today)
-                # this can never actually skip a candidate — it only records
-                # what an ENFORCE-mode gate would have done. A BLOCK skips
+                # While G2 is ENFORCE (integrity wiring), missing/FAIL stages
+                # produce decision=BLOCK and skip THIS candidate. A BLOCK skips
                 # only THIS ticker (`continue`) — it must never abort the
                 # whole batch or touch _AIEM_PAPER_LOCK (held once per batch
                 # by the caller, not per-candidate; untouched by this branch).
+                # SHADOW mode (if re-enabled) still records would_block only.
                 try:
                     import aiem_diagram3_governance as _d3_g2
                     _g2_result = _d3_g2.require_governance_authorization(
@@ -31463,6 +31559,20 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                 baseline_win_rate, notes, signal_name
             ))
             disc_id = cur.fetchone()[0]
+        try:
+            import aiem_wiring_infra as _awi_hmac
+            _awi_hmac.sign_discovery_row(int(disc_id), {
+                "hypothesis_text": hypothesis_text,
+                "signal_n": signal_n,
+                "signal_win_rate": signal_win_rate,
+                "edge_broad": edge_broad,
+                "edge_tight": edge_tight,
+                "p_value": p_value,
+                "oos_edge": oos_edge,
+                "status": "validated",
+            })
+        except Exception as _hmac_e:
+            print(f"[save_discovery] HMAC sign non-fatal: {_hmac_e}")
         return {
             "status": "ok",
             "discovery_id": disc_id,
@@ -38613,6 +38723,24 @@ try:
     _ol_mod.init_schema()
     _ls_mod.init_schema()
     print("[aiem_integrity] hypothesis_registry / shadow_ledger / regime_monitor / online_learning / literature_scanner schemas ready")
+
+    # Integrity: flip critical D3 checkpoints to ENFORCE so stage FAIL blocks inserts
+    try:
+        import aiem_wiring_infra as _awi_d3
+        _d3res = _awi_d3.ensure_critical_d3_enforce(
+            reason="Startup integrity wiring — close D2/D3 fail-open gap on G0/G2/G3",
+        )
+        print(f"[aiem_integrity] D3 ENFORCE bootstrap: {_d3res.get('status')}")
+    except Exception as _d3boot_e:
+        print(f"[aiem_integrity] D3 ENFORCE bootstrap skipped: {_d3boot_e}")
+    try:
+        import aiem_wiring_infra as _awi_ml
+        _awi_ml.init_ml_training_schema()
+        _awi_ml.ensure_discovery_hmac_columns()
+        _awi_ml.init_intraday_model_schema()
+        print("[aiem_integrity] ml_training_runs / discovery HMAC / intraday model schemas ready")
+    except Exception as _awi_init_e:
+        print(f"[aiem_integrity] wiring infra schema init skipped: {_awi_init_e}")
     import kill_switch       as _ks_mod
     import decision_logger   as _dl_mod
     import evaluation_windows as _ew_mod
@@ -49637,6 +49765,18 @@ def _aiem_close_paper_trade_and_run_loop(
             except Exception as _th_e:
                 print(f"[closed_loop] thompson update skipped (non-fatal): {_th_e}")
 
+            # ── Gap 4: attempt PPO update from close funnel ───────────
+            _ppo_trained_flag = False
+            try:
+                import aiem_closed_loop_learning as _acll_ppo_close
+                _ppo_close_res = _acll_ppo_close.maybe_run_ppo_training()
+                _ppo_trained_flag = bool(
+                    (_ppo_close_res or {}).get("trained")
+                    or (_ppo_close_res or {}).get("gradient_step_completed")
+                )
+            except Exception as _ppo_close_e:
+                print(f"[closed_loop] close-funnel PPO skipped (non-fatal): {_ppo_close_e}")
+
             # ── Gap 1: log learning_update_applied audit step ─────────
             try:
                 if _trace_id:
@@ -49650,7 +49790,7 @@ def _aiem_close_paper_trade_and_run_loop(
                         thompson_before=0.5,
                         thompson_after=_thompson_new_score,
                         pnl_pct=float(_pnl_pct),
-                        ppo_trained=False,
+                        ppo_trained=_ppo_trained_flag,
                     )
             except Exception as _au_e:
                 print(f"[closed_loop] audit_step skipped (non-fatal): {_au_e}")
@@ -51202,6 +51342,37 @@ def admin_closed_loop_summary():
                 "verdict": "PASS" if _learn_applied > 0 else ("PARTIAL" if _audit_coverage else "FAIL"),
             },
         })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/ml-training-runs", methods=["GET"])
+def admin_ml_training_runs():
+    """List recent ML training runs for the Learning dashboard panel."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import aiem_wiring_infra as _awi
+        model = request.args.get("model")
+        limit = int(request.args.get("limit", 50))
+        runs = _awi.list_ml_training_runs(limit=limit, model_name=model or None)
+        return jsonify({"status": "ok", "count": len(runs), "runs": runs})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/adaptive-policies", methods=["GET"])
+def admin_adaptive_policies():
+    """Live adaptive policy state: trust weights, Thompson, retrain history."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import aiem_wiring_infra as _awi
+        return jsonify({"status": "ok", **_awi.list_adaptive_policies()})
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 

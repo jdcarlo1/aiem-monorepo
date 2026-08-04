@@ -25,7 +25,11 @@
 
 ## Intentionally NOT flipped
 
-**D3 SHADOW → ENFORCE:** Left in SHADOW. Flipping to ENFORCE can start blocking live paper trades. Modes are now visible via `GET /admin/governance-modes` and dashboard badges. Flip per-checkpoint in `d3_checkpoint_config` when ready.
+**Two paper books remain separate tables.** UI shows both; stock vs options engines stay separate.
+
+**Live brokerage reconcile** still needs a real broker API — paper self-reconcile is what runs today.
+
+**D3 G0/G2/G3 are now ENFORCE** (integrity wiring this pass). De-escalate via `set_d3_checkpoint_mode` if paper flow is too strict.
 
 ---
 
@@ -55,21 +59,22 @@
 
 ## Remaining known limits (not wiring bugs)
 
-1. **D3 still SHADOW** — does not block until admin flips modes  
-2. **Two paper books remain separate tables** — UI now shows both; they are not merged into one ledger (by design: stock vs options engines)  
-3. **Learning “ML PIPELINE TRAINING” panel** — still an honest stub until an ML training-runs API exists  
-4. **PPO** — still MTM-batch only (close funnel marks `ppo_trained=False`)  
-5. **`position_reconciler`** — documented dormant (no real brokerage)  
-6. **Discovery-row HMAC provenance** — still session/D2–D3 only  
-7. **Intraday continuation** — wired via daily OHLCV proxy features + heuristic score; full minute-bar RF scoring still needs a trained/promoted model  
+1. **Live brokerage positions** — paper reconciler is live; real broker API still required for live-account reconcile  
+2. **Minute-bar intraday features** — RF trains/scores on daily OHLCV proxies until minute bars are ingested  
+3. **Two paper books remain separate tables** — UI shows both; engines stay separate by design  
 
-### Advanced indicators / discovery (wired this pass)
-- **skew_velocity** — all `compute_layer9_score` callers now pass `db_url` (orchestrator, tools, AI Short Calls, probability context)  
-- **True VRP** — uses `options_structure_scan.front_iv` when present; falls back to rolling-vol proxy  
-- **cross_sectional_momentum_zscore** — computed in Layer9 bg batch and applied as ±4 adjustment  
-- **Gaussian process** — weekly job runs holdout once; orchestrator scores packets from `gp_discovered_templates`  
-- **literature_scanner.scan_and_save** — `default_search_fn` (arXiv + DuckDuckGo) + Sunday 05:00 ET schedule  
-- **Orchestrator stubs closed** — AHS ranks candidates; deep_rl uses MLP policy; drift calls `check_all_active_signals`; security HMAC roundtrip; stat_tests live Fisher; intraday proxy scored  
+### Infrastructure + integrity (wired this pass)
+- **ml_training_runs** table + `GET /admin/ml-training-runs` + Learning panel bound  
+- **Adaptive policies** API + Learning panel (trust weights / Thompson / retrain)  
+- **position_reconciler** paper path scheduled 16:10 ET (never mock)  
+- **Intraday RF** train/promote/load + Sunday job; orchestrator uses live model when present  
+- **Deep RL** train-from-paper + Sunday job; promote when held-out reward > 0  
+- **Orchestrator `_h_paper_trade`** real INSERT via unique-constraint-safe helper  
+- **D2 fail-closed** on mandatory stage FAIL; **G0/G2/G3 → ENFORCE** at startup  
+- **Discovery HMAC** columns + sign on `mkt_save_discovery`  
+- **PPO** close-funnel `maybe_run_ppo_training` + honest `ppo_trained` flag  
+- **Structural TG gates** bounce/pullback/exhaust require `validated` discovery  
+- **Research → hypothesis bridge** Sunday 05:30 ET (never auto-validates)  
 
 ---
 

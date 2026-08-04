@@ -1129,12 +1129,7 @@ class AEIMMasterOrchestrator:
         return result
 
     def _h_intraday_continuation(self, packet: AEIMTradePacket) -> Dict:
-        """Wire daily OHLCV proxy features into the continuation feature schema.
-
-        Full minute-bar model scoring requires a trained RF + intraday bars.
-        Until those land, compute the daily-proxy feature vector from packet
-        bars and emit a transparent heuristic continuation score.
-        """
+        """Wire daily OHLCV proxy features + live RF model when promoted."""
         rows = packet.market_data.get("rows", [])
         closes = packet.market_data.get("closes", [])
         highs  = packet.market_data.get("highs", [])
@@ -1143,7 +1138,7 @@ class AEIMMasterOrchestrator:
         volumes = packet.market_data.get("volumes", [])
         out: Dict[str, Any] = {
             "module": "intraday_continuation_scanner",
-            "entry_point": "scan_end_of_day_candidates / compute_intraday_features",
+            "entry_point": "scan_end_of_day_candidates / get_live_intraday_model",
             "mode": "daily_proxy",
         }
         if len(closes) >= 5 and len(highs) >= 1 and len(lows) >= 1:
@@ -1152,7 +1147,6 @@ class AEIMMasterOrchestrator:
             prev = float(closes[1]) if len(closes) > 1 else c
             day_range = h - l
             close_pos = ((c - l) / day_range) if day_range > 0 else 0.5
-            # higher lows over last 5 daily bars
             hl_count = 0
             for i in range(min(4, len(lows) - 1)):
                 if float(lows[i]) > float(lows[i + 1]):
@@ -1163,20 +1157,36 @@ class AEIMMasterOrchestrator:
             day_ret = ((c - prev) / prev * 100.0) if prev else 0.0
             features = {
                 "close_position_in_range": round(close_pos, 4),
-                "afternoon_morning_volume_ratio": 1.0,  # unknown without intraday bars
+                "afternoon_morning_volume_ratio": 1.0,
                 "higher_lows_count": hl_count,
                 "closing_range_trend_3day": 0.0,
                 "relative_volume_vs_30day_avg": round(rel_vol, 4),
                 "day_total_return_pct": round(day_ret, 2),
                 "gap_at_open_pct": round(gap_pct, 2),
             }
-            # Heuristic: close near highs + elevated relative volume → continuation
             heuristic = 50.0 + (close_pos - 0.5) * 40.0 + max(-10.0, min(10.0, (rel_vol - 1.0) * 8.0))
+            model_score = None
+            held_out = None
+            try:
+                import aiem_wiring_infra as _awi_ic
+                live = _awi_ic.get_live_intraday_model()
+                if live and live.get("model") is not None:
+                    import numpy as _np
+                    import intraday_continuation_scanner as _ics
+                    x = _np.array([[features[f] for f in _ics.FEATURE_NAMES]])
+                    proba = float(live["model"].predict_proba(x)[0, 1])
+                    model_score = round(proba * 100.0, 2)
+                    held_out = live.get("held_out_precision")
+                    out["mode"] = "live_rf_daily_proxy"
+            except Exception as _ice:
+                out["model_error"] = str(_ice)
             out.update({
                 "features": features,
-                "continuation_score": round(float(max(0.0, min(100.0, heuristic))), 2),
+                "continuation_score": model_score if model_score is not None else round(float(max(0.0, min(100.0, heuristic))), 2),
+                "heuristic_score": round(float(max(0.0, min(100.0, heuristic))), 2),
+                "model_score": model_score,
+                "held_out_precision": held_out,
                 "bars_used": len(closes),
-                "note": "daily_proxy until minute-bar RF model is trained/promoted",
             })
         else:
             out["status"] = "insufficient_data"
@@ -1879,15 +1889,27 @@ class AEIMMasterOrchestrator:
 
     def _h_paper_trade(self, packet: AEIMTradePacket) -> Dict:
         if packet.final_decision.get("approved"):
-            out = {
-                "opened":    True,
-                "ticker":    packet.ticker,
-                "source":    packet.source,
-                "packet_id": packet.packet_id,
-                "price":     packet.market_data.get("current_price"),
-                "mode":      "shadow_paper_trade",
-                "note":      "Real execute via _aiem_paper_execute_today() at 9:42 AM",
-            }
+            price = packet.market_data.get("current_price")
+            try:
+                import aiem_wiring_infra as _awi_pt
+                out = _awi_pt.open_orchestrator_paper_trade(
+                    ticker=packet.ticker,
+                    source=packet.source or "orchestrator",
+                    packet_id=packet.packet_id,
+                    price=float(price) if price is not None else None,
+                    direction=str(
+                        (packet.final_decision or {}).get("direction")
+                        or packet.scanner_signal.get("direction")
+                        or "BULLISH"
+                    ),
+                    detail=str((packet.final_decision or {}).get("reason") or "")[:400],
+                )
+            except Exception as _pte:
+                out = {
+                    "opened": False,
+                    "reason": str(_pte),
+                    "mode": "orchestrator_paper_trade",
+                }
         else:
             out = {
                 "opened": False,

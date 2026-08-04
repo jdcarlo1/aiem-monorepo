@@ -621,13 +621,23 @@ def run_scan() -> dict:
                 # scan that crosses 16:00 ET does not fire alerts after close.
                 send_now = sig["state"] == "CONFIRMED" and _market_open() and cooldown_ok
 
-                _save_signal(sig, tg_sent=send_now)
+                _save_signal(sig, tg_sent=False)
 
                 if send_now:
-                    _tg(_format_alert(sig), ticker=sig["ticker"],
-                        trigger_price=d["closes"][-1])
-                    _TG_COOLDOWN[ticker] = _et_now()
-                    alerted.append(ticker)
+                    try:
+                        import aiem_wiring_infra as _awi_tg
+                        _tg_ok = _awi_tg.discovery_allows_live_alert("Oversold_Bounce_Uptrend")
+                    except Exception:
+                        _tg_ok = False
+                    if _tg_ok:
+                        _tg(_format_alert(sig), ticker=sig["ticker"],
+                            trigger_price=d["closes"][-1])
+                        _TG_COOLDOWN[ticker] = _et_now()
+                        alerted.append(ticker)
+                        _save_signal(sig, tg_sent=True)
+                    else:
+                        print(f"[bounce] TG suppressed — discovery not validated for {ticker}")
+                        queued.append(ticker)
                 elif sig["state"] == "CONFIRMED":
                     queued.append(ticker)
 
