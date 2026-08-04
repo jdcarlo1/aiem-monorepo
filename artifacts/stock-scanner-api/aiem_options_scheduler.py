@@ -1314,11 +1314,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         try:
             from aiem_pattern_engine import detect_for_ticker as _detect_pat
             pattern_result = _detect_pat(ticker, thesis=stock_direction, lookback=60)
-            pattern_score  = pattern_result.get("pattern_score", 0.5)
+            # .get(key, default) does NOT apply default when key exists with value None.
+            # 2026-08-04: all 5 options jobs crashed here —
+            #   TypeError: '>' not supported between instances of 'NoneType' and 'float'
+            # when pattern_score was explicitly None.
+            _ps_raw = pattern_result.get("pattern_score")
+            pattern_score = 0.5 if _ps_raw is None else float(_ps_raw)
             log.info(f"[exec] [{trace_id}] pattern_score={pattern_score:.3f} "
                      f"({len(pattern_result.get('all_patterns', []))} patterns detected)")
         except Exception as _pat_e:
             log.debug(f"[exec] [{trace_id}] pattern detection skipped: {_pat_e}")
+            pattern_score = 0.5
 
         # ── REGISTRY: Stage PAT — Candlestick engine + Chart-pattern engine ───
         if _reg_ready:
@@ -2177,8 +2183,10 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         # ── Stage 5: REQ6 scoring ──────────────────────────────────────────────
         call_scoring = _pipe.compute_req6_score(call_data, "CALL", stock_data, iv_rank, verify_result)
         put_scoring  = _pipe.compute_req6_score(put_data,  "PUT",  stock_data, iv_rank, verify_result)
-        call_score   = call_scoring["score"]
-        put_score    = put_scoring["score"]
+        # Coerce None scores to 0.0 so Stage 6 comparisons never TypeError
+        # (mirrors the 2026-08-04 pattern_score NoneType>float failure class).
+        call_score   = float(call_scoring.get("score") or 0.0)
+        put_score    = float(put_scoring.get("score") or 0.0)
         margin       = abs(call_score - put_score)
 
         # ── REGISTRY: Stage 5 — REQ6 scoring (Recommendation engine inputs) ───

@@ -289,7 +289,9 @@ def compute_req6_score(
     else:
         skew_bonus = 15 if skew_tag == "CALL_SKEW" else 0
         iv_penalty = 0
-    iv_rank_penalty = -15 if iv_rank > 0.75 else 0  # expensive IV = harder to profit from buying
+    # Guard None iv_rank (same NoneType>float class as 2026-08-04 pattern_score crash)
+    _ivr = 0.5 if iv_rank is None else float(iv_rank)
+    iv_rank_penalty = -15 if _ivr > 0.75 else 0  # expensive IV = harder to profit from buying
     scores["D11_options_flow_confirmation"] = max(0, min(100, 60 + skew_bonus + iv_penalty + iv_rank_penalty))
 
     # ── D12: Historical performance ────────────────────────────────────────────
