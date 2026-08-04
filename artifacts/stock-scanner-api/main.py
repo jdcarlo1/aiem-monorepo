@@ -18777,6 +18777,13 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         # Gate: hypothesis_text='Short_Squeeze_Reversion' status='validated'
         # — never true in production; same unreachable-in-practice reasoning.
         "squeeze_reversion",
+        # EOD PMD leading indicators (washout before bounce / post-bounce cont /
+        # prior-day build / same-day gap ignition). Snapshot as of latest PMD.
+        "washout_reclaim",
+        "momentum_continuation",
+        "thrust_pullback",
+        "building_thrust",
+        "gap_ignition",
     }
 
     # ── 6. DB-backed source metadata ──────────────────────────────────────
@@ -19993,17 +20000,30 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 _sizing_gate       = "PARAMS_NOT_CONFIRMED"
                 if _pos_sizer:
                     try:
+                        # Conviction for sizing must stay on the source's 5–9
+                        # scale. Do NOT reuse conviction_stack_watchlist.total_pts
+                        # for other sources — that table is sparse and often
+                        # holds sub-floor scores (e.g. 1.3–4.0) that wrongly
+                        # CONVICTION_BELOW_MIN'd APPROVED multi_signal /
+                        # oi_buildup picks on 2026-08-04. Prefer raw_score
+                        # (pre-thompson / pre-edge-filter) so ranking multipliers
+                        # reorder picks without zeroing tradeable conviction.
+                        _src_for_sz = pick.get("source") or ""
+                        if (
+                            _src_for_sz == "conviction_stack"
+                            and _t in _conviction_stack_scores
+                        ):
+                            _conv_for_sz = float(_conviction_stack_scores[_t])
+                        else:
+                            _conv_for_sz = float(
+                                pick.get("raw_score")
+                                or pick.get("score")
+                                or 0
+                            )
                         _sz = _pos_sizer.compute_position_size(
                             ticker=_t,
                             signal_source=pick["source"],
-                            # min(9.0,...) applied at BOTH paths:
-                            # — conviction_stack total_pts (0-12 range; cap prevents >9.0)
-                            # — per-source normalized pick["score"] (already 5-9 after #91
-                            #   normalizations; cap is defense-in-depth for dormant sources)
-                            # Task #91 fix 2026-07-30.
-                            conviction_score=min(9.0, _conviction_stack_scores.get(
-                                _t, float(pick.get("score") or 0)
-                            )),
+                            conviction_score=min(9.0, _conv_for_sz),
                             entry_price=_fill_price,
                             signal_row=pick,
                         )
@@ -48249,6 +48269,50 @@ def _aiem_paper_pick_candidates(
                 _add(_t, _score, "STOCK", "gap_volume",
                      f"gap={_gp:.1f}% rvol={_rv:.1f}x")
 
+            # ── 4b. Washout reclaim (LEADING — day BEFORE the rip) ────────────
+            # Empirical: AEHR/AXTI/NBIS/IREN/MU/WOLF/… on 2026-07-29 showed
+            # 2d drawdown + capitulation CS + elevated RVOL, then +10–30% Jul 30.
+            # Seeds CALL_OPTION so options path and stock path both see them.
+            try:
+                import aiem_pre_move_signals as _pms
+                _asof_wr = _pms.latest_pmd_date(_cu)
+                if _asof_wr:
+                    # Wide net: queue every qualifying pre-move name (AIEM
+                    # ranking/gates still decide what actually trades).
+                    for _wr in _pms.scan_washout_reclaim(_cu, asof=_asof_wr, limit=500):
+                        _add(
+                            _wr["ticker"], float(_wr["score"]),
+                            "CALL_OPTION", "washout_reclaim",
+                            _wr["detail"], direction="BULLISH",
+                        )
+                    for _mc in _pms.scan_momentum_continuation(_cu, asof=_asof_wr, limit=50):
+                        _add(
+                            _mc["ticker"], float(_mc["score"]),
+                            "CALL_OPTION", "momentum_continuation",
+                            _mc["detail"], direction="BULLISH",
+                        )
+                    for _tp in _pms.scan_thrust_pullback(_cu, asof=_asof_wr, limit=40):
+                        _add(
+                            _tp["ticker"], float(_tp["score"]),
+                            "CALL_OPTION", "thrust_pullback",
+                            _tp["detail"], direction="BULLISH",
+                        )
+                    for _bt in _pms.scan_building_thrust(_cu, asof=_asof_wr, limit=300):
+                        _add(
+                            _bt["ticker"], float(_bt["score"]),
+                            "CALL_OPTION", "building_thrust",
+                            _bt["detail"], direction="BULLISH",
+                        )
+                    for _gi in _pms.scan_gap_ignition(_cu, asof=_asof_wr, limit=200):
+                        _add(
+                            _gi["ticker"], float(_gi["score"]),
+                            "CALL_OPTION", "gap_ignition",
+                            _gi["detail"], direction="BULLISH",
+                        )
+                    print(f"[aiem_paper] pre_move wide-net asof={_asof_wr}")
+            except Exception as _wre:
+                print(f"[aiem_paper] washout_reclaim source skipped: {_wre}")
+
             # ── 5. Recent AIEM AI trade picks (high conviction) ───────────────
             _cu.execute("""
                 SELECT ticker, direction, setup_type, conviction, price_at_signal,
@@ -48280,7 +48344,18 @@ def _aiem_paper_pick_candidates(
                     _t = (_h.get("ticker") or "").upper()
                     _sig_n = len(_h.get("signals", []) or [])
                     if _t and _sig_n >= 3:
-                        _add(_t, float(_sig_n) * 2.5, "STOCK", "multi_signal",
+                        # Raw: signal_count × 2.5 (3→7.5, 10→25).
+                        # Normalize to 5.0–9.0 via hyperbolic compression
+                        # (half-sat at raw=10 ≈ 4 confirming signals → ~7.0).
+                        # Task #91 parity — unnormalized multi_signal scores
+                        # were later crushed by ranking multipliers and then
+                        # compared to the 5.0 sizing floor.
+                        _score_raw = float(_sig_n) * 2.5
+                        _score = (
+                            5.0 + 4.0 * _score_raw / (_score_raw + 10.0)
+                            if _score_raw > 0 else 5.0
+                        )
+                        _add(_t, _score, "STOCK", "multi_signal",
                              f"{_sig_n} signals confirmed")
 
             # ── 7. OI buildup / accumulation ─────────────────────────────────
@@ -48476,7 +48551,18 @@ def _aiem_paper_pick_candidates(
                 """)
                 _fear_rows = _bcu.fetchall()
             for _bt, _bspot, _bskew, _bgex, _breg, _bgfp in (_fear_rows or []):
-                _bscore = float(_bskew or 0) * 0.8 + abs(float(_bgex or 0)) * 0.1 + 5.0
+                # Raw composite often landed in the 10–70 range (skew×0.8 + …),
+                # which min(9.0,…) clamped to a flat 9.0 and hid differentiation.
+                # Normalize to 5.0–9.0 (half-sat at raw=20).
+                _score_raw = (
+                    float(_bskew or 0) * 0.8
+                    + abs(float(_bgex or 0)) * 0.1
+                    + 5.0
+                )
+                _bscore = (
+                    5.0 + 4.0 * _score_raw / (_score_raw + 20.0)
+                    if _score_raw > 0 else 5.0
+                )
                 _add(_bt, _bscore, "PUT_OPTION", "fear_premium_gex",
                      f"FEAR_PREMIUM skew={float(_bskew or 0):.1f}pp "
                      f"GEX={float(_bgex or 0):.1f}M ({_breg})",

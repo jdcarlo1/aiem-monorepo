@@ -86,6 +86,13 @@ _OVERNIGHT_HOLD_ALLOWED: Dict[str, bool] = {
     "oi_buildup":              False,
     "layer9_stat":             False,
     "aiem_v3_discovery":       False,
+    "fear_premium_gex":        False,
+    "gap_down_distribution":   False,
+    "washout_reclaim":         True,   # multi-day reclaim after capitulation
+    "momentum_continuation":   False,
+    "thrust_pullback":         False,
+    "building_thrust":         False,  # next-session follow-through after build
+    "gap_ignition":            False,  # same-day entry — no overnight by default
 }
 
 
@@ -350,6 +357,30 @@ _STOP_REGISTRY = {
 
     # layer9_stat: statistical edge signal; 7% stop
     "layer9_stat":             _stop_pct_below_entry(0.07, "layer9_stat"),
+
+    # fear_premium_gex: put-skew / long-gamma fear premium; 8% stop
+    # (2026-08-04: 5 APPROVED picks died solely on NO_INVALIDATION_POINT —
+    #  this source was active in paper picking but missing from the registry.)
+    "fear_premium_gex":        _stop_pct_below_entry(0.08, "fear_premium_gex"),
+
+    # gap_down_distribution: bearish gap+RVOL distribution; 8% stop
+    "gap_down_distribution":   _stop_pct_below_entry(0.08, "gap_down_distribution"),
+
+    # washout_reclaim: 2d capitulation BEFORE bounce (AEHR/NBIS/MU cohort);
+    # wide 10% — washout reversals shake out early longs.
+    "washout_reclaim":         _stop_pct_below_entry(0.10, "washout_reclaim"),
+
+    # momentum_continuation: post-bounce follow-through; 8% stop
+    "momentum_continuation":   _stop_pct_below_entry(0.08, "momentum_continuation"),
+
+    # thrust_pullback: mild digests-the-move red day (ORCL class); 7% stop
+    "thrust_pullback":         _stop_pct_below_entry(0.07, "thrust_pullback"),
+
+    # building_thrust: prior-day constructive build (BLKB/GRMN class); 7% stop
+    "building_thrust":         _stop_pct_below_entry(0.07, "building_thrust"),
+
+    # gap_ignition: same-day earnings-style gap entry; tighter 6% — already extended
+    "gap_ignition":            _stop_pct_below_entry(0.06, "gap_ignition"),
 }
 
 

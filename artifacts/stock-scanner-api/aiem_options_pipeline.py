@@ -263,22 +263,35 @@ def compute_req6_score(
             50
         )
     else:
+        # CALL: TRENDING best; SHORT_GAMMA still tradeable on up-day momentum
+        # (raised from 60→75 after 2026-08-04 missed bullish CALL names).
         scores["D9_market_regime_fit"] = (
             85 if "TRENDING" in gex_regime else
-            60 if "SHORT_GAMMA" in gex_regime else
-            50
+            75 if "SHORT_GAMMA" in gex_regime else
+            55
         )
 
     # ── D10: Technical confirmation ────────────────────────────────────────────
     vwap_pos      = stock_data.get("vwap_position", "")
     close_strength = float(stock_data.get("close_strength", 0.5))
+    morning_mom = float(stock_data.get("morning_momentum_pct") or 0.0)
     if direction == "PUT":
         cs_score = max(0, min(100, int((1 - close_strength) * 120)))
         vwap_score = 80 if "BELOW" in vwap_pos else 40
+        mom_adj = -15 if morning_mom >= 0.02 else 0  # ripping open hurts puts
     else:
         cs_score   = max(0, min(100, int(close_strength * 120)))
         vwap_score = 80 if "ABOVE" in vwap_pos else 40
-    scores["D10_technical_confirmation"] = int((cs_score + vwap_score) / 2)
+        # Morning rip is the primary bullish CALL technical (parity with skew).
+        if morning_mom >= 0.04:
+            mom_adj = 25
+        elif morning_mom >= 0.015:
+            mom_adj = 15
+        else:
+            mom_adj = 0
+    scores["D10_technical_confirmation"] = max(
+        0, min(100, int((cs_score + vwap_score) / 2) + mom_adj)
+    )
 
     # ── D11: Options flow confirmation ─────────────────────────────────────────
     iv_crush = stock_data.get("iv_crush_risk", "")
@@ -287,9 +300,12 @@ def compute_req6_score(
         skew_bonus = 25 if skew_tag == "FEAR_PREMIUM" else 0
         iv_penalty = -20 if "INVERTED" in iv_crush else 0   # inverted = buying expensive puts
     else:
-        skew_bonus = 15 if skew_tag == "CALL_SKEW" else 0
+        # Parity with FEAR_PREMIUM put bonus (was 15 — systematically under-ranked CALLs).
+        skew_bonus = 25 if skew_tag == "CALL_SKEW" else (10 if morning_mom >= 0.02 else 0)
         iv_penalty = 0
-    iv_rank_penalty = -15 if iv_rank > 0.75 else 0  # expensive IV = harder to profit from buying
+    # Guard None iv_rank (same NoneType>float class as 2026-08-04 pattern_score crash)
+    _ivr = 0.5 if iv_rank is None else float(iv_rank)
+    iv_rank_penalty = -15 if _ivr > 0.75 else 0  # expensive IV = harder to profit from buying
     scores["D11_options_flow_confirmation"] = max(0, min(100, 60 + skew_bonus + iv_penalty + iv_rank_penalty))
 
     # ── D12: Historical performance ────────────────────────────────────────────

@@ -1449,14 +1449,29 @@ class AEIMMasterOrchestrator:
             "gap_pct":          float(packet.technical.get("gap_pct", 0) or 0),
             "entry_price":      entry_price,
         }
-        # Full sizing — returns gate_result, notional, calculated_stop_price, risk_pct_used
-        sizing = self._ps.compute_position_size(
-            ticker=packet.ticker,
-            signal_source=packet.source,
-            conviction_score=conviction,
-            entry_price=entry_price,
-            signal_row=signal_row,
-        )
+        # Skip sizing when price is unresolved — avoids spurious
+        # NO_STOP_DEFINED / *_MISSING_ENTRY_PRICE log rows (seen 2026-08-04
+        # as a second wave of entry_price=0.0 decisions after real quotes).
+        if float(entry_price or 0) <= 0:
+            sizing = {
+                "gate_result": "NO_ENTRY_PRICE",
+                "gate_detail": "current_price missing/zero — sizing deferred",
+                "calculated_notional": 0.0,
+                "calculated_stop_price": None,
+                "stop_basis": None,
+                "stop_distance_pct": None,
+                "risk_pct_used": None,
+                "mode": "SIMULATION",
+            }
+        else:
+            # Full sizing — returns gate_result, notional, calculated_stop_price, risk_pct_used
+            sizing = self._ps.compute_position_size(
+                ticker=packet.ticker,
+                signal_source=packet.source,
+                conviction_score=conviction,
+                entry_price=entry_price,
+                signal_row=signal_row,
+            )
         conv_mult = self._ps._conviction_risk_mult(conviction)
         packet.position = {
             "gate_result":          sizing.get("gate_result"),
