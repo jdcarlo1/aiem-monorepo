@@ -1,0 +1,51 @@
+# PHASE 6 — ENTRY TRIGGER ENGINE
+Source: AIEM_OPTIONS_AUTONOMY_MASTER_DIRECTIVE.txt §9
+Target: aiem_options_trigger_engine.py (create only if absent)
+Depends on: Phase 5 CLOSED (real scoring live)
+Scope: Options Engine only. Paper trading only.
+
+## Requirements
+Strategy selection creates PENDING_EXECUTION_PLAN, not immediate execution.
+Supported triggers: VWAP reclaim/rejection, support/resistance break,
+premarket high/low break, opening-range breakout, confirmed pullback,
+volume confirmation, momentum confirmation, market/sector alignment,
+option spread/liquidity confirmation.
+
+Before paper fill, refresh and revalidate: spot, chain, Greeks, IV,
+liquidity, expected value, max loss, portfolio limits, trigger validity,
+duplicate protection. Failed revalidation => CANCELLED/NO_TRADE.
+
+## Evidence required — this is the part that actually matters, show real output
+- Item 16: one real PENDING_EXECUTION_PLAN that waits for its trigger
+  condition rather than filling immediately — real timestamps showing the
+  gap between plan creation and trigger fire (or plan expiry if trigger
+  never fires).
+- Item 17: one real case where pre-fill revalidation catches a changed
+  condition (stale quote, liquidity gone, trigger invalidated) and the
+  plan is CANCELLED, not filled anyway.
+
+These two need actual output, not a description of what should happen —
+they're the whole point of the phase. Everything else below is lighter-touch.
+
+## Out of scope this phase
+Continuous autonomy cadence, position management — Phases 7-8.
+
+## Verification — spot-check level
+- Show real output for Items 16 and 17. For anything else claimed "done,"
+  a quick command + result is enough — no requirement to route it through
+  verified_run.sh/verify_chain.sh or cross-check wrapper hashes unless
+  something looks off.
+- No formal hardcoded-value inventory or per-gate negative control needed
+  this phase — if you introduce a constant that's obviously supposed to
+  come from somewhere live, just say where it comes from in a sentence.
+- Skip the PASS/partial/accepted-risk labeling ceremony — just say what
+  works, what doesn't, and what you're not sure about.
+- No permanent /docs/verification/ record file required for this phase.
+
+## Still applies, no exceptions
+- Data Immutability Rule: no DELETE/TRUNCATE/UPDATE/overwrite of any row
+  or file — including test/synthetic data — without Joel's explicit prior
+  approval this session. This one stays strict regardless of anything else.
+- Don't claim something is tested/confirmed/fixed without having actually
+  run it. If you didn't check something, say so plainly instead of
+  implying you did.
