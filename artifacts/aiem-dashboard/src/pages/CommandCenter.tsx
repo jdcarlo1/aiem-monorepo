@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useApi } from "@/hooks/use-api";
+import { getToken } from "@/lib/auth";
 import { useEventStream, type SseEvent } from "@/hooks/use-event-stream";
 import { Activity, Server, AlertCircle, AlertTriangle, Database, Clock, Cpu, Zap, Radio } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
@@ -12,6 +13,8 @@ const SSE_CATEGORIES = [
   "gate_events",
 ];
 
+const SHADOW_BADGE = "D3 GOVERNANCE: SHADOW (logs only, does not block)";
+
 export default function CommandCenter() {
   const { data: health, isStale: healthStale, lastUpdated: healthUpdated } = useApi<any>("/stock-api/health", {}, 30000);
   const { data: readyz } = useApi<any>("/stock-api/readyz", {}, 30000);
@@ -19,10 +22,42 @@ export default function CommandCenter() {
   const { data: jobs } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
   const { data: heartbeats } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
   const [liveEvents, setLiveEvents] = useState<SseEvent[]>([]);
+  const [govModeLabel, setGovModeLabel] = useState(SHADOW_BADGE);
   const onSse = useCallback((evt: SseEvent) => {
     setLiveEvents((prev) => [evt, ...prev].slice(0, 12));
   }, []);
   const { connected: sseConnected } = useEventStream(SSE_CATEGORIES, onSse, true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = getToken();
+        const res = await fetch("/stock-api/admin/governance-modes", {
+          headers: token ? { "X-Admin-Token": token } : {},
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setGovModeLabel(SHADOW_BADGE);
+          return;
+        }
+        const body = await res.json();
+        const mode = (body?.mode || body?.governance_mode || body?.d3_mode || "SHADOW").toString().toUpperCase();
+        const blocking = body?.blocking === true || mode === "ENFORCE" || mode === "ACTIVE";
+        setGovModeLabel(
+          blocking
+            ? `D3 GOVERNANCE: ${mode} (blocking)`
+            : mode === "SHADOW"
+              ? SHADOW_BADGE
+              : `D3 GOVERNANCE: ${mode} (logs only, does not block)`
+        );
+      } catch {
+        if (!cancelled) setGovModeLabel(SHADOW_BADGE);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const hbJobs: any[] = heartbeats?.jobs ?? [];
   const schedulerJobs: any[] = jobs?.jobs ?? [];
@@ -45,7 +80,10 @@ export default function CommandCenter() {
           <h1 className="text-2xl font-bold text-white tracking-tight">Command Center</h1>
           <p className="text-sm text-muted-foreground mt-1">Live system health, macro regime, and job orchestration</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="badge-live ok font-mono text-[10px] uppercase tracking-wide" title="D3 governance mode">
+            {govModeLabel}
+          </div>
           <div className={`badge-live ${sseConnected ? "ok" : "error"}`} title="SSE /stock-api/events/stream">
             <Radio size={12} className={sseConnected ? "text-success" : "text-destructive"} />
             {sseConnected ? "SSE Live" : "SSE Off"}

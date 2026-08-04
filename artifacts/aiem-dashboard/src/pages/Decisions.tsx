@@ -1,11 +1,53 @@
+import { useEffect, useState } from "react";
 import { useApi } from "@/hooks/use-api";
+import { getToken } from "@/lib/auth";
 import { Activity, ShieldCheck, ShieldAlert, FileWarning, Search } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
+
+const SHADOW_BADGE = "D3 GOVERNANCE: SHADOW (logs only, does not block)";
 
 export default function Decisions() {
   const { data: decisions, loading: decLoading, lastUpdated: decUpdated } = useApi<any>("/stock-api/admin/decision-audit?limit=50", {}, 30000);
   const { data: gateEvents, loading: gateLoading } = useApi<any>("/stock-api/admin/gate-events?limit=50", {}, 30000);
   const { data: gov, loading: govLoading } = useApi<any>("/stock-api/admin/governance-decisions?limit=40", {}, 60000);
+  const [govModeLabel, setGovModeLabel] = useState(SHADOW_BADGE);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = getToken();
+        const res = await fetch("/stock-api/admin/governance-modes", {
+          headers: token ? { "X-Admin-Token": token } : {},
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (res.status === 404) {
+          setGovModeLabel(SHADOW_BADGE);
+          return;
+        }
+        if (!res.ok) {
+          setGovModeLabel(SHADOW_BADGE);
+          return;
+        }
+        const body = await res.json();
+        const mode = (body?.mode || body?.governance_mode || body?.d3_mode || "SHADOW").toString().toUpperCase();
+        const blocking = body?.blocking === true || mode === "ENFORCE" || mode === "ACTIVE";
+        if (blocking) {
+          setGovModeLabel(`D3 GOVERNANCE: ${mode} (blocking)`);
+        } else {
+          setGovModeLabel(
+            mode === "SHADOW"
+              ? SHADOW_BADGE
+              : `D3 GOVERNANCE: ${mode} (logs only, does not block)`
+          );
+        }
+      } catch {
+        if (!cancelled) setGovModeLabel(SHADOW_BADGE);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -14,7 +56,7 @@ export default function Decisions() {
           <h1 className="text-2xl font-mono font-bold text-white tracking-tight uppercase">Live Decisions</h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">Audit Trail & Gate Events</p>
         </div>
-        <div className="flex gap-4 font-mono text-xs">
+        <div className="flex gap-4 font-mono text-xs items-end">
           <div className="text-right">
             <div className="text-muted-foreground">DECISION ROWS</div>
             <div className="text-primary font-bold text-lg">{decisions?.count || 0}</div>
@@ -24,6 +66,10 @@ export default function Decisions() {
             <div className="text-secondary font-bold text-lg">{gateEvents?.count || 0}</div>
           </div>
         </div>
+      </div>
+
+      <div className="px-3 py-2 border border-border bg-black/40 font-mono text-[11px] text-accent uppercase tracking-wide shrink-0">
+        {govModeLabel}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
