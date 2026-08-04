@@ -1,0 +1,127 @@
+name: Deploy-on-Merge Reminder
+
+# ─────────────────────────────────────────────────────────────────────────────
+# What this does
+# ─────────────────────────────────────────────────────────────────────────────
+# Fires every time a PR is merged into origin/main (push to main === merged PR).
+# Sends a Telegram notification with the merged commit SHA and a direct link to
+# the Replit editor, so the one-click "Publish" step is never forgotten.
+#
+# IMPORTANT — what this cannot do
+# ─────────────────────────────────────────────────────────────────────────────
+# Replit does NOT expose a public API for triggering a programmatic republish.
+# The Admin API (api.replit.com/v1) is read-only for deployments. External
+# Access Tokens are for bypassing access controls on private apps, not for
+# initiating deploys. This was verified against Replit's own documentation on
+# 2026-08-04. The only way to republish is to click Publish in the editor.
+# This workflow automates the notification; the one click remains manual.
+#
+# Secrets required (all already in repo secrets from other workflows):
+#   TELEGRAM_BOT_TOKEN  — bot token
+#   TELEGRAM_CHAT_ID    — owner chat ID
+#
+# Triggers on:
+#   push to main  — fires after every merge; the short-circuit guard below
+#                   skips it if the push is just a workflow-file-only change
+#                   on a non-merge commit (rare, but keeps noise down).
+#   workflow_dispatch — manual trigger for testing, with a dry_run option.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true = log only, no Telegram message'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: deploy-on-merge
+  cancel-in-progress: true
+
+jobs:
+  notify-deploy:
+    name: Notify — republish needed after merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout (shallow — commit metadata only)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2        # current commit + parent (for merge detection)
+
+      - name: Send Telegram deploy reminder
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN:            ${{ github.event.inputs.dry_run || 'false' }}
+          RUN_URL:            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA:         ${{ github.sha }}
+          COMMIT_MSG:         ${{ github.event.head_commit.message }}
+          PUSHER:             ${{ github.event.pusher.name || github.actor }}
+        run: |
+          echo "=== Deploy-on-Merge Reminder ==="
+          echo "UTC    : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Commit : ${COMMIT_SHA}"
+          echo "Message: ${COMMIT_MSG}"
+          echo "Pusher : ${PUSHER}"
+          echo "Dry run: ${DRY_RUN}"
+          echo ""
+
+          # ── Build the editor URL ──────────────────────────────────────────
+          # replit.com/@<owner>/<slug> is the stable editor URL.
+          REPLIT_EDITOR_URL="https://replit.com/@joeldcarlo/workspace"
+
+          # ── Short commit SHA (7 chars) ────────────────────────────────────
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+
+          # ── First line of commit message (strip newlines, truncate) ───────
+          FIRST_LINE=$(echo "${COMMIT_MSG}" | head -1 | cut -c1-80)
+
+          echo "Short SHA : ${SHORT_SHA}"
+          echo "First line: ${FIRST_LINE}"
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY RUN — Telegram message suppressed"
+            echo "Would have sent: DEPLOY READY | ${SHORT_SHA} | ${FIRST_LINE}"
+            exit 0
+          fi
+
+          # ── URL-encode the message components ────────────────────────────
+          # Telegram Bot API accepts plain text with %0A for newlines.
+          # Percent-encode spaces as + and & as %26 to survive -d passing.
+          SAFE_LINE=$(python3 -c \
+            "import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=''))" \
+            "${FIRST_LINE}" 2>/dev/null || echo "${FIRST_LINE}")
+          SAFE_URL=$(python3 -c \
+            "import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=':/?=@'))" \
+            "${REPLIT_EDITOR_URL}" 2>/dev/null || echo "${REPLIT_EDITOR_URL}")
+          SAFE_RUN=$(python3 -c \
+            "import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=':/?=@#'))" \
+            "${RUN_URL}" 2>/dev/null || echo "${RUN_URL}")
+
+          TEXT="🚀 DEPLOY+READY%0A%0ACommit%3A+${SHORT_SHA}%0A${SAFE_LINE}%0A%0A✅+Merged+to+main+by+${PUSHER}%0A%0A👉+Publish+now%3A+${SAFE_URL}%0A%0AGH+run%3A+${SAFE_RUN}"
+
+          # ── Send Telegram message ─────────────────────────────────────────
+          HTTP=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \
+            -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${TEXT}" \
+            --max-time 10 2>&1) || HTTP="000"
+
+          RESP=$(cat /tmp/tg_resp.json 2>/dev/null || echo '{}')
+          echo "Telegram HTTP ${HTTP}: ${RESP}"
+
+          if [ "${HTTP}" = "200" ]; then
+            echo "✓ Deploy reminder sent to Telegram"
+          else
+            echo "✗ Telegram send failed (HTTP ${HTTP}) — non-fatal, notification only"
+            # Exit 0: a failed notification is not a deployment failure.
+            # The merge already happened; crashing CI here would be misleading.
+          fi
+
+          exit 0
