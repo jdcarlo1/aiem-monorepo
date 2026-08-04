@@ -840,8 +840,18 @@ def train_deep_rl_from_paper(*, promote: bool = False, policy_name: str = "aiem_
             for c in (3.0, 5.0, 8.0) for p in (-2.0, 0.0, 2.0)
         ]
         probe = dr.probe_policy_behavior(policy, probe_grid)
+        promote_effective = bool(promote)
+        promote_block_reason = None
+        if promote_effective:
+            ok, promote_block_reason = dr.check_promote_gates(
+                len(train_eps), held_out, probe or [],
+            )
+            if not ok:
+                promote_effective = False
+                print(f"[wiring] deep_rl promote blocked: {promote_block_reason}")
         pid = dr.save_policy_version(
-            policy_name, policy, len(train_eps), held_out, probe or [], promote=promote,
+            policy_name, policy, len(train_eps), held_out, probe or [],
+            promote=promote_effective,
         )
         return {
             "status": "ok",
@@ -849,7 +859,9 @@ def train_deep_rl_from_paper(*, promote: bool = False, policy_name: str = "aiem_
             "n_train": len(train_eps),
             "n_hold": len(hold_eps),
             "held_out_avg_reward": round(held_out, 4),
-            "promoted": promote,
+            "promoted": promote_effective,
+            "promote_requested": bool(promote),
+            "promote_block_reason": promote_block_reason,
         }
     except Exception as e:
         return {"status": "error", "error": str(e), "trace": traceback.format_exc()[:500]}
