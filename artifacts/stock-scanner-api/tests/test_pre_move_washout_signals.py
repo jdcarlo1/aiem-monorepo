@@ -1,4 +1,4 @@
-"""Pre-move washout / continuation / thrust — wide-net cohort regression."""
+"""Pre-move washout / build / ignition / thrust — wide-net cohort regression."""
 import os
 import sys
 from datetime import date
@@ -46,6 +46,52 @@ def test_jul29_wide_net_catches_cohort():
     assert "ORCL" in {r["ticker"] for r in all_pm}
 
 
+def test_building_thrust_jul28_midcap_cohort():
+    """BLKB/CBZ/GRMN/CTSH built on Jul-28 before Jul-29 rip."""
+    import psycopg2
+    from aiem_pre_move_signals import scan_building_thrust
+
+    db = os.environ.get("DATABASE_URL")
+    if not db:
+        print("SKIP no DATABASE_URL")
+        return
+
+    cohort = {"BLKB", "CBZ", "GRMN", "CTSH", "WDAY", "HUBS", "TEAM"}
+    with psycopg2.connect(db, connect_timeout=8) as conn, conn.cursor() as cur:
+        rows = scan_building_thrust(cur, asof=date(2026, 7, 28), limit=300)
+
+    tickers = {r["ticker"] for r in rows}
+    hit = cohort & tickers
+    assert len(hit) >= 5, f"build recall too low: hit={sorted(hit)} missing={sorted(cohort-tickers)}"
+    for src in rows:
+        assert src["source"] == "building_thrust"
+        assert 5.0 <= src["score"] <= 9.0
+
+
+def test_gap_ignition_jul29_midcap_cohort():
+    """HURN/BLKB/CBZ/GRMN/CTSH ignited via large same-day gaps."""
+    import psycopg2
+    from aiem_pre_move_signals import scan_gap_ignition
+
+    db = os.environ.get("DATABASE_URL")
+    if not db:
+        print("SKIP no DATABASE_URL")
+        return
+
+    cohort = {"HURN", "BLKB", "CBZ", "GRMN", "CTSH", "VRRM"}
+    with psycopg2.connect(db, connect_timeout=8) as conn, conn.cursor() as cur:
+        rows = scan_gap_ignition(cur, asof=date(2026, 7, 29), limit=200)
+        knsa = scan_gap_ignition(cur, asof=date(2026, 7, 28), limit=200)
+
+    tickers = {r["ticker"] for r in rows}
+    hit = cohort & tickers
+    assert len(hit) >= 5, f"ignite recall too low: hit={sorted(hit)} missing={sorted(cohort-tickers)}"
+    assert "KNSA" in {r["ticker"] for r in knsa}, "KNSA Jul-28 gap must ignite"
+    # Penny meltups must stay out
+    junk = {"DFNS", "BIYA", "ENTX"} & tickers
+    assert not junk, f"penny meltups leaked into gap_ignition: {junk}"
+
+
 def test_seed_lane_limits_call_heavy():
     from aiem_options_scheduler import _seed_lane_limits
 
@@ -57,9 +103,11 @@ def test_seed_lane_limits_call_heavy():
 def test_stops_registered():
     from aiem_position_sizing import _STOP_REGISTRY
 
-    assert "washout_reclaim" in _STOP_REGISTRY
-    assert "momentum_continuation" in _STOP_REGISTRY
-    assert "thrust_pullback" in _STOP_REGISTRY
+    for src in (
+        "washout_reclaim", "momentum_continuation", "thrust_pullback",
+        "building_thrust", "gap_ignition",
+    ):
+        assert src in _STOP_REGISTRY, f"missing stop for {src}"
 
 
 if __name__ == "__main__":
@@ -67,4 +115,6 @@ if __name__ == "__main__":
     test_seed_lane_limits_call_heavy()
     test_stops_registered()
     test_jul29_wide_net_catches_cohort()
+    test_building_thrust_jul28_midcap_cohort()
+    test_gap_ignition_jul29_midcap_cohort()
     print("ALL_PASS")

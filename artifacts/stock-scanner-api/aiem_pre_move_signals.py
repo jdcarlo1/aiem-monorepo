@@ -15,11 +15,12 @@ WOLF, VSH, PENG, VPG, LUNR, LRCX, AMAT, ENTG, …):
 
 Also:
   momentum_continuation — strong bounce day (gap≥8%, CS≥0.70) → next-day CALL/STOCK
+  building_thrust — prior-day build (gap≥3%, rvol≥1.1, CS≥0.55) before mid/large rip
+  gap_ignition — same-day earnings-style gap (5–50%, rvol≥1.5) as the move starts
 
 Used by:
-  • aiem_options_scheduler CALL seed lane (washout_reclaim / thrust / continuation)
-  • main._aiem_paper_pick_candidates (wide-net sources washout_reclaim,
-    momentum_continuation, thrust_pullback — full qualifying universe, not top-N)
+  • aiem_options_scheduler CALL seed lane (washout / thrust / build / ignition / cont)
+  • main._aiem_paper_pick_candidates (wide-net sources — full qualifying universe)
 """
 from __future__ import annotations
 
@@ -67,6 +68,26 @@ THRUST_CS_MAX = 0.55             # controlled, not capitulation
 THRUST_RVOL_MIN = 0.70
 THRUST_DVOL_MIN = 50_000_000.0
 THRUST_LIMIT = 40
+
+# Building thrust — day BEFORE mid/large rip (BLKB/CBZ/GRMN/CTSH/WDAY Jul-28)
+# Empirically: gap ≥3%, rvol ≥1.1, CS ≥0.55, liquid; next day gaps 11–40%.
+BUILD_GAP_MIN = 3.0
+BUILD_RVOL_MIN = 1.1
+BUILD_CS_MIN = 0.55
+BUILD_PRICE_MIN = 8.0            # skip thin pennies; VRRM~$4 excluded intentionally
+BUILD_DVOL_MIN = 20_000_000.0
+BUILD_LIMIT = 300                # wide net — Jul-28 had ~240 qualifying builds
+
+# Gap ignition — AS the move happens (HURN/VRRM/KNSA/BLKB Jul-28/29 gaps)
+# Cap gap at 50% to exclude DFNS/BIYA-class meltups; keep earnings-style 5–40%.
+IGNITE_GAP_MIN = 5.0
+IGNITE_GAP_MAX = 50.0
+IGNITE_RVOL_MIN = 1.5
+IGNITE_CS_MIN = 0.05             # VRRM faded to 0.07; gap+rvol is the signal
+IGNITE_PRICE_MIN = 5.0
+IGNITE_DVOL_MIN = 15_000_000.0
+IGNITE_RANGE_MAX = 45.0          # DFNS range 80–160% junk; HURN/GRMN ~16–32%
+IGNITE_LIMIT = 200
 
 
 def score_washout_setup(
@@ -274,14 +295,18 @@ def scan_all_pre_move(
     washout_limit: int = WASHOUT_LIMIT,
     continuation_limit: int = CONT_LIMIT,
     thrust_limit: int = THRUST_LIMIT,
+    build_limit: int = BUILD_LIMIT,
+    ignite_limit: int = IGNITE_LIMIT,
 ) -> List[Dict[str, Any]]:
-    """Union of washout + continuation + thrust, deduped (highest score wins)."""
+    """Union of all pre-move lanes, deduped (highest score wins)."""
     asof = asof or date.today()
     merged: Dict[str, Dict[str, Any]] = {}
     for row in (
         scan_washout_reclaim(cur, asof=asof, limit=washout_limit)
         + scan_momentum_continuation(cur, asof=asof, limit=continuation_limit)
         + scan_thrust_pullback(cur, asof=asof, limit=thrust_limit)
+        + scan_building_thrust(cur, asof=asof, limit=build_limit)
+        + scan_gap_ignition(cur, asof=asof, limit=ignite_limit)
     ):
         t = row["ticker"]
         prev = merged.get(t)
@@ -446,6 +471,183 @@ def scan_thrust_pullback(
         })
     out.sort(key=lambda r: r["score"], reverse=True)
     return out[:limit]
+
+
+_BUILD_SQL = """
+SELECT ticker, scan_date, close_price, gap_pct, rvol, close_strength, range_pct,
+       volume, (close_price * volume) AS dvol
+FROM polygon_market_daily
+WHERE scan_date = %s
+  AND gap_pct >= %s
+  AND rvol >= %s
+  AND close_strength >= %s
+  AND close_price BETWEEN %s AND %s
+  AND (close_price * volume) >= %s
+  AND LENGTH(ticker) BETWEEN 1 AND 5
+  AND ticker <> ALL(%s)
+ORDER BY gap_pct * rvol * (1.0 + close_strength) DESC
+LIMIT %s
+"""
+
+
+def score_building_thrust(gap_pct: float, close_strength: float, rvol: float, dvol: float) -> float:
+    raw = (
+        float(gap_pct) * 3.0
+        + min(float(rvol), 3.0) * 12.0
+        + float(close_strength) * 18.0
+    )
+    if dvol >= 5e8:
+        raw += 18.0
+    elif dvol >= 1e8:
+        raw += 10.0
+    elif dvol >= 4e7:
+        raw += 5.0
+    return round(5.0 + 4.0 * raw / (raw + 55.0), 2) if raw > 0 else 5.0
+
+
+def scan_building_thrust(
+    cur,
+    asof: Optional[date] = None,
+    limit: int = BUILD_LIMIT,
+    denylist: Sequence[str] = LEVERAGED_ETF_DENYLIST,
+) -> List[Dict[str, Any]]:
+    """
+    Prior-day build before a mid/large rip (BLKB/CBZ/GRMN/CTSH/WDAY Jul-28).
+
+    Not a washout — constructive gap + elevated volume + strong close that
+    often precedes a same-week earnings-style ignition the next session.
+    Wide net: return the full qualifying set (ranked), not a tight top-N.
+    """
+    asof = asof or date.today()
+    cur.execute(
+        _BUILD_SQL,
+        (
+            asof,
+            BUILD_GAP_MIN, BUILD_RVOL_MIN, BUILD_CS_MIN,
+            BUILD_PRICE_MIN, WASHOUT_PRICE_MAX,
+            BUILD_DVOL_MIN,
+            list(denylist),
+            500,  # hard ceiling; limit applied after score rank
+        ),
+    )
+    out: List[Dict[str, Any]] = []
+    for row in cur.fetchall():
+        if isinstance(row, dict):
+            t = row
+        else:
+            cols = [d[0] for d in cur.description]
+            t = dict(zip(cols, row))
+        tkr = str(t["ticker"]).upper()
+        if tkr.endswith(("XL", "XU", "UU", "LL", "ZX", "XZ")):
+            continue
+        gp = float(t["gap_pct"] or 0)
+        cs = float(t["close_strength"] or 0)
+        rv = float(t["rvol"] or 0)
+        dvol = float(t["dvol"] or 0)
+        out.append({
+            "ticker": tkr,
+            "scan_date": t["scan_date"],
+            "close_price": float(t["close_price"] or 0),
+            "gap_pct": round(gp, 2),
+            "rvol": round(rv, 2),
+            "close_strength": round(cs, 3),
+            "dvol": dvol,
+            "score": score_building_thrust(gp, cs, rv, dvol),
+            "source": "building_thrust",
+            "detail": f"build gap={gp:.1f}% cs={cs:.2f} rvol={rv:.1f}x",
+        })
+    out.sort(key=lambda r: r["score"], reverse=True)
+    return out[: max(1, int(limit))]
+
+
+_IGNITE_SQL = """
+SELECT ticker, scan_date, close_price, gap_pct, rvol, close_strength, range_pct,
+       volume, (close_price * volume) AS dvol
+FROM polygon_market_daily
+WHERE scan_date = %s
+  AND gap_pct BETWEEN %s AND %s
+  AND rvol >= %s
+  AND close_strength >= %s
+  AND close_price BETWEEN %s AND %s
+  AND (close_price * volume) >= %s
+  AND range_pct <= %s
+  AND LENGTH(ticker) BETWEEN 1 AND 5
+  AND ticker <> ALL(%s)
+ORDER BY gap_pct * rvol DESC
+LIMIT %s
+"""
+
+
+def score_gap_ignition(gap_pct: float, rvol: float, close_strength: float, dvol: float) -> float:
+    raw = (
+        min(float(gap_pct), 40.0) * 2.5
+        + min(float(rvol), 8.0) * 8.0
+        + float(close_strength) * 12.0
+    )
+    if dvol >= 5e8:
+        raw += 20.0
+    elif dvol >= 1e8:
+        raw += 12.0
+    elif dvol >= 5e7:
+        raw += 6.0
+    return round(5.0 + 4.0 * raw / (raw + 60.0), 2) if raw > 0 else 5.0
+
+
+def scan_gap_ignition(
+    cur,
+    asof: Optional[date] = None,
+    limit: int = IGNITE_LIMIT,
+    denylist: Sequence[str] = LEVERAGED_ETF_DENYLIST,
+) -> List[Dict[str, Any]]:
+    """
+    Same-day gap ignition — enter AS the move is happening.
+
+    Catches HURN (+40% gap), VRRM (+22%), KNSA (+25%), BLKB/CBZ/GRMN (+16–18%)
+    when morning/EOD PMD already shows the gap. Caps gap/range to skip
+    DFNS/BIYA-class penny meltups. Wide net after score ranking.
+    """
+    asof = asof or date.today()
+    cur.execute(
+        _IGNITE_SQL,
+        (
+            asof,
+            IGNITE_GAP_MIN, IGNITE_GAP_MAX,
+            IGNITE_RVOL_MIN, IGNITE_CS_MIN,
+            IGNITE_PRICE_MIN, WASHOUT_PRICE_MAX,
+            IGNITE_DVOL_MIN, IGNITE_RANGE_MAX,
+            list(denylist),
+            500,
+        ),
+    )
+    out: List[Dict[str, Any]] = []
+    for row in cur.fetchall():
+        if isinstance(row, dict):
+            t = row
+        else:
+            cols = [d[0] for d in cur.description]
+            t = dict(zip(cols, row))
+        tkr = str(t["ticker"]).upper()
+        if tkr.endswith(("XL", "XU", "UU", "LL", "ZX", "XZ")):
+            continue
+        gp = float(t["gap_pct"] or 0)
+        cs = float(t["close_strength"] or 0)
+        rv = float(t["rvol"] or 0)
+        dvol = float(t["dvol"] or 0)
+        out.append({
+            "ticker": tkr,
+            "scan_date": t["scan_date"],
+            "close_price": float(t["close_price"] or 0),
+            "gap_pct": round(gp, 2),
+            "rvol": round(rv, 2),
+            "close_strength": round(cs, 3),
+            "range_pct": round(float(t["range_pct"] or 0), 2),
+            "dvol": dvol,
+            "score": score_gap_ignition(gp, rv, cs, dvol),
+            "source": "gap_ignition",
+            "detail": f"ignite gap={gp:.1f}% rvol={rv:.1f}x cs={cs:.2f}",
+        })
+    out.sort(key=lambda r: r["score"], reverse=True)
+    return out[: max(1, int(limit))]
 
 
 def latest_pmd_date(cur) -> Optional[date]:

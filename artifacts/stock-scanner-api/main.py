@@ -18777,11 +18777,13 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         # Gate: hypothesis_text='Short_Squeeze_Reversion' status='validated'
         # — never true in production; same unreachable-in-practice reasoning.
         "squeeze_reversion",
-        # EOD PMD leading indicators (washout before bounce / post-bounce cont).
-        # Snapshot as of latest polygon_market_daily — pass-through at open.
+        # EOD PMD leading indicators (washout before bounce / post-bounce cont /
+        # prior-day build / same-day gap ignition). Snapshot as of latest PMD.
         "washout_reclaim",
         "momentum_continuation",
         "thrust_pullback",
+        "building_thrust",
+        "gap_ignition",
     }
 
     # ── 6. DB-backed source metadata ──────────────────────────────────────
@@ -48294,6 +48296,18 @@ def _aiem_paper_pick_candidates(
                             _tp["ticker"], float(_tp["score"]),
                             "CALL_OPTION", "thrust_pullback",
                             _tp["detail"], direction="BULLISH",
+                        )
+                    for _bt in _pms.scan_building_thrust(_cu, asof=_asof_wr, limit=300):
+                        _add(
+                            _bt["ticker"], float(_bt["score"]),
+                            "CALL_OPTION", "building_thrust",
+                            _bt["detail"], direction="BULLISH",
+                        )
+                    for _gi in _pms.scan_gap_ignition(_cu, asof=_asof_wr, limit=200):
+                        _add(
+                            _gi["ticker"], float(_gi["score"]),
+                            "CALL_OPTION", "gap_ignition",
+                            _gi["detail"], direction="BULLISH",
                         )
                     print(f"[aiem_paper] pre_move wide-net asof={_asof_wr}")
             except Exception as _wre:

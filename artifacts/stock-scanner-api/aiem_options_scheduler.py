@@ -627,6 +627,8 @@ def _fetch_washout_call_seed_rows(cur, call_n: int) -> list:
             washout_limit=max(call_n * 4, 40),
             continuation_limit=max(call_n, 15),
             thrust_limit=max(call_n, 15),
+            build_limit=max(call_n * 3, 40),
+            ignite_limit=max(call_n * 3, 40),
         )[: max(call_n, 1)]
         return [
             (

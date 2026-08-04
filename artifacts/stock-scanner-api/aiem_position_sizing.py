@@ -91,6 +91,8 @@ _OVERNIGHT_HOLD_ALLOWED: Dict[str, bool] = {
     "washout_reclaim":         True,   # multi-day reclaim after capitulation
     "momentum_continuation":   False,
     "thrust_pullback":         False,
+    "building_thrust":         False,  # next-session follow-through after build
+    "gap_ignition":            False,  # same-day entry — no overnight by default
 }
 
 
@@ -373,6 +375,12 @@ _STOP_REGISTRY = {
 
     # thrust_pullback: mild digests-the-move red day (ORCL class); 7% stop
     "thrust_pullback":         _stop_pct_below_entry(0.07, "thrust_pullback"),
+
+    # building_thrust: prior-day constructive build (BLKB/GRMN class); 7% stop
+    "building_thrust":         _stop_pct_below_entry(0.07, "building_thrust"),
+
+    # gap_ignition: same-day earnings-style gap entry; tighter 6% — already extended
+    "gap_ignition":            _stop_pct_below_entry(0.06, "gap_ignition"),
 }
 
 
