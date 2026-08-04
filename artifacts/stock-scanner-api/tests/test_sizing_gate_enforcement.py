@@ -15,7 +15,7 @@ import os
 
 MAIN_PY = os.path.join(os.path.dirname(__file__), "..", "main.py")
 
-START_MARKER = "_notional  = 1000.0"
+START_MARKER = "_notional   = 1000.0"
 END_MARKER = 'if _trade_type == "CALL_OPTION":'
 
 
@@ -65,7 +65,13 @@ def run_case(name, pos_sizer, expect_insert_reached, expect_notional=None):
         "_pos_sizer": pos_sizer,
         "_t": "ZZTEST",
         "_fill_price": 100.0,
-        "pick": {"trade_type": "STOCK", "source": "unusual_calls", "score": 10.0},
+        "pick": {
+            "trade_type": "STOCK",
+            "source": "unusual_calls",
+            "score": 10.0,
+            "raw_score": 10.0,
+        },
+        "_conviction_stack_scores": {},
         "_reached": reached,
     }
 

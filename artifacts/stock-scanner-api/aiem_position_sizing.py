@@ -86,6 +86,8 @@ _OVERNIGHT_HOLD_ALLOWED: Dict[str, bool] = {
     "oi_buildup":              False,
     "layer9_stat":             False,
     "aiem_v3_discovery":       False,
+    "fear_premium_gex":        False,
+    "gap_down_distribution":   False,
 }
 
 
@@ -350,6 +352,14 @@ _STOP_REGISTRY = {
 
     # layer9_stat: statistical edge signal; 7% stop
     "layer9_stat":             _stop_pct_below_entry(0.07, "layer9_stat"),
+
+    # fear_premium_gex: put-skew / long-gamma fear premium; 8% stop
+    # (2026-08-04: 5 APPROVED picks died solely on NO_INVALIDATION_POINT —
+    #  this source was active in paper picking but missing from the registry.)
+    "fear_premium_gex":        _stop_pct_below_entry(0.08, "fear_premium_gex"),
+
+    # gap_down_distribution: bearish gap+RVOL distribution; 8% stop
+    "gap_down_distribution":   _stop_pct_below_entry(0.08, "gap_down_distribution"),
 }
 
 

@@ -19993,17 +19993,30 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 _sizing_gate       = "PARAMS_NOT_CONFIRMED"
                 if _pos_sizer:
                     try:
+                        # Conviction for sizing must stay on the source's 5–9
+                        # scale. Do NOT reuse conviction_stack_watchlist.total_pts
+                        # for other sources — that table is sparse and often
+                        # holds sub-floor scores (e.g. 1.3–4.0) that wrongly
+                        # CONVICTION_BELOW_MIN'd APPROVED multi_signal /
+                        # oi_buildup picks on 2026-08-04. Prefer raw_score
+                        # (pre-thompson / pre-edge-filter) so ranking multipliers
+                        # reorder picks without zeroing tradeable conviction.
+                        _src_for_sz = pick.get("source") or ""
+                        if (
+                            _src_for_sz == "conviction_stack"
+                            and _t in _conviction_stack_scores
+                        ):
+                            _conv_for_sz = float(_conviction_stack_scores[_t])
+                        else:
+                            _conv_for_sz = float(
+                                pick.get("raw_score")
+                                or pick.get("score")
+                                or 0
+                            )
                         _sz = _pos_sizer.compute_position_size(
                             ticker=_t,
                             signal_source=pick["source"],
-                            # min(9.0,...) applied at BOTH paths:
-                            # — conviction_stack total_pts (0-12 range; cap prevents >9.0)
-                            # — per-source normalized pick["score"] (already 5-9 after #91
-                            #   normalizations; cap is defense-in-depth for dormant sources)
-                            # Task #91 fix 2026-07-30.
-                            conviction_score=min(9.0, _conviction_stack_scores.get(
-                                _t, float(pick.get("score") or 0)
-                            )),
+                            conviction_score=min(9.0, _conv_for_sz),
                             entry_price=_fill_price,
                             signal_row=pick,
                         )
@@ -48280,7 +48293,18 @@ def _aiem_paper_pick_candidates(
                     _t = (_h.get("ticker") or "").upper()
                     _sig_n = len(_h.get("signals", []) or [])
                     if _t and _sig_n >= 3:
-                        _add(_t, float(_sig_n) * 2.5, "STOCK", "multi_signal",
+                        # Raw: signal_count × 2.5 (3→7.5, 10→25).
+                        # Normalize to 5.0–9.0 via hyperbolic compression
+                        # (half-sat at raw=10 ≈ 4 confirming signals → ~7.0).
+                        # Task #91 parity — unnormalized multi_signal scores
+                        # were later crushed by ranking multipliers and then
+                        # compared to the 5.0 sizing floor.
+                        _score_raw = float(_sig_n) * 2.5
+                        _score = (
+                            5.0 + 4.0 * _score_raw / (_score_raw + 10.0)
+                            if _score_raw > 0 else 5.0
+                        )
+                        _add(_t, _score, "STOCK", "multi_signal",
                              f"{_sig_n} signals confirmed")
 
             # ── 7. OI buildup / accumulation ─────────────────────────────────
@@ -48476,7 +48500,18 @@ def _aiem_paper_pick_candidates(
                 """)
                 _fear_rows = _bcu.fetchall()
             for _bt, _bspot, _bskew, _bgex, _breg, _bgfp in (_fear_rows or []):
-                _bscore = float(_bskew or 0) * 0.8 + abs(float(_bgex or 0)) * 0.1 + 5.0
+                # Raw composite often landed in the 10–70 range (skew×0.8 + …),
+                # which min(9.0,…) clamped to a flat 9.0 and hid differentiation.
+                # Normalize to 5.0–9.0 (half-sat at raw=20).
+                _score_raw = (
+                    float(_bskew or 0) * 0.8
+                    + abs(float(_bgex or 0)) * 0.1
+                    + 5.0
+                )
+                _bscore = (
+                    5.0 + 4.0 * _score_raw / (_score_raw + 20.0)
+                    if _score_raw > 0 else 5.0
+                )
                 _add(_bt, _bscore, "PUT_OPTION", "fear_premium_gex",
                      f"FEAR_PREMIUM skew={float(_bskew or 0):.1f}pp "
                      f"GEX={float(_bgex or 0):.1f}M ({_breg})",
