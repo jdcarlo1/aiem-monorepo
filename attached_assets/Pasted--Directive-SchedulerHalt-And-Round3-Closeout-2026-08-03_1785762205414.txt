@@ -1,0 +1,72 @@
+# Directive_SchedulerHalt_And_Round3_Closeout_2026-08-03
+
+Standing rules: git-autosync stopped. Raw output only, untruncated. No DELETE/UPDATE on any log table.
+
+## Accepted from Round 3, no further work
+- Item 1 append-only: 459/459/459. Proven.
+- Item 2: full 72-bucket table, 20 zero-hours in 6 runs. Correct.
+- Item 5 arithmetic corrections. Correct.
+- Item 6(b)(d) and the D3a self-correction (premarket_scan and recover_stale_jobs do NOT call `_write_heartbeat`; only `run_pipeline_worker` and `grade_outcomes_job` do). Good catch — it invalidates part of your own Round 2 answer, and you flagged it. That is the standard.
+- D8 report-only. D9 findings.
+
+## Item 0 — DO THIS FIRST: the scheduler is halted right now
+D4 states `"scheduler": "stopped"` — APScheduler is not running scheduled jobs, and `_heartbeat_loop` staying alive is why nothing looked wrong. This is a live outage, not a verification finding.
+
+1. Restart the `options-pipeline-scheduler` workflow.
+2. Paste: `/health` before and after, the new `process_lifecycle_log` row (id, pid, git_sha, started_at), and the first `scheduler_run_audit` row after restart.
+3. State which of today's scheduled jobs were missed while it was halted, with the window in UTC and ET.
+
+## Item 1 — my gap taxonomy was wrong; relabel
+"RESTART-EXPLAINED" as I defined it only requires a lifecycle row bracketing the gap — which every gap has by construction, since the process died and later started. That label was mine and it was a bad one. All 6 gaps passed a test that cannot fail.
+
+Relabel each gap A–F with two separate fields:
+- **process death confirmed?** (yes/no + lifecycle ids)
+- **cause of death known?** (yes/no — and if yes, the evidence; "matches the nightly reset pattern" is a correlation, not a cause)
+
+I expect six "no" in the second column. Say so plainly if that is the answer.
+
+## Item 2 — job_attempt_log does not measure scheduler liveness
+Given your D3a correction, essentially all 459 rows come from the `_heartbeat_loop` daemon thread. D4 proves that thread keeps writing while APScheduler is halted. So Items 2 and 3 measured *process* uptime, not *scheduler* uptime — the 82% figure is consistent with the scheduler being dead the whole time.
+
+1. `grep` the `_heartbeat_loop` sleep interval and confirm the 12/hr figure from code, not inference.
+2. State whether any table currently distinguishes "process alive" from "APScheduler running." If none does, that is the real gap, and it is upstream of per-job naming.
+3. Add the distinction. `job_attempt_log.error_text` is nullable text with no CHECK on it — write `sched_running=<bool>` there on heartbeat rows, sourced from `_scheduler_ref.running`. Confirm the `status IN ('success','failure')` CHECK is untouched. If a cleaner column exists, propose it instead and say why.
+
+## Item 3 — 116 process starts in 3 days
+```sql
+SELECT process_name, count(*), min(started_at), max(started_at)
+FROM process_lifecycle_log WHERE started_at >= '2026-07-31'
+GROUP BY 1 ORDER BY 2 DESC;
+
+SELECT started_at::date, count(*)
+FROM process_lifecycle_log
+WHERE started_at >= '2026-07-31' AND process_name = 'aiem_options_scheduler'
+GROUP BY 1 ORDER BY 1;
+```
+If the scheduler alone accounts for dozens of restarts a day, that is the headline of this round and every naming/coverage item is downstream of it.
+
+## Item 4 — aiem_independent_scan is dead, not "isolated"
+`name '_run_aiem_independent_scan' is not defined` on 7/31, and zero rows from that job on any day since. A job that has never succeeded in the window is not an isolated row.
+
+Report: last successful run (date), whether the job is still registered in the scheduler, the file:line of the missing symbol, and the exact fix — define/import the function, or deregister the job. Do not close as isolated.
+
+## Item 5 — the 5 tickers and the NoneType gate
+HAL, AMGN, CLF, VRTX, NEE missing Polygon/OSS on both 8/1 and 8/2.
+1. Are they still failing today?
+2. When Polygon/OSS data is missing for a ticker, is it silently dropped from candidate selection or does it hard-fail the run? Show the code path.
+3. The 8/2 05:13 `'<=' not supported between 'NoneType' and 'int'` — file:line and which field is None.
+
+## Item 6 — extended patch: three answers before it gets applied
+`job_coverage_extended_2026-08-03.patch`, sha256 `8aaa78e1292dc587d6c0ae8e00670cae485261b9013fcc391f7ab0ccec78acea`, 82 insertions / 1 deletion, 15 hunks, check exit 0.
+
+(a) Does it **supersede** `job_run_evidence_2026-08-03.patch` or stack on it? If applying both would conflict, say so explicitly and name which one to apply.
+(b) What is the **1 deletion**? The original had zero.
+(c) 72h staleness for `polygon_canary_check` / `morning_diagnostic` means a canary that dies Monday alerts Thursday. That reintroduces the blindness this whole round was meant to remove. Propose a weekday-aware threshold (e.g. 26h Tue–Fri, 74h Mon) or state why flat 72h is acceptable.
+
+## Item 7 — D9: documented is not enforced
+"The TTY gate documented in `tla-self-issue-audit.md` prevents future self-issues" — a doc prevents nothing. Show the code in `issue_tla.py` that rejects `--approved-by` when no TTY is present, or state that no such code exists and only the document does.
+
+## Decisions (made — strike if you disagree)
+- **D6**: approved, `max_gap_hours = 5` for `classification_integrity_sweep`. Build it.
+- **D7**: approved. Run the restart test today after 4:47 PM ET as you proposed, and paste the resulting `scheduler_run_audit` RECOVERED row. This is what finally replaces the forced misfire proof.
+- **D5a**: leave blocked on PAT scope. Do not spend more time on it.

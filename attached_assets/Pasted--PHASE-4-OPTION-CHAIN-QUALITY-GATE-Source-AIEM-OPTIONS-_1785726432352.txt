@@ -1,0 +1,44 @@
+# PHASE 4 — OPTION-CHAIN QUALITY GATE
+Source: AIEM_OPTIONS_AUTONOMY_MASTER_DIRECTIVE.txt §6
+Target: aiem_strat_engine/chain_data.py, eligibility.py
+Depends on: Phase 3 CLOSED
+Scope: Options Engine only. Paper trading only.
+
+## Requirements
+Hard reject entire strategy when ANY leg fails: quote missing/stale/crossed,
+OI < 50, option volume < 20, spread > 20% of midpoint, invalid Greeks,
+invalid DTE/IV, incomplete chain.
+
+Preferred thresholds (not hard reject, used in scoring): OI >= 500,
+volume >= 100, spread <= 10%. All thresholds configurable, not hardcoded
+inline without a named config source.
+
+Compute and persist: liquidity_score, expected_slippage, fill_probability,
+exit_liquidity, quote_age, chain_completeness.
+
+Tradier remains primary chain source unless existing failover is verified
+live. Polygon options module may be fallback only with freshness/source
+logging on every fallback use.
+
+## Evidence required (master §14 items 13, 14)
+- Item 13: one real strategy where every leg passes — raw liquidity_score,
+  expected_slippage, fill_probability, exit_liquidity, chain_completeness
+  values shown, traced to the live chain data they came from.
+- Item 14: one real or forced illiquid-leg case — raw proof the whole
+  strategy is hard-rejected, with the specific failing threshold named.
+- Grep proof the hard-reject thresholds are read from config, not inlined
+  as bare literals.
+
+## Out of scope this phase
+Scoring/strategy mapping, triggers, autonomy cadence, position management —
+Phases 5-8.
+
+## STANDING CHECKLIST (applies to every item below)
+- Raw evidence only: terminal output, raw grep -n/sed -n for any code-location/behavior claim, exact git diff, sha256 before/after for changed files, full SQL query + complete result set. No narrative/paraphrased "fixed/tested/confirmed" claims.
+- Run all evidence commands through tools/verified_run.sh; validate log with verify_chain.sh before declaring anything complete. Paste sha256sum of both tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical — mismatch voids the submission.
+- No-hardcoded-values check: list every hardcoded-looking constant introduced this phase + one-line trace to its live source (API/DB/formula). Negative control proving any new conditional gate actually blocks under the failing condition.
+- Data Immutability Rule: no DELETE/TRUNCATE/UPDATE/overwrite of any row or file — including test/synthetic data — without Joel's explicit prior approval this session.
+- "PASS" is reserved for items with nothing outstanding, nothing deferred, nothing accepted-as-risk. Otherwise label exactly: "closed via accepted-risk," "cleared to proceed," or "partial" — never blend with "passed."
+- A verifier PASS is not autonomous-execution authorization. Phase-completion and clearance-to-run-unsupervised are separate approvals requiring separate evidence.
+- Once a phase fully closes, agent commits a permanent record file to the repo: /docs/verification/phase{N}-{name}-FINAL.md with verdict, evidence summary, and commit hash verified against.
+- Lean output format: raw command + output only, no restated headers/summary tables/narrative. State plainly if a claim can't be backed by real output — no padding.

@@ -326,6 +326,24 @@ END $$;
 """
 
 
+# ── Phase 5 §8 additive column migrations ─────────────────────────────────────
+# These ADD COLUMN IF NOT EXISTS statements are safe to run on any DB state.
+# They extend ase_strategy_evaluations and ase_decision_runs without altering
+# existing rows.  New rows get the values; old rows default to NULL.
+DDL_PHASE5_MIGRATIONS = """
+ALTER TABLE ase_strategy_evaluations
+    ADD COLUMN IF NOT EXISTS score_inputs_json       JSONB,
+    ADD COLUMN IF NOT EXISTS score_signal_quality    NUMERIC(6,4),
+    ADD COLUMN IF NOT EXISTS direction_confidence_used NUMERIC(6,4),
+    ADD COLUMN IF NOT EXISTS compatibility_filter_json JSONB;
+
+ALTER TABLE ase_decision_runs
+    ADD COLUMN IF NOT EXISTS n_compatible            INTEGER,
+    ADD COLUMN IF NOT EXISTS n_compat_rejected       INTEGER,
+    ADD COLUMN IF NOT EXISTS compatibility_filter_json JSONB;
+"""
+
+
 def create_schema() -> bool:
     """Create all ase_* tables if they do not exist. Safe to call repeatedly."""
     try:
@@ -342,6 +360,10 @@ def create_schema() -> bool:
         # Add the FK via ALTER TABLE after both tables exist
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(DDL_FK_FIX)
+            conn.commit()
+        # Phase 5: additive column migrations
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(DDL_PHASE5_MIGRATIONS)
             conn.commit()
         return True
     except Exception as exc:

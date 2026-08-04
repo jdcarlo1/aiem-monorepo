@@ -1,0 +1,118 @@
+[2026-08-03T08:56:36Z] ===== verify_phase4_chain_gate.py START =====
+
+[2026-08-03T08:56:36Z] --- SECTION A: Config source proof ---
+[2026-08-03T08:56:36Z] PASS  A.MAX_BID_ASK_WIDTH_in_config  |  21:MAX_BID_ASK_WIDTH   = 0.20    # fraction of mid — hard reject when spread > 20% of mid
+[2026-08-03T08:56:36Z] PASS  A.MIN_OPEN_INTEREST_in_config  |  22:MIN_OPEN_INTEREST   = 50      # per leg — hard reject OI < 50
+[2026-08-03T08:56:36Z] PASS  A.MIN_VOLUME_in_config  |  23:MIN_VOLUME          = 20      # per leg (day's volume) — hard reject vol < 20
+33:PREFER_MIN_VOLUME     = 100   # pref
+[2026-08-03T08:56:36Z] PASS  A.QUOTE_STALE_SECONDS_in_config  |  29:QUOTE_STALE_SECONDS = 300     # hard reject quotes older than this (seconds)
+[2026-08-03T08:56:36Z] PASS  A.PREFER_MIN_OI_in_config  |  32:PREFER_MIN_OI         = 500   # preferred per-leg OI for full liquidity score
+[2026-08-03T08:56:36Z] PASS  A.PREFER_MIN_VOLUME_in_config  |  33:PREFER_MIN_VOLUME     = 100   # preferred per-leg day volume for full liquidity score
+[2026-08-03T08:56:36Z] PASS  A.PREFER_MAX_SPREAD_PCT_in_config  |  34:PREFER_MAX_SPREAD_PCT = 0.10  # spread ≤ 10% → full spread component in liquidity score
+[2026-08-03T08:56:36Z] PASS  A.POLYGON_CHAIN_FALLBACK_ENABLED_in_config  |  38:POLYGON_CHAIN_FALLBACK_ENABLED = False
+[2026-08-03T08:56:36Z] PASS  A.elig_from .config imp  |  9:from .config import (
+[2026-08-03T08:56:36Z] PASS  A.chai_from .config imp  |  12:from .config import (
+526:        from .config import DTE_SLOTS
+[2026-08-03T08:56:36Z] PASS  A.elig_MAX_BID_ASK_WIDT  |  10:    MIN_DTE, MAX_BID_ASK_WIDTH, MIN_OPEN_INTEREST, MIN_VOLUME,
+45:def check_bid_ask_width(legs: List[Leg], max_frac: 
+[2026-08-03T08:56:36Z] PASS  A.elig_MIN_OPEN_INTERES  |  10:    MIN_DTE, MAX_BID_ASK_WIDTH, MIN_OPEN_INTEREST, MIN_VOLUME,
+60:def check_open_interest(legs: List[Leg], min_oi: in
+[2026-08-03T08:56:36Z] PASS  A.elig_MIN_VOLUME  |  10:    MIN_DTE, MAX_BID_ASK_WIDTH, MIN_OPEN_INTEREST, MIN_VOLUME,
+72:def check_volume(legs: List[Leg], min_vol: int = MI
+[2026-08-03T08:56:36Z] PASS  A.elig_QUOTE_STALE_SECO  |  13:    QUOTE_STALE_SECONDS,
+245:    max_age_seconds: int = QUOTE_STALE_SECONDS,
+[2026-08-03T08:56:36Z] PASS  A.chai_MAX_BID_ASK_WIDT  |  14:    MAX_BID_ASK_WIDTH, MIN_OPEN_INTEREST, MIN_VOLUME,
+351:    # Spread component: 1.0 at 0% spread, 0.0 at MAX_BID_AS
+[2026-08-03T08:56:36Z] PASS  A.chai_PREFER_MIN_OI  |  15:    PREFER_MIN_OI, PREFER_MIN_VOLUME, PREFER_MAX_SPREAD_PCT,
+331:      0.25 × oi_component      (0=0 OI, 1=at PREFER_
+[2026-08-03T08:56:36Z] PASS  A.quote_age_default_from_config  |  13:    QUOTE_STALE_SECONDS,
+245:    max_age_seconds: int = QUOTE_STALE_SECONDS,
+
+[2026-08-03T08:56:36Z] --- SECTION B: Module imports ---
+[2026-08-03T08:56:37Z] PASS  B.imports_ok
+[2026-08-03T08:56:37Z] PASS  B.MAX_BID_ASK_WIDTH_eq_0.20  |  actual=0.2
+[2026-08-03T08:56:37Z] PASS  B.MIN_OPEN_INTEREST_eq_50  |  actual=50
+[2026-08-03T08:56:37Z] PASS  B.MIN_VOLUME_eq_20  |  actual=20
+[2026-08-03T08:56:37Z] PASS  B.PREFER_MIN_OI_eq_500  |  actual=500
+[2026-08-03T08:56:37Z] PASS  B.PREFER_MIN_VOLUME_eq_100  |  actual=100
+[2026-08-03T08:56:37Z] PASS  B.QUOTE_STALE_SECONDS_eq_300  |  actual=300
+[2026-08-03T08:56:37Z] PASS  B.POLYGON_FALLBACK_FALSE  |  actual=False
+
+[2026-08-03T08:56:37Z] --- SECTION C: Live Tradier chain pull (Item 13) ---
+[2026-08-03T08:56:37Z] PASS  C.tradier_returns_expirations  |  count=34
+[2026-08-03T08:56:37Z] PASS  C.chain_has_legs  |  ticker=SPY expiry=2026-08-06 legs=334
+[2026-08-03T08:56:37Z] INFO  C.chain_source  |  ticker=SPY expiry=2026-08-06 dte=3 chain_legs=334
+[2026-08-03T08:56:37Z] PASS  C.spot_available  |  spot=747.03
+[2026-08-03T08:56:37Z] INFO  C.long_leg_raw  |  strike=747.0 bid=4.12 ask=4.17 OI=474 vol=0 iv=0.1074 delta=0.5303 ts=1785528847723
+[2026-08-03T08:56:37Z] INFO  C.short_leg_raw  |  strike=753.0 bid=1.27 ask=1.3 OI=604 vol=0 iv=0.087 delta=0.2375 ts=1785528890950
+[2026-08-03T08:56:37Z] INFO  C.legs_built  |  legs=2
+
+[2026-08-03T08:56:37Z] --- SECTION D: Hard gate on live SPY spread (Item 13) ---
+[2026-08-03T08:56:37Z] PASS  D.check_quotes_present  |  GATE_PASSES
+[2026-08-03T08:56:37Z] PASS  D.check_dte  |  GATE_PASSES
+[2026-08-03T08:56:37Z] PASS  D.check_bid_ask_width  |  GATE_PASSES
+[2026-08-03T08:56:37Z] PASS  D.check_open_interest  |  GATE_PASSES
+[2026-08-03T08:56:37Z] INFO  D.check_volume  |  GATE_REJECTS reasons=['Low volume: 0 < 20 for SPY260806C00747000', 'Low volume: 0 < 20 for SPY260806C00753000']
+[2026-08-03T08:56:37Z] PASS  D.check_iv_range  |  GATE_PASSES
+[2026-08-03T08:56:37Z] PASS  D.check_greeks_present  |  GATE_PASSES
+[2026-08-03T08:56:37Z] PASS  D.check_chain_completeness  |  GATE_PASSES
+[2026-08-03T08:56:37Z] INFO  D.check_quote_age  |  GATE_REJECTS reasons=['Stale chain: quote is 218550s old (limit 300s) for SPY260806C00747000', 'Stale chain: quote is 218507s old (limit 300s) for SPY260806C00753000']
+[2026-08-03T08:56:37Z] PASS  D.check_impossible_pricing  |  GATE_PASSES
+[2026-08-03T08:56:37Z] INFO  D.check_strategy_eligible  |  eligible=False reasons=['Low volume: 0 < 20 for SPY260806C00747000', 'Low volume: 0 < 20 for SPY260806C00753000', 'Stale chain: quote is 218550s old (limit 300s) for SPY260806C00747000', 'Stale chain: quote is 218507s old (limit 300s) for SPY260806C00753000']
+[2026-08-03T08:56:37Z] INFO  D.item13_gate_status  |  eligible=False (PASS=eligible is True or reasons are known data gaps)
+
+[2026-08-03T08:56:37Z] --- SECTION E: compute_chain_quality on live legs (Item 13) ---
+[2026-08-03T08:56:37Z] PASS  E.compute_chain_quality_returned  |  keys=['liquidity_score', 'expected_slippage', 'fill_probability', 'exit_liquidity', 'quote_age', 'chain_completeness', 'chain_quality_gate_passed', 'per_leg', 'trace_id', 'persisted']
+[2026-08-03T08:56:37Z] INFO  E.liquidity_score  |  0.6916
+[2026-08-03T08:56:37Z] INFO  E.expected_slippage  |  0.04
+[2026-08-03T08:56:37Z] INFO  E.fill_probability  |  0.265
+[2026-08-03T08:56:37Z] INFO  E.exit_liquidity  |  0.6224
+[2026-08-03T08:56:37Z] INFO  E.quote_age  |  218549
+[2026-08-03T08:56:37Z] INFO  E.chain_completeness  |  1.0
+[2026-08-03T08:56:37Z] INFO  E.leg1  |  sym=SPY260806C00747000 OI=474 vol=0 spread_pct=0.0121 liq=0.7068 fill_prob=0.2819 slippage=0.025 exit_liq=0.6361 quote_age_s=218549 completeness=1.0
+[2026-08-03T08:56:37Z] INFO  E.leg2  |  sym=SPY260806C00753000 OI=604 vol=0 spread_pct=0.0233 liq=0.6916 fill_prob=0.265 slippage=0.015 exit_liq=0.6224 quote_age_s=218506 completeness=1.0
+[2026-08-03T08:56:37Z] PASS  E.all_6_metrics_present
+[2026-08-03T08:56:37Z] INFO  E.persist_status  |  persisted=True error=None
+
+[2026-08-03T08:56:37Z] --- SECTION F: Forced illiquid leg — Item 14 ---
+[2026-08-03T08:56:37Z] INFO  F.illiquid_leg_params  |  OI=5 vol=3 bid=1.0 ask=2.8 mid=1.90 spread_pct=94.7% thresholds: MIN_OI=50 MIN_VOL=20 MAX_SPREAD=20%
+[2026-08-03T08:56:37Z] INFO  F.check_open_interest_observed  |  passed=False reasons=['Low OI: 5 < 50 for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] PASS  F.check_open_interest_names_threshold  |  reasons=['Low OI: 5 < 50 for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] INFO  F.check_volume_observed  |  passed=False reasons=['Low volume: 3 < 20 for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] PASS  F.check_volume_names_threshold  |  reasons=['Low volume: 3 < 20 for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] INFO  F.check_bid_ask_width_observed  |  passed=False reasons=['Bid-ask too wide: 94.7% > 20.0% for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] PASS  F.check_bid_ask_width_names_threshold  |  reasons=['Bid-ask too wide: 94.7% > 20.0% for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] INFO  F.check_quote_age_observed  |  passed=False reasons=['Stale chain: quote is 207910598s old (limit 300s) for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] PASS  F.check_quote_age_names_threshold  |  reasons=['Stale chain: quote is 207910598s old (limit 300s) for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] PASS  F.full_gate_result  |  eligible=False reasons=['Bid-ask too wide: 94.7% > 20.0% for SYNTHETIC_ILLIQUID_C500', 'Low OI: 5 < 50 for SYNTHETIC_ILLIQUID_C500', 'Low volume: 3 < 20 for SYNTHETIC_ILLIQUID_C500', 'Stale chain: quote is 207910598s old (limit 300s) for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] PASS  F.item14_strategy_hard_rejected  |  eligible=False reasons=['Bid-ask too wide: 94.7% > 20.0% for SYNTHETIC_ILLIQUID_C500', 'Low OI: 5 < 50 for SYNTHETIC_ILLIQUID_C500', 'Low volume: 3 < 20 for SYNTHETIC_ILLIQUID_C500', 'Stale chain: quote is 207910598s old (limit 300s) for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] PASS  F.item14_reasons_non_empty  |  reasons=['Bid-ask too wide: 94.7% > 20.0% for SYNTHETIC_ILLIQUID_C500', 'Low OI: 5 < 50 for SYNTHETIC_ILLIQUID_C500', 'Low volume: 3 < 20 for SYNTHETIC_ILLIQUID_C500', 'Stale chain: quote is 207910598s old (limit 300s) for SYNTHETIC_ILLIQUID_C500']
+[2026-08-03T08:56:37Z] INFO  F.failing_thresholds_named  |  rejection reasons: ['Bid-ask too wide: 94.7% > 20.0% for SYNTHETIC_ILLIQUID_C500', 'Low OI: 5 < 50 for SYNTHETIC_ILLIQUID_C500', 'Low volume: 3 < 20 for SYNTHETIC_ILLIQUID_C500', 'Stale chain: quote is 207910598s old (limit 300s) for SYNTHETIC_ILLIQUID_C500']
+
+[2026-08-03T08:56:37Z] --- SECTION G: check_chain_completeness ---
+[2026-08-03T08:56:37Z] PASS  G.incomplete_leg_rejected  |  reasons=["Incomplete chain — missing ['iv', 'delta'] for INCOMPLETE_TEST"]
+[2026-08-03T08:56:37Z] PASS  G.reason_names_missing_fields  |  reasons=["Incomplete chain — missing ['iv', 'delta'] for INCOMPLETE_TEST"]
+[2026-08-03T08:56:37Z] PASS  G.complete_leg_passes  |  reasons=[]
+
+[2026-08-03T08:56:37Z] --- SECTION H: Polygon fallback gated ---
+[2026-08-03T08:56:37Z] PASS  H.polygon_fallback_returns_empty_when_disabled  |  returned=0 items POLYGON_CHAIN_FALLBACK_ENABLED=False
+
+[2026-08-03T08:56:37Z] --- SECTION I: Persist verification ---
+[2026-08-03T08:56:37Z] PASS  I.rows_persisted  |  count=12
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.7068 exit_liq=0.6361 age_s=None completeness=1.0 gate_passed=True fill_prob=0.2819 slippage=0.025 captured_at=2026-08-03 08:42:10.725063+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.6916 exit_liq=0.6224 age_s=None completeness=1.0 gate_passed=True fill_prob=0.265 slippage=0.015 captured_at=2026-08-03 08:42:10.725063+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.7068 exit_liq=0.6361 age_s=217770 completeness=1.0 gate_passed=False fill_prob=0.2819 slippage=0.025 captured_at=2026-08-03 08:43:37.819579+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.6916 exit_liq=0.6224 age_s=217726 completeness=1.0 gate_passed=False fill_prob=0.265 slippage=0.015 captured_at=2026-08-03 08:43:37.819579+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.7068 exit_liq=0.6361 age_s=217796 completeness=1.0 gate_passed=False fill_prob=0.2819 slippage=0.025 captured_at=2026-08-03 08:44:04.029119+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.6916 exit_liq=0.6224 age_s=217753 completeness=1.0 gate_passed=False fill_prob=0.265 slippage=0.015 captured_at=2026-08-03 08:44:04.029119+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.7068 exit_liq=0.6361 age_s=217982 completeness=1.0 gate_passed=False fill_prob=0.2819 slippage=0.025 captured_at=2026-08-03 08:47:10.141359+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.6916 exit_liq=0.6224 age_s=217938 completeness=1.0 gate_passed=False fill_prob=0.265 slippage=0.015 captured_at=2026-08-03 08:47:10.141359+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.7068 exit_liq=0.6361 age_s=218407 completeness=1.0 gate_passed=False fill_prob=0.2819 slippage=0.025 captured_at=2026-08-03 08:54:15.288307+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.6916 exit_liq=0.6224 age_s=218364 completeness=1.0 gate_passed=False fill_prob=0.265 slippage=0.015 captured_at=2026-08-03 08:54:15.288307+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.7068 exit_liq=0.6361 age_s=218549 completeness=1.0 gate_passed=False fill_prob=0.2819 slippage=0.025 captured_at=2026-08-03 08:56:37.663888+00:00
+[2026-08-03T08:56:37Z] INFO  I.row  |  trace=p4verify_item13 ticker=SPY liq=0.6916 exit_liq=0.6224 age_s=218506 completeness=1.0 gate_passed=False fill_prob=0.265 slippage=0.015 captured_at=2026-08-03 08:56:37.663888+00:00
+
+[2026-08-03T08:56:37Z] ===== SUMMARY =====
+SUMMARY: PASS=50 FAIL=0 INFO=35 TOTAL=50
+[2026-08-03T08:56:37Z] PASS=50  FAIL=0  INFO=35  TOTAL_CHECKS=50
+[2026-08-03T08:56:37Z] OVERALL: PASS

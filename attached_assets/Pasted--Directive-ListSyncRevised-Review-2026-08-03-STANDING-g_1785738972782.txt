@@ -1,0 +1,36 @@
+# Directive_ListSyncRevised_Review_2026-08-03
+
+STANDING: git-autosync stopped (not paused). No commits, pushes, resets, amends, or merges to main. Any protected-file edit stays as an untracked patch file. Report only.
+
+## Accepted
+- D1 sha-set defect explanation, D2 working-tree execution evidence, D4 narrowing analysis: accepted.
+- Patch contents verified line-by-line. Hunk arithmetic is internally consistent (-57,9/+57,11; -36,9/+36,11; -126,7/+128,17; -142,7/+154,7; -151,7/+163,7; -59,6/+59,10; -114,12/+118,19). Offsets +2 then +12 track correctly.
+- `trading_logic_approvals.jsonl` correctly NOT added to gate.sh PROTECTED_PATTERNS, and correctly excluded from the sha input in both tools. Matches the directive exactly.
+
+## Item 1 — The exclusion path was never exercised. Re-run the proof with the ledger staged.
+In the throwaway proof, `protected_staged` and `sha_files` were the SAME three files, and `STAGED_PROTECTED` and `SHA_INPUT_FILES` were the same three files. The ledger was never staged, so neither filter ever dropped anything. The case the patch exists for is untested.
+
+On a fresh throwaway branch:
+1. `git checkout -b throwaway-ledger-proof`
+2. `git apply tools/tla_patches/list_sync_revised_2026-08-03.patch`
+3. `git add tools/check_protected_push.py tools/issue_tla.py tools/trading_logic_gate.sh tools/trading_logic_approvals.jsonl`  (all four, ledger included)
+4. Print gate.sh's view — paste raw:
+   `bash -c 'source <(sed -n "/^PROTECTED_PATTERNS=(/,/^)/p" tools/trading_logic_gate.sh); ...'` — or simpler, add a temporary `printf '%s\n' "${SHA_INPUT_FILES[@]}"` immediately after the SHA_INPUT_FILES loop and run the gate; paste `STAGED_PROTECTED`, `SHA_INPUT_FILES`, and `STAGED_DIFF_SHA`.
+5. Print issue_tla.py's view — instrumented print of `protected_staged`, `sha_files`, `diff_sha256` (same method used last round).
+
+PASS requires: `SHA_INPUT_FILES` and `sha_files` both exclude the ledger, and `STAGED_DIFF_SHA` == `diff_sha256`.
+Then: `git reset`, `git checkout -- .`, delete the branch, paste `git status --porcelain` showing clean.
+
+## Item 2 — bd1b341 is a ledger-only commit and will block the push. Enumerate the damage.
+Deliverable 5 establishes that a ledger-only commit hits check_protected_push.py with a non-empty `protected` list and is blocked without a `[TLA-<id>]` token.
+1. `git log -1 --format=%B bd1b341` — does it carry a `[TLA-<id>]` token? Yes/no.
+2. Run the pre-push gate over the full pending range and paste raw output + exit code:
+   `python3 tools/check_protected_push.py origin/main HEAD; echo "EXIT:$?"`
+3. List every commit in `origin/main..HEAD` the gate blocks, with the reason. Report only — do not fix, do not amend, do not reset.
+
+## Item 3 — Correct the "unchanged by it" claim in Deliverable 5.
+Before the patch, `protected_staged` included the ledger, so a ledger-only staged set was non-empty and issue_tla.py would issue a token covering it. After the patch, `if not sha_files: sys.exit(1)` removes that path.
+Paste `git show HEAD:tools/issue_tla.py | sed -n '120,140p'` and state plainly, yes or no: did the pre-patch code issue a token for a ledger-only staged set? If yes, the patch closes the only route to minting a token for a ledger-only commit — say so, and stop. Do not propose a fix this round.
+
+## Item 4 — Explain the identical hash.
+The patch file sha256 and the throwaway `STAGED_DIFF_SHA` are the same value (84a1b434570e0afb2406d3cead91f3eb8e9ac0d45704a918606f1848fe6aa1f6). Paste the exact command that produced the patch file. Confirm in one line whether they match because the patch is `git diff` output over the same three files against the same base. If that is not the reason, say so.

@@ -1,0 +1,26 @@
+# Directive_TieredRemediation_Disposition_2026-08-03
+
+## Status: Tiered Remediation CLOSED
+
+### Tier A — aiem_options_volatility_engine.py
+CLOSED. File already removed from tracked history via commit 3295e36 (unauthorized daemon commit, previously documented). No TLA required — cannot approve deletion of an untracked file. No further action.
+
+### Tier C — commits landed
+- `main.py` → approval `535c1c53` → commit `d567160`
+- `aiem_options_scheduler.py` → approval `970521ee` → commit `d2bdfa5`
+- `aiem_strat_scheduler.py` → approval `d8242b06` → commit `ee61772`
+
+All three verified single-file diffs at time of approval, all three gate-checked PASS at commit time.
+
+### Ledger corrections — mark these two approval_ids INVALID / UNUSED
+- `91ca26b8` — duplicate approval, same staged_diff_sha256 as `535c1c53` (main.py). Produced by a failed `git rm` leaving main.py staged when issue_tla.py was re-run; note text incorrectly references Tier A. Never used in any commit. Mark `invalid: true, reason: "duplicate of 535c1c53, mislabeled Tier A"`.
+- `8e130ba8` — covers a combined main.py + aiem_options_scheduler.py diff (2 files, 2 insertions), produced before the two were split into separate single-file approvals. Superseded by `535c1c53` and `970521ee`. Never used in any commit. Mark `invalid: true, reason: "superseded by 535c1c53 + 970521ee split"`.
+
+### 31efe8df — RESOLVED
+Joel confirms: this approval was personally issued by him. `approved_by: "Joel"` is accurate. Update the record to add `self_issued: false` (or equivalent confirmed-human field) so it's no longer ambiguous alongside the other agent-written records.
+
+## Action for the agent
+1. Append the two invalid-flag corrections and the 31efe8df confirmation to `tools/trading_logic_approvals.jsonl` (append-only, do not edit existing lines in place — new corrective entries or annotations only).
+2. Commit `tools/trading_logic_approvals.jsonl` itself (the ledger file, not a protected trading-logic file — confirm it does not match PROTECTED_PATTERNS before committing; if it does, obtain a TLA for it same as any protected file).
+3. Report back: `git status` (expect clean), confirmation the daemon (`git_autosync_daemon`) is still not running, and the sha256 of the ledger file before/after this commit.
+4. No further commits, pushes, or scheduler/workflow restarts until Joel reviews this report.

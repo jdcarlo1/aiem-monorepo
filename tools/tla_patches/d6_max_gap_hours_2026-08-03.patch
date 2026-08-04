@@ -1,0 +1,52 @@
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -3266,6 +3266,12 @@
+      "expected_et": (9, 45),  "grace_minutes": 20},
+     {"id": "grade_outcomes",        "desc": "16:46 grade outcomes",
+      "expected_et": (16, 46), "grace_minutes": 10},
++    # Interval-based (4h): max_gap_hours model — alert if no DB evidence in
++    # the last N hours regardless of time-of-day. Requires a job_heartbeats row
++    # written by _oe_record_run (available after job_coverage_extended patch).
++    # ID matches the APScheduler job id and _oe_record_run job_name exactly.
++    {"id": "classification_integrity_sweep", "desc": "4h classification sweep",
++     "max_gap_hours": 5},
+ ]
+ 
+ 
+@@ -3422,7 +3428,35 @@
+     try:
+         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+             for cfg in _SCHED_MONITOR_JOBS:
+-                jid   = cfg["id"]
++                jid = cfg["id"]
++
++                # ── max_gap_hours model (interval-based jobs) ─────────────────
++                if "max_gap_hours" in cfg:
++                    max_hrs = cfg["max_gap_hours"]
++                    cur.execute("""
++                        SELECT last_success FROM job_heartbeats
++                        WHERE job_name = %s
++                          AND last_success >= NOW() - (make_interval(hours => %s))
++                    """, (jid, max_hrs))
++                    if cur.fetchone():
++                        continue  # ran within the window — OK
++                    cur.execute("SELECT last_success FROM job_heartbeats WHERE job_name=%s", (jid,))
++                    row = cur.fetchone()
++                    last_ok = row[0] if row else None
++                    overdue.append(jid)
++                    msg = (
++                        f"⚠️ <b>SCHEDULE MISS DETECTED (interval)</b>\n"
++                        f"Job: <code>{jid}</code>\n"
++                        f"Max gap: {max_hrs}h\n"
++                        f"Last success: {last_ok or 'NEVER'}\n"
++                        f"Detected at: {now_et.strftime('%H:%M:%S ET')}\n"
++                        f"Date: {today}"
++                    )
++                    log.warning(f"[sched_integrity] OVERDUE interval job={jid} last_ok={last_ok}")
++                    _tg(msg)
++                    continue
++
++                # ── expected_et model (daily cron jobs) ───────────────────────
+                 h, m  = cfg["expected_et"]
+                 grace = cfg["grace_minutes"]
+                 alert_after = (

@@ -1,0 +1,89 @@
+# Directive_JobAttemptLog_CoverageGap_2026-08-03
+
+Standing rules: git-autosync stopped before any work. Raw command/SQL output only, untruncated, no "..." elisions, no narrative substitutes. No DELETE/UPDATE on any log table.
+
+## Accepted, no further work
+- D1 reconciliation. 445 = 439 pipeline-only + 6 non-pipeline on 7/31; 439 vs 438 off-by-one. Arithmetic checks out and the per-day, per-job and status tables are mutually consistent (450 total).
+- D3a enumeration and the `_HEARTBEAT_JOB_NAME` collapse finding.
+- D3b schema output. D3e correctly skipped.
+
+## Item 1 — prove append-only with output, not inspection
+"Append-only by inspection (no duplicates)" was asserted, not shown. Run:
+
+```sql
+SELECT count(*) AS rows,
+       count(DISTINCT (job_name, attempt_time)) AS distinct_pairs,
+       count(DISTINCT attempt_time) AS distinct_times
+FROM job_attempt_log WHERE attempt_time >= '2026-07-31';
+```
+
+If `rows <> distinct_pairs`, list every duplicate pair. This also settles whether the original "438 distinct attempt_times" was an arithmetic slip or a real timestamp collision.
+
+## Item 2 — full-scope coverage gap (Friday is not the finding)
+Your own hourly output returned **(51 rows)**. The span 2026-07-31 13:00 → 2026-08-03 11:00 UTC is **71 hourly buckets**, so **20 hours have zero rows**. Friday accounts for only 5 of them (14:00–18:00 UTC). At the claimed 12/hr, 71 hours = 852 rows; actual = 450 (47% missing). Sat=173 and Sun=124 cannot both be "12/hr for the full day" — that would be 288 each. The claim "both run 24/7 including weekends" is contradicted by the data you pasted.
+
+Do not fix Friday alone. Run and paste **all** rows:
+
+```sql
+WITH hrs AS (
+  SELECT generate_series(timestamp '2026-07-31 13:00',
+                         timestamp '2026-08-03 12:00',
+                         interval '1 hour') AS h
+), got AS (
+  SELECT date_trunc('hour', attempt_time) AS h, count(*) AS n
+  FROM job_attempt_log
+  WHERE attempt_time >= '2026-07-31'
+  GROUP BY 1
+)
+SELECT hrs.h, COALESCE(got.n, 0) AS n
+FROM hrs LEFT JOIN got USING (h)
+ORDER BY 1;
+```
+
+Then list every contiguous zero-run as: start UTC / end UTC / start ET / duration.
+
+## Item 3 — attribute each gap or label it UNEXPLAINED
+
+```sql
+SELECT id, process_name, pid, git_sha, started_at
+FROM process_lifecycle_log
+WHERE started_at >= '2026-07-31'
+ORDER BY started_at;
+```
+
+For each zero-run from Item 2, state exactly one of: RESTART-EXPLAINED (cite the matching lifecycle row id) or UNEXPLAINED. The "(restart)" annotations on the 8/1 07:00–12:00 UTC gap and the 8/2 02:00 gap were asserted with no matching row cited — either cite one or relabel them.
+
+Also confirm from the same output that `git_sha` is populated and not "UNKNOWN" on the current row. That closes the Monday Item 2 contradiction (the Monday report said boot commit was in no DB table; D3b says line 4059 writes it — one of the two was wrong).
+
+## Item 4 — the 12 failures were never surfaced
+1 on 7/31, 5 on 8/1, 6 on 8/2. Counts were shown, error text never queried.
+
+```sql
+SELECT attempt_time, job_name, status, left(error_text, 300) AS err
+FROM job_attempt_log
+WHERE status = 'failure' AND attempt_time >= '2026-07-31'
+ORDER BY 1;
+```
+
+All 12 rows raw.
+
+## Item 5 — second arithmetic error, same report
+"The 99 Monday rows before 7:30 ET = ~7.5 hours × 12/hr = expected" is wrong twice: 7.5 × 12 = 90, and `attempt_time` is UTC, so 2026-08-03 00:00 UTC → 11:30 UTC is 11.5 hours = 138 expected at 12/hr, not 99. Restate the correct figure and whether 99 is in fact expected.
+
+## Item 6 — patch scope (50 insertions, 0 deletions)
+Zero deletions proves no existing call site was changed, so the four ambiguous callers still write under the shared name and the patch is a partial fix.
+
+Report first:
+1. `cat tools/tla_patches/job_run_evidence_2026-08-03.patch` — full body.
+2. Every `job_id` that writes a **named** row after the patch, and every `job_id` that still writes under `_HEARTBEAT_JOB_NAME`.
+3. The 2 `main.py` insertions — what they are and why they are needed.
+4. `grep -rn "options_pipeline_scheduler" --include=*.py .` — every consumer that reads `job_heartbeats`/`job_attempt_log` keyed on that literal, including `_JOB_STALENESS_HOURS` and any watchdog.
+
+Then extend the patch (do not apply yet):
+- Add `_oe_record_run("<job_id>", True/False)` to every job currently marked N in D3a: `pm_intraday_update`, `daily_trace_report`, `sched_integrity_check` (on all-clear, not only RECOVERED), `polygon_canary_preopen`, `polygon_canary_preseed`, `morning_diagnostic`, `classification_integrity_sweep`, `autosync_protected_file_audit`.
+- For the four existing callers (`run_pipeline_worker`, `premarket_scan`, `grade_outcomes`, `stale_recovery`): **dual-write** — keep the existing `_write_heartbeat(...)` call unchanged and add `_oe_record_run("<job_id>", ...)` immediately after it. Do not rename or remove the shared write until Item 6.4 shows nothing depends on it.
+
+Re-paste `git apply --stat`, `git apply --check`, and the new sha256 after the edit.
+
+## Item 7 — D4–D9
+Not present in the submission. One line each: D4 canary post-10:15 re-check, D5 GitHub Actions + `if: success()` Telegram step, D6 `_SCHED_MONITOR_JOBS` fix, D7 after-hours real-miss test proposal, D8 per-file sha256 (report-only), D9 items 6+7 accepted.

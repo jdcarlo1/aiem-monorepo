@@ -1,0 +1,43 @@
+diff --git a/tools/check_protected_push.py b/tools/check_protected_push.py
+index dab82e8..437216c 100644
+--- a/tools/check_protected_push.py
++++ b/tools/check_protected_push.py
+@@ -145,6 +145,14 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
+             print(f"[pre-push-gate] {sha[:12]}: no protected files — PASS")
+             continue
+ 
++        _LEDGER_PATH = "tools/trading_logic_approvals.jsonl"
++        if protected == [_LEDGER_PATH]:
++            ok, added = _is_ledger_append_only(sha)
++            if ok:
++                print(f"[pre-push-gate] {sha[:12]}: ledger append-only, +{added} record(s) - PASS")
++                continue
++            print(f"[pre-push-gate] {sha[:12]}: ledger commit NOT append-only", file=sys.stderr)
++
+         rc_m, msg, _ = _run(["git", "log", "-1", "--format=%B", sha])
+         if rc_m != 0:
+             return False, sha[:12], "could not read commit message"
+@@ -185,6 +193,23 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
+     return True, "", ""
+ 
+ 
++def _is_ledger_append_only(sha: str) -> tuple[bool, int]:
++    """Return (is_append_only, added_record_count) for the commit's ledger change."""
++    rc, out, _ = _run(["git", "show", sha, "--", "tools/trading_logic_approvals.jsonl"])
++    if rc != 0:
++        return (False, 0)
++    lines = out.splitlines()
++    if any(l.startswith("\\ No newline at end of file") for l in lines):
++        return (False, 0)
++    added = 0
++    for line in lines:
++        if line.startswith("-") and not line.startswith("---"):
++            return (False, 0)
++        if line.startswith("+") and not line.startswith("+++"):
++            added += 1
++    return (True, added)
++
++
+ # ── Entry points ──────────────────────────────────────────────────────────────
+ 
+ def _hook_mode() -> int:

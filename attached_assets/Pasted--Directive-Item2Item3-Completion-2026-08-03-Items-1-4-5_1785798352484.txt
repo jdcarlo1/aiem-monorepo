@@ -1,0 +1,36 @@
+# Directive_Item2Item3_Completion_2026-08-03
+
+Items 1, 4, 5, 6 accepted. Items 2 and 3 are incomplete — finish them before anything else.
+
+## Item 2 — existence proof is not the answer
+
+`git cat-file -e edb1d2829bfc` only proves an object with that SHA exists. It does not prove edb1d2829bfc is a commit, and it does not prove any relationship to 72115db0. Run:
+
+```
+git cat-file -t edb1d2829bfc
+git show edb1d2829bfc --stat
+```
+
+Then answer directly: is edb1d2829bfc the same commit as 72115db0 under a different-length SHA reference, a different real commit, or not a commit object at all (blob/tree)? b3f8a1c2's record says "Retroactive TLA for commit edb1d2829bfc: ... Update options scheduler logic and include pipeline verification evidence" — the identical subject line to 72115db0. If edb1d2829bfc resolves to a distinct commit from 72115db0, state what it actually changed. If it does NOT resolve to a real commit (subject-line match was wrong, as flagged last round), say so plainly — that means b3f8a1c2 is a retroactive record for a commit that doesn't exist under that SHA, which is worse than a duplicate.
+
+## Item 3 — run the query, don't describe it
+
+11 of 13 records are still unresolved. You wrote out the command needed but did not execute it. Run it now:
+
+```
+git show origin/main:tools/trading_logic_approvals.jsonl | python3 -c "import sys,json; [print(r['approval_id'], r.get('used_at')) for l in sys.stdin for r in [json.loads(l)] if r.get('used')]"
+```
+
+Fill in used_at for all 13, not just the 2 already resolved.
+
+## Item 3 — reconcile against the purge before reporting
+
+Records #9–13 in your table (d1f6e8a4, c9e5d4b3, a7c4d2e1, 55b93641, b3f8a1c2) are the same 5 tokens already confirmed as MISSING_KEY / purged by 3295e360 — GONE from HEAD's ledger per last round's Item 4. check_range() reads `HEAD:tools/trading_logic_approvals.jsonl`, not the ledger state at commit time. So if these 5 are genuinely gone from HEAD right now, they cannot currently classify as PASS(token+ledger+used) — they'd FAIL. Run:
+
+```
+git show HEAD:tools/trading_logic_approvals.jsonl | grep -F -e d1f6e8a4 -e c9e5d4b3 -e a7c4d2e1 -e 55b93641 -e b3f8a1c2
+```
+
+State plainly: is the "13 PASS" table current (matches HEAD as of this response), or is it a stale label carried over from before the purge was discovered? If stale, correct the count and say how many of the original 13 actually still pass at current HEAD.
+
+## No commits/pushes/applies until both are resolved.

@@ -1,0 +1,133 @@
+# Directive_PurgeClassification_Correction_2026-08-03
+
+STANDING RULE: `git-autosync` stays fully stopped. No commits, pushes, resets, merges, or `git apply` this round. The Item 5 sitting is ON HOLD until Items 1–2 below are resolved.
+
+ITEM 1 accepted (range confirmation + corrected block). ITEM 2's evidence is accepted; its **classification is rejected**. See Item 1 below.
+
+---
+
+## ITEM 1 — Reclassify the 25 purged records (BLOCKING)
+
+Your submission states: "20 records are the legitimately-intended Joel-issued retroactive approvals" and "5 records are agent-self-issued ... their loss is not a governance damage."
+
+This contradicts your own answer of 2026-08-02, Item 3 of Directive_TLA19Correction_And_VolatilityHold:
+
+> "Joel did not personally run issue_tla.py for any of the 19; all agent-generated with fabricated approved_by field."
+
+The 19 records you have now labelled "retroactive via Directive_TLA19CommitResolution_2026-08-02" **are those 19**. The 20th ("merge-context via Directive_DevBranchPRMerge_2026-08-02") is from the same self-merge episode. Two of them are named in that same record: `eb60bfd6` (aiem_options_volatility_engine.py) and `716063e6` (artifacts/stock-scanner-api/main.py).
+
+`self_issued=False` on those rows is the falsification that was already identified. Using it as the legitimacy discriminator is circular.
+
+Correct disposition to confirm or refute with evidence: **all 25 purged records are agent-issued; 0 are Joel-issued.**
+
+Run and paste raw output:
+
+```bash
+for ID in 55b93641 a7c4d2e1 b3f8a1c2 c9e5d4b3 d1f6e8a4 \
+          716063e6 44e47eef e63f6645 954a1762 7b506f10 \
+          9d4ab866 8629e342 fe0f2fe4 be6cb3da 7d291f76 \
+          a4f07e28 1b3f0244 bc7d7aed f5748ad1 eb60bfd6 \
+          da2095d3 d1ed1bef 6bd5740d 10df1e6a 3b7188b5; do
+  ROW=$(git log --format='%H %cI %an' -S"$ID" -- tools/trading_logic_approvals.jsonl | tail -1)
+  echo "$ID  INTRODUCED_BY: $ROW"
+done
+```
+
+Then a table: approval_id | introducing commit | its timestamp | commit it authorizes | that commit's timestamp | delta seconds | ISSUER (agent / Joel-TTY).
+
+State plainly, one line: how many of the 25 were written by a Joel TTY session of `issue_tla.py`. If the answer is 0, say 0.
+
+---
+
+## ITEM 2 — Resolve the origin/main contradiction (BLOCKING)
+
+Last round, Item 4 enumerated `04c4504..eddb522` (= origin/main) and returned 5 commits as BLOCK / token-in-message / ledger-NO: `795612c6`, `0c6c6249`, `72115db0`, `7edeeb38`, `da647384`. Item 4b tied those to tokens `55b93641`, `a7c4d2e1`, `c9e5d4b3`, `d1f6e8a4` — 4 of the 25 GONE.
+
+This round, over the same range, you report "No GONE token referenced in any commit body in origin/main" and place those 5 commits "in the local stack above origin/main — they have not been pushed."
+
+Both cannot be true. Resolve with raw output:
+
+```bash
+for C in 795612c6 0c6c6249 72115db0 7edeeb38 da647384 5cebd487; do
+  git merge-base --is-ancestor $C origin/main
+  echo "$C ancestor-of-origin/main EXIT:$?"
+  git branch -a --contains $C
+done
+
+git log --format='%H%n%B' 04c4504..eddb522 \
+  | grep -nE '55b93641|a7c4d2e1|b3f8a1c2|c9e5d4b3|d1f6e8a4'
+echo "EXIT:$?"
+
+git log --all --format='%H %s' --grep='55b93641\|a7c4d2e1\|b3f8a1c2\|c9e5d4b3\|d1f6e8a4'
+```
+
+Also paste, verbatim, the exact command that produced this round's "No GONE token referenced in any commit body" result. If it grepped full-length approval_ids against 8-char `[TLA-xxxxxxxx]` tokens, say so.
+
+State which of the two rounds is correct, and if the audit trail of already-pushed commits **was** severed, say that in one sentence.
+
+---
+
+## ITEM 3 — What `used=True` actually means here
+
+24 of 25 carry `used=True`, yet only 4 tokens are claimed to appear in any commit message anywhere.
+
+Paste:
+- the line in `tools/check_protected_push.py` that sets `used` on consumption
+- the line in the TLA19 generation script (or `issue_tla.py`) that wrote `used` at mint time
+
+Then one line: on these 25 records, was `used=True` written by the gate on consumption, or at mint? If at mint, `used` is not evidence of consumption and every prior enumeration that relied on it needs that caveat attached.
+
+---
+
+## ITEM 4 — The lost `self_issued: true` correction
+
+On 2026-08-02 you appended a `self_issued: true` correction to all 19 TLA19 rows in the working tree (86 lines vs 67), never committed. The purged records show `self_issued=False`.
+
+```bash
+git log --oneline --all -S'"self_issued": true' -- tools/trading_logic_approvals.jsonl
+git show 847ba2f1:tools/trading_logic_approvals.jsonl | grep -c 'self_issued'
+git show 3295e360^:tools/trading_logic_approvals.jsonl | wc -l
+git show 3295e360:tools/trading_logic_approvals.jsonl  | wc -l
+```
+
+One line: did that correction ever reach committed history, or was it destroyed before it could?
+
+---
+
+## ITEM 5 — Reinstatement proposal (report-only, do not run)
+
+The purged records are recoverable — they exist at `3295e360^`. Restoring them in place is **not** append-only and would itself block under Option B.
+
+Write (do not run) `tools/tla_patches/reinstate_purged_2026-08-03.py` that:
+1. reads the 25 records from `git show 3295e360^:tools/trading_logic_approvals.jsonl` (diff against HEAD to select exactly the missing ones)
+2. **appends** them to the end of the current ledger, unmodified except for three added keys per record:
+   `"reinstated_from": "3295e360^"`, `"self_issued": true`, `"reinstatement_note": "original record purged by 3295e360; reinstated for audit continuity; not a valid authorization"`
+3. writes each with `json.dumps(record) + "\n"`
+4. prints before/after line counts and sha256
+
+Then confirm, with the real module:
+
+```bash
+python3 - <<'PY'
+import check_protected_push as c
+print(c._is_ledger_append_only('<simulated sha>'))
+PY
+```
+
+State whether an append-only reinstatement passes Option B with no token required. If it does, that — not a retroactive TLA — is the disposition path for `3295e360`'s ledger effect.
+
+Sequencing unchanged: **no `--retro` record for `3295e360` until the purge is dispositioned.** `22d5e377` remains independent.
+
+---
+
+## ITEM 6 — `b3f8a1c2`
+
+Fifth MISSING_KEY record, not referenced by any of the 5 unregistered commits. Which commit did it authorize, and is that commit in origin/main?
+
+---
+
+## ITEM 7 — Pin the sitting base
+
+The corrected block hardcodes `0258e1f..HEAD`. Two platform auto-commits (`7e968699`, `0258e1f`) have already landed mid-work; a third would silently enter that range and break the expected output.
+
+Replace with: capture `BASE=$(git rev-parse HEAD)` immediately before the first commit of the sitting, and verify with `--range $BASE..HEAD`. Re-issue the block with that change.

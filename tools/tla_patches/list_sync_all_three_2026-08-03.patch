@@ -1,0 +1,35 @@
+--- a/tools/trading_logic_gate.sh
++++ b/tools/trading_logic_gate.sh
+@@ -59,4 +59,9 @@
+     "artifacts/stock-scanner-api/aiem_strat_engine/scoring.py"
+     "artifacts/stock-scanner-api/aiem_strat_scheduler.py"
+     "artifacts/stock-scanner-api/aiem_paper_*.py"
++    # Gate self-protection — changes to gate infrastructure require a TLA
++    "tools/check_protected_push.py"
++    "tools/issue_tla.py"
++    "tools/trading_logic_gate.sh"
++    "tools/trading_logic_approvals.jsonl"
+ )
+--- a/tools/check_protected_push.py
++++ b/tools/check_protected_push.py
+@@ -58,6 +58,8 @@
+     "artifacts/stock-scanner-api/aiem_strat_scheduler.py",
+     "artifacts/stock-scanner-api/aiem_paper_*.py",
+-    # Gate self-protection — changes to the gate itself and its ledger require a TLA
++    # Gate self-protection — changes to gate infrastructure require a TLA
+     "tools/check_protected_push.py",
+     "tools/trading_logic_approvals.jsonl",
++    "tools/issue_tla.py",
++    "tools/trading_logic_gate.sh",
+ ]
+--- a/tools/issue_tla.py
++++ b/tools/issue_tla.py
+@@ -38,5 +38,7 @@
+     "artifacts/stock-scanner-api/aiem_strat_scheduler.py",
+-    # Gate self-protection — must stay in sync with check_protected_push.py
++    # Gate self-protection — changes to gate infrastructure require a TLA
+     "tools/check_protected_push.py",
+     "tools/trading_logic_approvals.jsonl",
++    "tools/issue_tla.py",
++    "tools/trading_logic_gate.sh",
+ ]

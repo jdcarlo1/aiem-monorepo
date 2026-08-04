@@ -57,6 +57,11 @@ PROTECTED_PATTERNS: list[str] = [
     "artifacts/stock-scanner-api/aiem_strat_engine/scoring.py",
     "artifacts/stock-scanner-api/aiem_strat_scheduler.py",
     "artifacts/stock-scanner-api/aiem_paper_*.py",
+    # Gate self-protection — changes to gate infrastructure require a TLA
+    "tools/check_protected_push.py",
+    "tools/trading_logic_approvals.jsonl",
+    "tools/issue_tla.py",
+    "tools/trading_logic_gate.sh",
 ]
 
 # [TLA-<8 hex chars>] anywhere in the commit message
@@ -77,17 +82,24 @@ def _is_protected(path: str) -> bool:
 
 
 def _load_approvals() -> list[dict]:
-    if not os.path.exists(APPROVALS_FILE):
+    # Read the committed blob at HEAD, not the working-tree file.
+    # This ensures every approval record must already be in git history
+    # before it can pass the gate — closing the working-tree-only path
+    # that allowed approvals to exist on disk without ever being committed.
+    result = subprocess.run(
+        ["git", "show", "HEAD:tools/trading_logic_approvals.jsonl"],
+        capture_output=True, text=True, cwd=REPO_DIR
+    )
+    if result.returncode != 0:
         return []
     records: list[dict] = []
-    with open(APPROVALS_FILE) as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                try:
-                    records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
     return records
 
 
@@ -135,34 +147,20 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
             print(f"[pre-push-gate] {sha[:12]}: no protected files — PASS")
             continue
 
+        _LEDGER_PATH = "tools/trading_logic_approvals.jsonl"
+        if protected == [_LEDGER_PATH]:
+            ok, added = _is_ledger_append_only(sha)
+            if ok:
+                print(f"[pre-push-gate] {sha[:12]}: ledger append-only, +{added} record(s) - PASS")
+                continue
+            print(f"[pre-push-gate] {sha[:12]}: ledger commit NOT append-only", file=sys.stderr)
+
         rc_m, msg, _ = _run(["git", "log", "-1", "--format=%B", sha])
         if rc_m != 0:
             return False, sha[:12], "could not read commit message"
 
         match = _TLA_RE.search(msg)
         if not match:
-            # Fallback: SHA-based retroactive approval (Directive_TLA19CommitResolution_2026-08-02).
-            # Commits that pre-date the gate or were auto-committed without a TLA token in
-            # their message may carry a retroactive record keyed by commit SHA rather than
-            # a message token.  These records have retroactive=True, used=True, and the full
-            # commit SHA stored in commit_sha.  They are ONLY accepted when the record was
-            # explicitly written under a Joel-issued remediation directive (self_issued=False).
-            retro = next(
-                (r for r in approvals
-                 if r.get("retroactive") is True
-                 and r.get("used") is True
-                 and not r.get("self_issued", True)   # must be Joel-authorized
-                 and r.get("commit_sha", "").lower() == sha.lower()),
-                None,
-            )
-            if retro:
-                print(
-                    f"[pre-push-gate] {sha[:12]}: protected={protected} "
-                    f"retroactive_approval={retro.get('approval_id', '?')} "
-                    f"directive=TLA19CommitResolution_2026-08-02 — PASS"
-                )
-                continue
-
             plist = ", ".join(protected)
             return (
                 False,
@@ -195,6 +193,23 @@ def check_range(remote_sha: str, local_sha: str) -> tuple[bool, str, str]:
         )
 
     return True, "", ""
+
+
+def _is_ledger_append_only(sha: str) -> tuple[bool, int]:
+    """Return (is_append_only, added_record_count) for the commit's ledger change."""
+    rc, out, _ = _run(["git", "show", sha, "--", "tools/trading_logic_approvals.jsonl"])
+    if rc != 0:
+        return (False, 0)
+    lines = out.splitlines()
+    if any(l.startswith("\\ No newline at end of file") for l in lines):
+        return (False, 0)
+    added = 0
+    for line in lines:
+        if line.startswith("-") and not line.startswith("---"):
+            return (False, 0)
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+    return (True, added)
 
 
 # ── Entry points ──────────────────────────────────────────────────────────────
@@ -245,12 +260,15 @@ def _range_mode(range_arg: str) -> int:
 
 def main() -> None:
     args = sys.argv[1:]
-    if len(args) >= 2 and args[0] == "--range":
+    if args and args[0] == "--range":
+        if len(args) != 2:
+            print("usage: check_protected_push.py --range <rev-range>", file=sys.stderr)
+            sys.exit(2)
         sys.exit(_range_mode(args[1]))
-    else:
-        # Hook mode: called by git with remote name + url as $1/$2,
-        # push targets on stdin.
-        sys.exit(_hook_mode())
+    if args:
+        print(f"unrecognized arguments: {args}", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(_hook_mode())
 
 
 if __name__ == "__main__":

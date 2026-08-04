@@ -16,16 +16,26 @@ REG_FEE_PER_CONTRACT  = 0.02  # regulatory fee estimate
 OCC_FER_CLEARING_FEE  = 0.01
 DEFAULT_SLIPPAGE_FRAC = 0.005  # 0.5% of mid as default slippage guess
 
-# ── Eligibility hard gates ──────────────────────────────────────────────────
+# ── Eligibility hard gates (Phase 4 §6 — hard reject any leg that fails) ────
 MIN_DTE             = 2       # days to expiry
-MAX_BID_ASK_WIDTH   = 0.30    # fraction of mid (30%)
-MIN_OPEN_INTEREST   = 50      # per leg
-MIN_VOLUME          = 20      # per leg (day's volume)
+MAX_BID_ASK_WIDTH   = 0.20    # fraction of mid — hard reject when spread > 20% of mid
+MIN_OPEN_INTEREST   = 50      # per leg — hard reject OI < 50
+MIN_VOLUME          = 20      # per leg (day's volume) — hard reject vol < 20
 MIN_IV              = 0.05    # 5% IV floor (below = unreliable pricing)
 MAX_IV              = 4.00    # 400% IV ceiling (meme/event noise)
 MIN_PoP             = 0.25    # 25% PoP floor for autonomous trades
 MIN_EV_AFTER_COSTS  = -0.01   # EV must be >= -$0.01/dollar at risk
 MAX_SPREAD_PER_FILL = 0.35    # max acceptable multi-leg fill spread vs mid
+QUOTE_STALE_SECONDS = 300     # hard reject quotes older than this (seconds)
+
+# ── Preferred thresholds (scoring only — not hard reject) ───────────────────
+PREFER_MIN_OI         = 500   # preferred per-leg OI for full liquidity score
+PREFER_MIN_VOLUME     = 100   # preferred per-leg day volume for full liquidity score
+PREFER_MAX_SPREAD_PCT = 0.10  # spread ≤ 10% → full spread component in liquidity score
+
+# ── Polygon options chain fallback ──────────────────────────────────────────
+# Enable only after live-verified freshness and source logging are confirmed.
+POLYGON_CHAIN_FALLBACK_ENABLED = False
 
 # ── Strategy evaluation caps ───────────────────────────────────────────────
 MAX_EVALUATIONS_PER_RUN   = 200   # hard cap to prevent combinatorial explosion

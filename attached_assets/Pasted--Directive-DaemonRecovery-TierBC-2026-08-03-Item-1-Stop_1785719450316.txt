@@ -1,0 +1,22 @@
+# Directive_DaemonRecovery_TierBC_2026-08-03
+
+## Item 1 — Stop the daemon now, don't restart it
+Same race class as the 2026-08-02 incident (Directive_StopDaemonRace): pause-file recreation has a ~2s gap per shell batch, daemon fires in the gap. A file-based pause cannot close this race. Stop the `git-autosync` workflow itself (not WorkflowsRestart) before any further staging. Paste workflow-status output proving STOPPED, not paused.
+
+## Item 2 — CORRECTNESS ERROR in your proposed recovery
+`git reset --soft HEAD~1` does NOT restore the 155 files e77e4eb deleted. `--soft` only moves HEAD; it never touches the index or working tree. Right now the index/working tree already reflect e77e4eb's deletions. After a soft reset, those same deletions would just show up as an enormous **staged diff against f167292** instead of a commit — nothing is actually fixed, and someone could re-commit the disaster without realizing it.
+
+Correct sequence — do not skip step (b):
+1. `git reset --soft f167292` (uncommit e77e4eb; leaves index/Tier B staged edits as-is, per your original intent)
+2. Diff e77e4eb against f167292, list all ~155 changed/deleted paths
+3. Cross-check each path against the FRAUD_TAINTED/LEGITIMATE disposition table from the 2026-08-03 revert-scope round. Expectation: almost all 155 are LEGITIMATE (aiem_options_signal_engine.py, test files, GOVERNANCE.md, .github/workflows/, etc.) since the Tier A fraud files were already NOT_IN_HEAD before e77e4eb ran
+4. For every LEGITIMATE path: `git checkout f167292 -- <path>` to restore it
+5. For any path that's actually FRAUD_TAINTED and legitimately absent: leave it absent, note it explicitly
+6. Paste `git status --porcelain` and `git diff --stat --staged` after steps 1-5 — must show ONLY Tier B's 2-3 files changed, zero unexplained deletions remaining
+7. sha256 before/after for any file where restored content is ambiguous
+
+## Item 3 — Tier B / Tier C
+No change to the existing plan. Do not commit either until Item 2's output is clean and Joel has reviewed it.
+
+## Item 4 — Standing
+No commits, pushes, or merges until Joel reviews Item 2's output and Joel personally runs the Tier C `issue_tla.py` commands at his own terminal.

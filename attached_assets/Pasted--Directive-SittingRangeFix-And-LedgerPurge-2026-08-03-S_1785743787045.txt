@@ -1,0 +1,82 @@
+# Directive_SittingRangeFix_And_LedgerPurge_2026-08-03
+
+STANDING: `git-autosync` stays fully stopped. No commits, pushes, resets, or applies this round. Report + patch files only.
+
+ACCEPTED, no rework:
+- Item 1 — both `tmp/` target paths confirmed wrong and both patches regenerated against `tools/check_protected_push.py`. Canonical table accepted: list_sync `84a1b434`, argcheck `cf9a4f53`, ledger_append_only `96b24783`, retro_tla_fallback `7f56aa4a`, retro_mint `253fff07`.
+- Item 2 — `0x0a` last byte, no newline marker in bd1b3410, `_is_ledger_append_only('bd1b3410') = (True, 8)` from the real patched module, and the correct retraction of the step-6 comment. `issue_tla.py:162` newline write confirmed; no fix needed.
+- Item 3 — `retro_mint` accepted as written, including the shared `is_protected()` matcher and the pinned-flag `--no-pager --no-color --no-ext-diff --format=%H` + `sorted()` on both mint and gate sides.
+- Item 4a — era split accepted. Enforcement threshold 2026-08-01T21:56:06Z; 22 pre-gate (historical, not violations), 6 post-gate.
+
+---
+
+## ITEM 1 — The sitting's final verification step is wrong and will misfire
+
+Your Item 5 states: *"The two blocked commits (3295e360, 22d5e377) and bd1b3410 are NOT in this range (they are between origin/main and the local stack but are not yet pushed)."*
+
+`origin/main..HEAD` means every commit reachable from HEAD and not from origin/main. Those three are exactly that. Your own prior evidence says so: the corrected `--range origin/main..HEAD` run returned `f167292c PASS`, then **BLOCKED at 3295e360, EXIT:1**, and the 19-commit enumeration listed all three inside this range.
+
+So the sitting's last step will not print `EXIT:0`. It will short-circuit at 3295e360, never evaluate the two new commits, and return `EXIT:1`. Run as written, it reads as a failed sitting.
+
+Replace that step with one that verifies only what the sitting produced:
+
+```
+# --- Verify the two new commits only ---
+python3 tools/check_protected_push.py --range 0258e1f..HEAD 2>&1
+echo "EXIT:$?"
+# EXPECTED:
+#   [pre-push-gate] <sha1[:12]>: protected=[tools/check_protected_push.py,
+#       tools/issue_tla.py, tools/trading_logic_gate.sh] TLA=<XXXXXXXX> used=True - PASS
+#   [pre-push-gate] <sha2[:12]>: ledger append-only, +1 record(s) - PASS
+#   EXIT:0
+
+# --- Full range: expected to STILL FAIL, this is not a regression ---
+python3 tools/check_protected_push.py --range origin/main..HEAD 2>&1
+echo "EXIT:$?"
+# EXPECTED: BLOCKED at 3295e360, EXIT:1 — 3295e360 and 22d5e377 remain
+# unauthorized. The push stays blocked after this sitting. That is correct.
+```
+
+Return the corrected block. Confirm in one line that all three commits are in `origin/main..HEAD`.
+
+---
+
+## ITEM 2 — 3295e360 purged 25 ledger records; 21 are unaccounted for
+
+Your Item 4b establishes that 3295e360 deleted 25 records from `tools/trading_logic_approvals.jsonl` (`minus=25`). Four are the fraudulent agent-self-issued tokens. The other 21 have no disposition, and every `ledger YES/NO` determination made against HEAD is being read from a file that lost 25 lines.
+
+Report only:
+
+```
+git show 3295e360 -- tools/trading_logic_approvals.jsonl | grep '^-[^-]' | sed 's/^-//' > /tmp/purged.jsonl
+wc -l /tmp/purged.jsonl
+
+python3 - <<'EOF'
+import json, subprocess
+head = open('tools/trading_logic_approvals.jsonl').read()
+for line in open('/tmp/purged.jsonl'):
+    r = json.loads(line)
+    aid = r.get('approval_id','?')
+    print(aid,
+          'PRESENT' if aid in head else 'GONE',
+          r.get('approved_by'), 'self_issued=' + str(r.get('self_issued')),
+          'used=' + str(r.get('used')), r.get('files_covered'))
+EOF
+```
+
+Then, for the ones marked GONE, whether any authorized something already pushed:
+
+```
+git log --format='%s' 04c4504..eddb522 | grep -oE 'TLA-[0-9a-f]{8}' | sort -u
+```
+
+State plainly:
+- (i) How many of the 25 are GONE from HEAD and how many are PRESENT.
+- (ii) How many of the GONE records were `self_issued=false` (i.e. Joel-issued, legitimately lost) versus agent-self-issued.
+- (iii) Whether any GONE approval_id is referenced by a `[TLA-<id>]` token in a commit already in origin/main. If yes, that commit's audit trail no longer exists at HEAD.
+
+**Sequencing constraint:** do not propose or prepare a `--retro` record for 3295e360 until this is dispositioned. 3295e360 is not merely tokenless — it is a non-append-only ledger rewrite, and retroactively authorizing it would bless the purge. 22d5e377 is unaffected by this and can be handled separately.
+
+---
+
+## ITEM 3 — No commits, pushes, resets, or applies. Report and patch files only.

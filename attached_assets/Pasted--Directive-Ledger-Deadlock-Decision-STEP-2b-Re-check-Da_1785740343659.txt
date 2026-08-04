@@ -1,0 +1,115 @@
+# Directive — Ledger Deadlock Decision + STEP 2b Re-check
+Date: 2026-08-03
+
+STANDING RULE (unchanged): `git-autosync` stays fully STOPPED, not paused, for the remainder of Phase 3.
+This round is REPORT-ONLY plus one untracked patch file. No commits, applies, pushes, resets, amends, or ledger edits.
+
+Accepted as delivered: STEP 1 enumeration (19 lines), STEP 2a call-site audit, STEP 2c argcheck patch. Hold the argcheck patch unapplied.
+
+---
+
+## ITEM 1 — STEP 2b "void" is not established. Decisive re-check.
+
+Your conclusion that the 2026-08-02 "100+ commits PASS" came through the fail-open path is inference, not evidence.
+Competing explanation that fits the record: that clearance came from a real `git push`, which invokes `.git/hooks/pre-push` -> hook mode -> the CORRECT path, with stdin supplied by git. The push was then rejected by GitHub branch protection for a missing CI check — a remote-side rejection that only occurs if the local hook already passed.
+
+**1a — raw evidence of the actual invocation:**
+```
+grep -n -i "TLA gate" git_autosync.log | tail -50
+grep -rn "check_protected_push" ~/.bash_history 2>/dev/null | tail -50
+```
+Paste raw output including empty results. If neither produces the command, write exactly one line: `STEP 2b conclusion is INFERRED, not observed.`
+
+**1b — decisive re-check, correct form, same range:**
+```
+python3 tools/check_protected_push.py --range <8-02-base>..<8-02-head>; echo "EXIT:$?"
+```
+State which shas you used and where you sourced them. Report: total commits enumerated, PASS count, BLOCK count, and sha + reason for every BLOCK.
+
+**1c — attribute every BLOCK found in 1b.** For each, state whether the matching pattern existed on 2026-08-02:
+```
+git show 22d5e377^:tools/check_protected_push.py | sed -n '49,80p'
+```
+List which of today's patterns are new since then. A commit that blocks only under a later-added pattern is not a 2026-08-02 gate failure.
+
+---
+
+## ITEM 2 — STEP 1 completion (2 missing fields)
+
+The 19-line output omitted `ledger-record-exists` and `used`. Re-print ONLY the 3 token-carrying commits (d5671609, d2bdfa5c, ee617722) as:
+
+`<sha> | <token id> | record_in_ledger=Y/N | used=<value> | files_covered=<list>`
+
+Source the values from raw output, e.g. `grep -F "535c1c53" tools/trading_logic_approvals.jsonl`.
+
+Then one line: which PROTECTED_PATTERNS version the enumeration used (working tree at HEAD, i.e. post-22d5e377 self-protection), since it was applied retroactively to commits that predate those patterns.
+
+---
+
+## ITEM 3 — Option B approved, with 2 corrections. Untracked patch, DO NOT APPLY.
+
+Option A rejected: removes ledger tamper-detection entirely — the exact threat the gate exists to prevent.
+Option C rejected: re-introduces the sha-set mismatch this work started from.
+
+**3a — replace your helper with this exact function** (add after `check_range`, before `_hook_mode`):
+```python
+def _is_ledger_append_only(sha: str) -> tuple[bool, int]:
+    """Return (is_append_only, added_record_count) for the commit's ledger change."""
+    rc, out, _ = _run(["git", "show", sha, "--", "tools/trading_logic_approvals.jsonl"])
+    if rc != 0:
+        return (False, 0)
+    lines = out.splitlines()
+    if any(l.startswith("\\ No newline at end of file") for l in lines):
+        return (False, 0)
+    added = 0
+    for line in lines:
+        if line.startswith("-") and not line.startswith("---"):
+            return (False, 0)
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+    return (True, added)
+```
+Reason for the newline guard: `git show` renders an append to a file whose last line lacks a trailing newline as `-lastline` / `+lastline` / `+newrecord`. Your version blocks that as a deletion.
+
+**3b — replace your `check_range()` insertion with this exact block** (after the `continue` at line 148, before `rc_m, msg, _` at line 150):
+```python
+        _LEDGER_PATH = "tools/trading_logic_approvals.jsonl"
+        if protected == [_LEDGER_PATH]:
+            ok, added = _is_ledger_append_only(sha)
+            if ok:
+                print(f"[pre-push-gate] {sha[:12]}: ledger append-only, +{added} record(s) - PASS")
+                continue
+            print(f"[pre-push-gate] {sha[:12]}: ledger commit NOT append-only", file=sys.stderr)
+```
+On failure it falls through to the normal token requirement. Do not exit inside this block.
+
+**3c — state plainly in your response:** under Option B a ledger-only commit passes the push gate with no token and no ledger record of its own; the log line is the sole audit artifact. Confirm this is pre-push only and that `trading_logic_gate.sh` pre-commit behavior is unchanged.
+
+**3d —** patch file untracked in `tools/tla_patches/`, report `git apply --check` exit code and sha256. Do not apply.
+
+---
+
+## ITEM 4 — Re-enumerate under Option B (simulated)
+
+Re-run the STEP 1 python driver with the ledger-only allowance added to the DRIVER ONLY (not to `check_protected_push.py`). Confirm bd1b3410 clears and exactly 3295e360 and 22d5e377 remain BLOCK. Paste raw output.
+
+---
+
+## ITEM 5 — Retroactive-TLA method (report only, no code)
+
+3295e360 and 22d5e377 are already-committed protected-file changes with no token. The re-stage method (`git diff <sha>^ <sha> | git apply --cached`) is dead — the diff is already applied.
+
+Propose 2-3 concrete methods. For each: exact commands, whether it rewrites history, whether it adds a new token-minting code path, and what a reviewer sees afterward. No implementation.
+
+---
+
+## ITEM 6 — Daemon status, correct method
+
+`pgrep` returning a PID `ps` cannot resolve is not a "stale match" — pgrep reads /proc. Re-check:
+```
+ps -eo pid,ppid,etime,cmd | grep -i "[g]it_autosync_daemon"; echo "EXIT:$?"
+pgrep -af "[g]it_autosync_daemon"; echo "EXIT:$?"
+```
+Paste both raw.
+
+Also note: 0803c969 is a new platform auto-commit landing an uploaded file. The argcheck patch is currently untracked, and the platform mechanism has already been proven to commit untracked files. Report if it gets swept.

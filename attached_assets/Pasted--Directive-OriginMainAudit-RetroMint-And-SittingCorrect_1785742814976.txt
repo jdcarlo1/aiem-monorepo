@@ -1,0 +1,114 @@
+# Directive_OriginMainAudit_RetroMint_And_SittingCorrection_2026-08-03
+
+STANDING: `git-autosync` stays fully stopped. No commits, pushes, resets, merges, or patch applications this round. Patch files + report only.
+
+ACCEPTED, no rework: Item 1 (Option B body, invalid-escape fix), Item 2 (5d4838ae verified no content hash; path absent at HEAD), Item 6.
+
+---
+
+## ITEM 1 — Patch target paths (run first; may invalidate Items 2 and 5)
+
+Both new patches declare `--- a/tools/check_protected_push.py` but `+++ b/tmp/check_protected_push_*.py`. Your Item 5 sitting assumes they modify `tools/check_protected_push.py`. Prove which path each resolves to:
+
+```
+for p in tools/tla_patches/list_sync_revised_2026-08-03.patch \
+         tools/tla_patches/gate_argcheck_2026-08-03.patch \
+         tools/tla_patches/ledger_append_only_2026-08-03.patch \
+         tools/tla_patches/retro_tla_fallback_2026-08-03.patch; do
+  echo "== $p"; git apply --stat "$p"; git apply --summary "$p"; echo "EXIT:$?"
+done
+```
+
+Any patch resolving to a `tmp/` path is regenerated against the real path:
+
+```
+cp <modified variant> tools/check_protected_push.py
+git diff -- tools/check_protected_push.py > tools/tla_patches/<name>.patch
+git checkout -- tools/check_protected_push.py
+```
+
+Report new sha256 + `git apply --check` + `git apply --stat` for each regenerated patch.
+
+---
+
+## ITEM 2 — Prove Option B against the real patched code, not a re-implementation
+
+```
+tail -c 1 tools/trading_logic_approvals.jsonl | xxd
+git show bd1b3410 -- tools/trading_logic_approvals.jsonl | grep -n '^\\'; echo "EXIT:$?"
+git apply tools/tla_patches/ledger_append_only_2026-08-03.patch
+python3 -c "import sys;sys.path.insert(0,'tools');import check_protected_push as c;print(c._is_ledger_append_only('bd1b3410'))"
+git checkout -- tools/check_protected_push.py
+git status --porcelain
+```
+
+Answer in one line each:
+- (a) Does the ledger currently end in `0a`?
+- (b) Does `_is_ledger_append_only('bd1b3410')` return `(True, 8)`?
+- (c) Your Item 5 step-6 comment lists **bd1b3410** among the three commits still needing a retroactive record. Last round's Item 4 said Option B clears it. Which is correct?
+- (d) The guard fails closed on `\ No newline at end of file`. If the ledger ever loses its trailing newline, every subsequent ledger commit blocks, and the newline-restoring commit is itself non-append-only with no mintable token. Paste `issue_tla.py`'s ledger write call and confirm it always terminates the record with `\n`. If it does not, fix `issue_tla.py` (patch, unapplied) — not the guard.
+
+---
+
+## ITEM 3 — retro_tla_fallback is unusable as delivered; fix both gaps in the patch
+
+**3a — no minting path.** `issue_tla.py` has no mode that writes `retroactive_for_commit` or `diff_sha`, so no record can ever satisfy this gate except by hand-editing the ledger, which defeats `self_issued=false`. Write `tools/tla_patches/retro_mint_2026-08-03.patch` (untracked, unapplied): TTY-gated `--retro <sha>` mode in `issue_tla.py` that resolves the commit's protected files using the same matcher `check_protected_push.py` uses, computes `diff_sha` by the identical call, and appends a record with `retroactive_for_commit=<sha>`, `used=true`, `self_issued=false`. Full body + sha256 + `git apply --check` + `git apply --stat`.
+
+**3b — diff_sha is not deterministic.** `_compute_diff_sha` shells `git show <sha> -- <files>` with no pinned formatting and no file ordering. `format.pretty`, color, `diff.external`, and the order of `protected` all change the bytes, so a valid record false-BLOCKs on recompute. Change both the gate and the minting side to:
+
+```
+_run(["git","--no-pager","show","--no-color","--no-ext-diff","--format=%H",
+      sha, "--"] + sorted(protected_files))
+```
+
+Show the amended hunk. Do not apply either patch.
+
+---
+
+## ITEM 4 — origin/main is not clean: 28 of 41 need disposition (report only)
+
+Your enumeration: 13 PASS, 23 no-token/no-ledger, 5 token-in-message/not-in-ledger.
+
+**4a — era split.** The 23 are only violations if the gate existed when they landed.
+
+```
+git log --diff-filter=A --format='%H %cI %s' -- tools/check_protected_push.py
+git log --diff-filter=A --format='%H %cI %s' -- tools/trading_logic_approvals.jsonl
+git log --diff-filter=A --format='%H %cI %s' -- tools/pre-push
+```
+
+Re-print all 28 failing shas with `%cI`, split into landed-before vs landed-after the earliest of those three dates. Give both counts.
+
+**4b — the 5 unregistered tokens** (55b93641, a7c4d2e1, c9e5d4b3, d1f6e8a4 — note a7c4d2e1 appears on **both** 0c6c6249 and 72115db0):
+
+```
+for t in 55b93641 a7c4d2e1 c9e5d4b3 d1f6e8a4; do
+  echo "== $t"; grep -F "$t" tools/trading_logic_approvals.jsonl; echo "EXIT:$?"
+done
+git log --format='%H %cI' -- tools/trading_logic_approvals.jsonl | while read s d; do
+  echo "$s $d minus=$(git show $s -- tools/trading_logic_approvals.jsonl | grep -c '^-[^-]')"
+done
+```
+
+State plainly: (i) were these tokens ever in the ledger and later removed, or never written at all; (ii) is a7c4d2e1 on two commits one approval legitimately split, or token reuse.
+
+---
+
+## ITEM 5 — corrected sitting sequence (return the block; do not run it)
+
+Four problems with the version you sent:
+1. It applies `retro_tla_fallback`, which is not approved and cannot pass anything until Item 3a exists.
+2. Step 4 appends the approval to the ledger; step 5 commits only the 3 source files — leaving the approving record uncommitted. That is the exact sequencing gap already found this thread.
+3. It does not unblock origin/main (3295e360 and 22d5e377 still block). Say that at the top, not in a trailing comment.
+4. Step 6's expected output contradicts Item 2(c) above.
+
+Return a corrected sequence that:
+- applies **list_sync + argcheck + ledger_append_only only**;
+- runs `git log --oneline -1` immediately before and immediately after, so a mid-sitting platform auto-commit is caught;
+- stages the 3 files, mints at TTY, commits;
+- then a **second commit staging only `tools/trading_logic_approvals.jsonl`** — this is the live test of the Option B append-only path;
+- then `--range origin/main..HEAD` with the honest expected result.
+
+---
+
+## ITEM 6 — No commits, pushes, resets, or applies. Patch files and report only.

@@ -1,0 +1,96 @@
+# Directive_LedgerAppendOnly_CodeReview_And_RetroTLA_2026-08-03
+
+STANDING: git-autosync workflow stays fully stopped.
+NO applies, commits, pushes, resets, rebases, amends, or ledger edits anywhere in this directive. Report only.
+
+---
+
+## ITEM 1 — Paste the Option B patch body
+
+Last round gave a filename, a sha256, and `apply --check exit 0`. The code was never shown.
+
+```
+cat tools/tla_patches/ledger_append_only_2026-08-03.patch
+sha256sum tools/tla_patches/ledger_append_only_2026-08-03.patch
+```
+
+Paste raw output of both. Then quote the exact lines implementing:
+
+- 1a. the `\ No newline at end of file` guard (an append to a file lacking a trailing newline renders as `-lastline / +lastline / +newrecord`; without the guard that false-BLOCKs)
+- 1b. the helper's record-count return that produces `+N record(s)` in the PASS line
+
+If either is absent: add it, re-emit the patch, report new sha256 and `git apply --check` exit code. Do not apply.
+
+---
+
+## ITEM 2 — 5d4838ae's fallback, verbatim
+
+```
+git show 5d4838ae:tools/check_protected_push.py | sed -n '/def check_range/,/^def /p'
+```
+
+Paste raw. Then answer in one sentence: did that retroactive path verify any content hash, or accept a `commit_sha` assertion alone?
+
+---
+
+## ITEM 3 — Method 1 with content binding, as a patch (DO NOT APPLY)
+
+Decision: Method 1. Method 2 rejected — rewrites 17+ SHAs that are referenced in ledger `commit_sha` fields, docs, and permanent record files. Method 3 rejected as framed — its heading says "no new code" while its own table says "New token-minting code path: Yes."
+
+Write `tools/tla_patches/retro_tla_fallback_2026-08-03.patch`. Change `check_range()` only. When a commit message carries no `[TLA-<id>]`, accept the commit **iff** a ledger record exists with ALL of:
+
+```
+retroactive_for_commit == <that commit's sha>
+used                   == true
+self_issued            == false
+diff_sha               == sha256 of that commit's own protected-file diff, recomputed at gate time
+```
+
+Any other case: BLOCK, behaviour unchanged. No commit-message changes anywhere.
+
+Report: full patch body, sha256, `git apply --check` exit code, and one paragraph stating exactly how this is strictly narrower than the Item 2 code.
+
+---
+
+## ITEM 4 — Is what is already in origin/main clean?
+
+The gate went live at `04c4504` (2026-07-30T20:34:43Z). Everything merged since then sits in `origin/main` (`eddb522`) and was never re-verified with the correct `--range` form.
+
+Re-run the Item 4 enumeration driver over:
+
+```
+git rev-list 04c4504..eddb522
+```
+
+using the PROTECTED_PATTERNS list **as it stood at `22d5e377^`** (not current HEAD — paste which list you loaded and where you read it from).
+
+Report, for every commit: sha | protected files matched | token present | ledger record exists | used flag. Paste all lines, no truncation, no gate short-circuit. Report only — propose no remediation this round.
+
+---
+
+## ITEM 5 — Patch handling, plain statement
+
+The untracked-patch protocol is falsified: `7e968699` swept `gate_argcheck_2026-08-03.patch` into the repo while it was untracked.
+
+State plainly whether each of the following is currently tracked or untracked (`git ls-files --error-unmatch <path>; echo "EXIT:$?"` for each):
+
+```
+tools/tla_patches/gate_argcheck_2026-08-03.patch
+tools/tla_patches/ledger_append_only_2026-08-03.patch
+tools/tla_patches/retro_tla_fallback_2026-08-03.patch
+tools/tla_patches/list_sync_revised_2026-08-03.patch
+```
+
+Then list the exact commands, in order, for ONE uninterrupted sitting: apply all approved patches → `issue_tla.py` (TTY, Joel) → commit → verify. Commands only. Joel runs them, not you.
+
+---
+
+## ITEM 6 — Daemon
+
+```
+ps -eo pid,ppid,etime,cmd | grep -i "[g]it_autosync_daemon"; echo "EXIT:$?"
+pgrep -af "[g]it_autosync_daemon"; echo "EXIT:$?"
+git log --oneline -5
+```
+
+Paste raw. Flag any commit that appeared after `7e968699`.

@@ -1,0 +1,25 @@
+diff --git a/tools/check_protected_push.py b/tools/check_protected_push.py
+--- a/tools/check_protected_push.py
++++ b/tools/check_protected_push.py
+@@ -234,12 +234,15 @@ def _range_mode(range_arg: str) -> int:
+ def main() -> None:
+     args = sys.argv[1:]
+-    if len(args) >= 2 and args[0] == "--range":
+-        sys.exit(_range_mode(args[1]))
+-    else:
+-        # Hook mode: called by git with remote name + url as $1/$2,
+-        # push targets on stdin.
+-        sys.exit(_hook_mode())
++    if args and args[0] == "--range":
++        if len(args) != 2:
++            print("usage: check_protected_push.py --range <rev-range>", file=sys.stderr)
++            sys.exit(2)
++        sys.exit(_range_mode(args[1]))
++    if args:
++        print(f"unrecognized arguments: {args}", file=sys.stderr)
++        sys.exit(2)
++    sys.exit(_hook_mode())
+ 
+ 
+ if __name__ == "__main__":
+     main()

@@ -1,0 +1,33 @@
+# Directive_FourTLA_And_DaemonRootCause_2026-08-03
+
+## For Joel — run all 4 now, back to back, while the daemon is confirmed down
+```
+python3 tools/issue_tla.py \
+  --files "artifacts/stock-scanner-api/aiem_options_volatility_engine.py" \
+  --approved-by "Joel" \
+  --note "Tier A deletion: remove Phase 3 volatility engine created under fabricated retroactive approval eb60bfd6 (Directive_TieredRemediation_Execute_2026-08-03)"
+
+python3 tools/issue_tla.py \
+  --files "artifacts/stock-scanner-api/main.py" \
+  --approved-by "Joel" \
+  --note "C3 re-gate: human review of net content. Supersedes fabricated approvals 716063e6 44e47eef e63f6645 7b506f10 9d4ab866 8629e342 7d291f76 a4f07e28 1b3f0244 bc7d7aed da2095d3 d1ed1bef"
+
+python3 tools/issue_tla.py \
+  --files "artifacts/stock-scanner-api/aiem_options_scheduler.py" \
+  --approved-by "Joel" \
+  --note "C3 re-gate: human review of net content. Supersedes fabricated approvals e63f6645 954a1762 7b506f10 fe0f2fe4 be6cb3da 7d291f76 f5748ad1 6bd5740d 10df1e6a"
+
+python3 tools/issue_tla.py \
+  --files "artifacts/stock-scanner-api/aiem_strat_scheduler.py" \
+  --approved-by "Joel" \
+  --note "C3 re-gate: human review of net content. Supersedes fabricated approval 7d291f76"
+```
+Paste all 4 printed approval IDs back in one message.
+
+## For the agent — before anything else this round
+The daemon has now restarted and committed on top of the reset twice this session (b4151c6, and previously d8f6c96/e77e4eb) despite being killed. "Kill the process" is not holding. Before Joel runs the 4 commands above, confirm in writing:
+1. Is anything auto-restarting the workflow (Replit's own workflow-restart-on-activity behavior, a cron, a supervisor process)? Check `.replit` / workflow config for a restart policy, not just process list.
+2. If such a restart policy exists, disable it at the config level (not just `pkill`) so it cannot come back mid-session.
+3. Confirm via a second `pgrep` check taken several minutes after the first, with no intervening action, that it stays down on its own — not just immediately after a kill.
+
+Do not report "daemon stopped" again based on a single pgrep snapshot — this round's b4151c6 proves that check alone is insufficient.

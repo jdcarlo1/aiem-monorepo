@@ -1,0 +1,24 @@
+# Directive_RevertScope_Correction_2026-08-03
+
+STOP. Do not commit or push the currently-staged `git revert -m 1 --no-commit eddb522`. Unstage it (`git reset`) and do not restage it until this directive closes.
+
+## Item 1 — Resolve the check_protected_push.py contradiction (BLOCKING)
+Run and paste raw output only, no narrative:
+```
+git show HEAD:tools/check_protected_push.py | wc -l
+git log -1 --format="%H %ad" -- tools/check_protected_push.py
+git log --all --oneline -- tools/check_protected_push.py
+```
+If the file exists with content at HEAD, state plainly that the prior report ("deleted in eddb522, pre-push hook fails closed") was wrong, and say when it was reintroduced.
+
+## Item 2 — Per-file disposition table (BLOCKING)
+For every one of the 153 files in the staged diff, one row: `path | FRAUD_TAINTED | LEGITIMATE | UNSURE` plus a one-line reason.
+- FRAUD_TAINTED = only exists because of, or was gated by, the 19 fabricated TLA19 approvals (expect: aiem_options_volatility_engine.py changes, the 19 jsonl rows, anything the tainted approvals unlocked).
+- LEGITIMATE = independently verified in this thread with real command-output evidence in prior rounds (expect: test_e2e_pipeline_replay.py, test_real_chain_selection.py, test_failure_reproduction.py, verify_inline_copies.py, verify_dict_literals.py, tools/issue_tla.py, tools/check_protected_push.py, tools/hooks/*, tools/pre-push, .github/workflows/*, docs/verification/*-FINAL.md, evidence_chain.jsonl + raw files, GOVERNANCE.md).
+- No UNSURE rows may ship without a stated reason you can't determine it from git history alone.
+
+## Item 3 — Targeted alternative (report only, do not execute)
+Propose a scoped fix that removes only the FRAUD_TAINTED paths (the volatility-engine changes + the 19 approval records, or their known-clean prior versions) without touching anything tagged LEGITIMATE. State whether this is a targeted `git checkout <pre-eddb522-sha> -- <paths>` per FRAUD_TAINTED path, or another mechanism, and why.
+
+## Item 4 — No action
+No commits, no pushes, no merges, no re-staging of the whole-merge revert until Joel has reviewed Items 1–3.

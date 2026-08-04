@@ -1,0 +1,37 @@
+# Directive_C8c36d0_MechanismID_2026-08-03
+
+Standing checklist applies: raw output only, no narrative, sha256 before/after for any changed file, raw grep for any code/line claim, Data Immutability Rule (no delete/reset without approval), evidence chain protocol if applicable.
+
+## Item 1 — Identify which mechanism produced c8c36d0
+Run and paste raw output, no interpretation first:
+```
+git log -1 --format="%an <%ae>%n%cn <%ce>%n%B" c8c36d0
+git log -1 --format="%B" c8c36d0 | grep -i "Replit-Commit-Author"
+```
+State plainly: was this the custom git_autosync_daemon.py, or Replit's separate platform auto-commit (Replit-Commit-Author: Agent)? These are two different mechanisms per the 2026-08-02 incident record — do not assume.
+
+If it's the platform auto-commit: say so explicitly and state that today's fix (dual pause flags + .replit task removal) does not address it, since that mechanism was already established to bypass pause flags and daemon state entirely.
+
+## Item 2 — Push status of c8c36d0
+```
+git log origin/main..HEAD --oneline
+git branch -r --contains c8c36d0
+```
+State whether c8c36d0 reached origin or is still local-only.
+
+## Item 3 — Process termination evidence
+Do not assert "stopped before 02:10:06Z" without backing it. Provide one of:
+- tail of git_autosync.log covering 02:02:00Z–02:10:06Z showing an exit/error, OR
+- explicit statement that no such log entry exists and the stop time is inferred, not observed
+
+Also run a broader process search (not just the git_autosync_daemon pgrep pattern):
+```
+ps aux | grep -i git
+```
+at time of this report, to rule out any other process still capable of auto-committing.
+
+## Item 4 — Missing hashes from prior gap list (still owed)
+sha256 before/after for git_autosync_daemon.py and .replit, tied to the 3295e36 diff.
+
+## Hold
+Do not run the issue_tla.py command for the volatility-engine deletion (Item 2 from the prior submission) until Items 1–4 above close. Do not delete, reset, or push c8c36d0 — awaiting Joel's review per Data Immutability Rule.
