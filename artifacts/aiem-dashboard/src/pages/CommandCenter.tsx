@@ -1,6 +1,16 @@
+import { useState, useCallback } from "react";
 import { useApi } from "@/hooks/use-api";
-import { Activity, Server, AlertCircle, AlertTriangle, Database, Clock, Cpu, Zap } from "lucide-react";
+import { useEventStream, type SseEvent } from "@/hooks/use-event-stream";
+import { Activity, Server, AlertCircle, AlertTriangle, Database, Clock, Cpu, Zap, Radio } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
+
+const SSE_CATEGORIES = [
+  "paper_trades",
+  "decisions",
+  "system_health",
+  "candidates",
+  "gate_events",
+];
 
 export default function CommandCenter() {
   const { data: health, isStale: healthStale, lastUpdated: healthUpdated } = useApi<any>("/stock-api/health", {}, 30000);
@@ -8,6 +18,11 @@ export default function CommandCenter() {
   const { data: macro, isStale: macroStale } = useApi<any>("/stock-api/admin/macro/latest", {}, 60000);
   const { data: jobs } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
   const { data: heartbeats } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
+  const [liveEvents, setLiveEvents] = useState<SseEvent[]>([]);
+  const onSse = useCallback((evt: SseEvent) => {
+    setLiveEvents((prev) => [evt, ...prev].slice(0, 12));
+  }, []);
+  const { connected: sseConnected } = useEventStream(SSE_CATEGORIES, onSse, true);
 
   const hbJobs: any[] = heartbeats?.jobs ?? [];
   const schedulerJobs: any[] = jobs?.jobs ?? [];
@@ -30,9 +45,15 @@ export default function CommandCenter() {
           <h1 className="text-2xl font-bold text-white tracking-tight">Command Center</h1>
           <p className="text-sm text-muted-foreground mt-1">Live system health, macro regime, and job orchestration</p>
         </div>
-        <div className={`badge-live ${engineOk && !healthStale ? "ok" : "error"}`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${engineOk && !healthStale ? "bg-success animate-pulse" : "bg-destructive"}`} />
-          {engineOk && !healthStale ? "Engine Connected" : "Engine Offline"}
+        <div className="flex items-center gap-2">
+          <div className={`badge-live ${sseConnected ? "ok" : "error"}`} title="SSE /stock-api/events/stream">
+            <Radio size={12} className={sseConnected ? "text-success" : "text-destructive"} />
+            {sseConnected ? "SSE Live" : "SSE Off"}
+          </div>
+          <div className={`badge-live ${engineOk && !healthStale ? "ok" : "error"}`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${engineOk && !healthStale ? "bg-success animate-pulse" : "bg-destructive"}`} />
+            {engineOk && !healthStale ? "Engine Connected" : "Engine Offline"}
+          </div>
         </div>
       </div>
 
@@ -200,8 +221,37 @@ export default function CommandCenter() {
         </div>
       </div>
 
+      {/* Live SSE event strip — previously useEventStream was defined but never mounted */}
+      <div className="panel">
+        <div className="panel-header">
+          <div className="flex items-center gap-2">
+            <Radio size={14} className="text-primary" />
+            <h2 className="text-sm font-semibold text-white">Live Event Stream</h2>
+          </div>
+          <span className="text-xs font-mono text-muted-foreground">
+            /stock-api/events/stream · {sseConnected ? "connected" : "reconnecting"}
+          </span>
+        </div>
+        <div className="p-3 space-y-1.5 max-h-48 overflow-auto">
+          {liveEvents.length === 0 ? (
+            <div className="text-xs font-mono text-muted-foreground py-4 text-center">
+              Waiting for SSE events (paper_trades / decisions / system_health / candidates / gate_events)
+            </div>
+          ) : (
+            liveEvents.map((evt, i) => (
+              <div key={i} className="flex gap-2 text-[11px] font-mono border-b border-border/40 pb-1">
+                <span className="text-primary shrink-0">{evt.category}</span>
+                <span className="text-muted-foreground truncate">
+                  {typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data)}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       <DataFooter
-        source="job_heartbeats, aiem_macro_daily, APScheduler"
+        source="job_heartbeats, aiem_macro_daily, APScheduler, events/stream"
         lastUpdated={healthUpdated}
         pollIntervalSec={30}
         operatingMode="LIVE DATA"

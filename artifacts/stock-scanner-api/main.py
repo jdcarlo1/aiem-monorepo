@@ -72333,6 +72333,34 @@ def admin_scheduler_jobs():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/stock-api/admin/scheduler-jobs/<job_id>/force", methods=["POST"])
+def admin_scheduler_force_job(job_id):
+    """Force an APScheduler job to run ASAP (dashboard Scheduler FORCE button)."""
+    import hmac as _hmac_sf
+    from datetime import datetime as _dt_sf, timezone as _tz_sf
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_sf.compare_digest(tok, os.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        job = _scheduler.get_job(job_id)
+        if job is None:
+            return jsonify({"error": "job not found", "code": "NOT_FOUND", "job_id": job_id}), 404
+        now = _dt_sf.now(_tz_sf.utc)
+        job.modify(next_run_time=now)
+        return jsonify({
+            "ok": True,
+            "job_id": job_id,
+            "name": job.name,
+            "forced_next_run": now.isoformat(),
+            "note": "Job next_run_time set to now; APScheduler will fire it on the next wake.",
+        })
+    except NameError:
+        return jsonify({"error": "scheduler not initialized", "code": "NOT_READY"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e), "code": "SCHEDULER_ERROR"}), 500
+
+
 # ── Unusual Puts & Bear Flow (added) ─────────────────────────────────────────
 # 6 quality rules (R1-R6) enforced at scan time:
 # R1: No put SALES — bid/ask fill-side inference; at-bid = writer → excluded
@@ -72757,6 +72785,370 @@ def admin_evidence_chain_status():
         return jsonify({"error": "chain file not found", "code": "NOT_FOUND", "seq": 0}), 404
     except Exception as _e_ec:
         return jsonify({"error": str(_e_ec), "code": "DB_ERROR"}), 503
+
+
+@app.route("/stock-api/admin/paper-job-ledger", methods=["GET"])
+def admin_paper_job_ledger():
+    """Return paper_trade_job_ledger rows (exactly-once paper execute ledger)."""
+    import hmac as _hmac_pjl
+    import psycopg2 as _pg_pjl, os as _os_pjl, time as _time_pjl
+
+    _t0 = _time_pjl.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_pjl.compare_digest(tok, _os_pjl.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    status_arg = request.args.get("status")
+    try:
+        with _pg_pjl.connect(_os_pjl.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds, params = [], []
+                if status_arg:
+                    conds.append("status = %s"); params.append(status_arg)
+                where = ("WHERE " + " AND ".join(conds)) if conds else ""
+                cur.execute(f"SELECT COUNT(*) FROM paper_trade_job_ledger {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, business_date::text, status, execution_id, trigger_source,
+                           claimed_at, started_at, completed_at, picks_count, error_text,
+                           heartbeat_at, watchdog_checks, recovery_attempts, created_at
+                    FROM paper_trade_job_ledger {where}
+                    ORDER BY business_date DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("claimed_at", "started_at", "completed_at", "heartbeat_at", "created_at"):
+                        if row.get(k) is not None:
+                            row[k] = row[k].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_pjl.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_pjl.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/daily-pipeline-runs", methods=["GET"])
+def admin_daily_pipeline_runs():
+    """Return daily_pipeline_runs (options pipeline failover ledger)."""
+    import hmac as _hmac_dpr
+    import psycopg2 as _pg_dpr, os as _os_dpr, time as _time_dpr
+
+    _t0 = _time_dpr.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_dpr.compare_digest(tok, _os_dpr.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    try:
+        with _pg_dpr.connect(_os_dpr.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM daily_pipeline_runs")
+                total = cur.fetchone()[0]
+                cur.execute("""
+                    SELECT id, run_date::text, trigger_source, status, claim_id, trace_id,
+                           polygon_rvol_rows, oss_rows, candidates_seeded, candidates_executed,
+                           candidates_no_trade, candidates_failed, error_text,
+                           started_at, completed_at, created_at
+                    FROM daily_pipeline_runs
+                    ORDER BY run_date DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, (limit,))
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("started_at", "completed_at", "created_at"):
+                        if row.get(k) is not None:
+                            row[k] = row[k].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_dpr.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_dpr.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/governance-decisions", methods=["GET"])
+def admin_governance_decisions():
+    """Return d3_governance_decisions for AIEM Institutional Terminal."""
+    import hmac as _hmac_gd
+    import psycopg2 as _pg_gd, json as _json_gd, os as _os_gd, time as _time_gd
+
+    _t0 = _time_gd.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_gd.compare_digest(tok, _os_gd.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    checkpoint = request.args.get("checkpoint")
+    decision = request.args.get("decision")
+    trace_id = request.args.get("trace_id")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    try:
+        with _pg_gd.connect(_os_gd.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds = ["is_test_record = FALSE"]
+                params = []
+                if checkpoint:
+                    conds.append("checkpoint = %s"); params.append(checkpoint)
+                if decision:
+                    conds.append("decision = %s"); params.append(decision)
+                if trace_id:
+                    conds.append("trace_id = %s"); params.append(trace_id)
+                where = " AND ".join(conds)
+                cur.execute(f"SELECT COUNT(*) FROM d3_governance_decisions WHERE {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, governance_decision_id, governance_request_id, trace_id,
+                           checkpoint, decision, blocking, reason_codes, policy_version,
+                           decision_hash, ledger_event_id, response_timestamp_utc
+                    FROM d3_governance_decisions WHERE {where}
+                    ORDER BY response_timestamp_utc DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    if isinstance(row.get("reason_codes"), str):
+                        try: row["reason_codes"] = _json_gd.loads(row["reason_codes"])
+                        except Exception: pass
+                    if row.get("response_timestamp_utc") is not None:
+                        row["response_timestamp_utc"] = row["response_timestamp_utc"].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_gd.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_gd.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/telegram-alerts", methods=["GET"])
+def admin_telegram_alerts():
+    """Return telegram_alert_ledger rows for Alerts / notification audit."""
+    import hmac as _hmac_ta
+    import psycopg2 as _pg_ta, os as _os_ta, time as _time_ta
+
+    _t0 = _time_ta.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_ta.compare_digest(tok, _os_ta.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    ticker = request.args.get("ticker")
+    signal_source = request.args.get("signal_source")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    try:
+        with _pg_ta.connect(_os_ta.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds = ["is_test = FALSE"]
+                params = []
+                if ticker:
+                    conds.append("ticker = %s"); params.append(ticker.upper())
+                if signal_source:
+                    conds.append("signal_source = %s"); params.append(signal_source)
+                where = " AND ".join(conds)
+                cur.execute(f"SELECT COUNT(*) FROM telegram_alert_ledger WHERE {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, sent_at, signal_source, ticker, alert_class, alert_text,
+                           audit_trace_id, trust_weight_at_send, trigger_price, sent_ok,
+                           graded, outcome_d1_pct, outcome_d3_pct, outcome_d5_pct,
+                           win_loss, graded_at
+                    FROM telegram_alert_ledger WHERE {where}
+                    ORDER BY sent_at DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("sent_at", "graded_at"):
+                        if row.get(k) is not None:
+                            row[k] = row[k].isoformat()
+                    for k in ("trust_weight_at_send", "trigger_price",
+                              "outcome_d1_pct", "outcome_d3_pct", "outcome_d5_pct"):
+                        if row.get(k) is not None:
+                            row[k] = float(row[k])
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_ta.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_ta.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/trace-explorer", methods=["GET"])
+def admin_trace_explorer():
+    """Composite ticker+date trace across paper, council, sizing, governance."""
+    import hmac as _hmac_te
+    import psycopg2 as _pg_te, json as _json_te, os as _os_te, time as _time_te
+
+    _t0 = _time_te.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_te.compare_digest(tok, _os_te.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    ticker = (request.args.get("ticker") or "").upper().strip()
+    date_arg = request.args.get("date")
+    if not ticker or not date_arg:
+        return jsonify({"error": "ticker and date required", "code": "INVALID_PARAM"}), 400
+    from datetime import datetime as _dt_te
+    try:
+        _dt_te.strptime(date_arg, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "invalid date format", "code": "INVALID_PARAM"}), 400
+
+    out = {"ticker": ticker, "date": date_arg, "paper_trades": [], "council_runs": [],
+           "position_sizing": [], "governance_decisions": [], "gate_events": []}
+    try:
+        with _pg_te.connect(_os_te.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=8000") as conn:
+            with conn.cursor() as cur:
+                # Paper trades (best-effort column set)
+                try:
+                    cur.execute("""
+                        SELECT id, ticker, status, signal_source, entry_price, exit_price,
+                               pnl_pct, trade_date::text, created_at, audit_trace_id
+                        FROM aiem_paper_trades
+                        WHERE UPPER(ticker) = %s
+                          AND (
+                               trade_date = %s
+                            OR DATE(created_at AT TIME ZONE 'America/New_York') = %s
+                          )
+                        ORDER BY id DESC LIMIT 50
+                    """, (ticker, date_arg, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("created_at") is not None:
+                            row["created_at"] = row["created_at"].isoformat()
+                        if row.get("entry_price") is not None:
+                            row["entry_price"] = float(row["entry_price"])
+                        if row.get("exit_price") is not None:
+                            row["exit_price"] = float(row["exit_price"])
+                        if row.get("pnl_pct") is not None:
+                            row["pnl_pct"] = float(row["pnl_pct"])
+                        out["paper_trades"].append(row)
+                except Exception as _pe:
+                    out["paper_trades_error"] = str(_pe)
+
+                try:
+                    cur.execute("""
+                        SELECT id, run_time, context, ticker, trace_id, weighted_vote, variance
+                        FROM aiem_specialist_council_runs
+                        WHERE UPPER(ticker) = %s
+                          AND DATE(run_time AT TIME ZONE 'America/New_York') = %s
+                        ORDER BY run_time DESC LIMIT 50
+                    """, (ticker, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("run_time") is not None:
+                            row["run_time"] = row["run_time"].isoformat()
+                        out["council_runs"].append(row)
+                except Exception as _ce:
+                    out["council_runs_error"] = str(_ce)
+
+                try:
+                    cur.execute("""
+                        SELECT id, logged_at, ticker, signal_source, conviction_score,
+                               entry_price, calculated_notional, gate_result, paper_trade_id
+                        FROM aiem_position_sizing_log
+                        WHERE UPPER(ticker) = %s
+                          AND DATE(logged_at AT TIME ZONE 'America/New_York') = %s
+                        ORDER BY logged_at DESC LIMIT 50
+                    """, (ticker, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("logged_at") is not None:
+                            row["logged_at"] = row["logged_at"].isoformat()
+                        for k in ("conviction_score", "entry_price", "calculated_notional"):
+                            if row.get(k) is not None:
+                                row[k] = float(row[k])
+                        out["position_sizing"].append(row)
+                except Exception as _se:
+                    out["position_sizing_error"] = str(_se)
+
+                try:
+                    cur.execute("""
+                        SELECT governance_decision_id, checkpoint, decision, blocking,
+                               reason_codes, trace_id, response_timestamp_utc
+                        FROM d3_governance_decisions
+                        WHERE is_test_record = FALSE
+                          AND trace_id IN (
+                              SELECT DISTINCT audit_trace_id FROM aiem_paper_trades
+                              WHERE UPPER(ticker) = %s
+                                AND audit_trace_id IS NOT NULL
+                                AND (
+                                     trade_date = %s
+                                  OR DATE(created_at AT TIME ZONE 'America/New_York') = %s
+                                )
+                          )
+                        ORDER BY response_timestamp_utc DESC LIMIT 50
+                    """, (ticker, date_arg, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if isinstance(row.get("reason_codes"), str):
+                            try: row["reason_codes"] = _json_te.loads(row["reason_codes"])
+                            except Exception: pass
+                        if row.get("response_timestamp_utc") is not None:
+                            row["response_timestamp_utc"] = row["response_timestamp_utc"].isoformat()
+                        out["governance_decisions"].append(row)
+                except Exception as _ge:
+                    out["governance_decisions_error"] = str(_ge)
+
+                try:
+                    cur.execute("""
+                        SELECT gate_event_id, gate_name, fired_at, ticker, trace_id,
+                               action_taken, reason
+                        FROM oe_gate_events
+                        WHERE is_test_record = FALSE AND UPPER(ticker) = %s
+                          AND DATE(fired_at AT TIME ZONE 'America/New_York') = %s
+                        ORDER BY fired_at DESC LIMIT 50
+                    """, (ticker, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("fired_at") is not None:
+                            row["fired_at"] = row["fired_at"].isoformat()
+                        out["gate_events"].append(row)
+                except Exception as _gae:
+                    out["gate_events_error"] = str(_gae)
+
+        out["elapsed_ms"] = round((_time_te.monotonic() - _t0) * 1000)
+        return jsonify(out)
+    except Exception as _e:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
 
 
 @app.route("/stock-api/admin/options-metrics", methods=["GET"])
