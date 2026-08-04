@@ -77,18 +77,26 @@ log = logging.getLogger("aiem_strat_scheduler")
 def _tg(text: str) -> bool:
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    ok = False
     if not token or not chat_id:
-        return False
+        ok = False
+    else:
+        try:
+            body = json.dumps({"chat_id": chat_id, "text": text[:4096]}).encode()
+            req  = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=body, headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                ok = r.status == 200
+        except Exception:
+            ok = False
     try:
-        body = json.dumps({"chat_id": chat_id, "text": text[:4096]}).encode()
-        req  = urllib.request.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=body, headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=6) as r:
-            return r.status == 200
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source="ase_strat_scheduler", sent_ok=ok)
     except Exception:
-        return False
+        pass
+    return ok
 
 
 # ── Structured module-failure logger ────────────────────────────────────────
