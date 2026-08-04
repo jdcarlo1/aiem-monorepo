@@ -21,7 +21,7 @@ Architecture
   Health endpoint: GET /health → JSON (port 5053).
 
 Schedule (ET, Mon-Fri)
-  09:40 — seed daily candidates (top bearish setups from options_structure_scan)
+  09:40 — seed daily candidates (balanced CALL momentum/CALL_SKEW + PUT FEAR_PREMIUM)
   09:45 — execute pipeline for each seeded job
   16:46 — grade expired alerts (Stage 9 / Stage 10 — learning loop)
   00:05 — clean up jobs older than 30 days
@@ -590,17 +590,123 @@ def recover_stale_jobs() -> dict:
 # SEED DAILY CANDIDATES
 # ─────────────────────────────────────────────────────────────────────────────
 
-def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
+# Leveraged / inverse ETFs — noisy for single-name CALL selection.
+_LEVERAGED_ETF_DENYLIST = (
+    "TQQQ", "SQQQ", "UPRO", "SPXU", "SOXL", "SOXS", "TECL", "TECS",
+    "TNA", "TZA", "FAS", "FAZ", "UDOW", "SDOW", "QLD", "QID",
+    "SPXL", "SPXS", "LABU", "LABD", "DPST",
+)
+
+
+def _seed_lane_limits(limit: int) -> tuple:
+    """Split daily seed budget: slight CALL bias (user ask: catch up-day bulls).
+
+    limit=6 → (3 CALL, 3 PUT); limit=5 → (3 CALL, 2 PUT).
+    """
+    limit = max(2, int(limit))
+    call_n = max(1, (limit + 1) // 2)
+    put_n = max(1, limit - call_n)
+    return call_n, put_n
+
+
+def _fetch_call_seed_rows(cur, oss_scan_date, call_n: int) -> list:
+    """Bullish CALL lane: morning momentum vs prior close + CALL_SKEW flow.
+
+    Prior seed ordered only by pc_skew_pp DESC → exclusively FEAR_PREMIUM puts.
+    This lane ranks names already up on the open / with call-side skew.
+    """
+    cur.execute(
+        """
+        SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag,
+               'CALL' AS seed_lane
+        FROM options_structure_scan o
+        JOIN polygon_market_daily p
+            ON p.ticker = o.ticker
+           AND p.scan_date = (
+                SELECT MAX(scan_date) FROM polygon_market_daily
+                WHERE scan_date < o.scan_date
+           )
+        WHERE o.scan_date = %s
+          AND o.pc_skew_pp IS NOT NULL
+          AND o.front_iv BETWEEN 15 AND 100
+          AND o.spot > 10
+          AND o.pc_skew_tag <> 'FEAR_PREMIUM'
+          AND o.ticker <> ALL(%s)
+          AND (
+                o.pc_skew_tag = 'CALL_SKEW'
+                OR o.spot > p.close_price * 1.015
+              )
+        ORDER BY (
+            COALESCE(
+              ((o.spot - p.close_price) / NULLIF(p.close_price, 0)) * 100.0, 0
+            ) * 4.0
+            + CASE WHEN o.pc_skew_tag = 'CALL_SKEW' THEN 15 ELSE 0 END
+            + GREATEST(0, -o.pc_skew_pp) * 0.3
+            + CASE WHEN COALESCE(p.close_strength, 0) >= 0.7 THEN 10 ELSE 0 END
+          ) DESC,
+          ((o.spot - p.close_price) / NULLIF(p.close_price, 0)) DESC NULLS LAST,
+          o.pc_skew_pp ASC NULLS LAST
+        LIMIT %s
+        """,
+        (oss_scan_date, list(_LEVERAGED_ETF_DENYLIST), call_n),
+    )
+    return cur.fetchall()
+
+
+def _fetch_put_seed_rows(cur, oss_scan_date, put_n: int) -> list:
+    """Bearish PUT lane: FEAR_PREMIUM / highest put skew (prior primary path)."""
+    cur.execute(
+        """
+        SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag,
+               'PUT' AS seed_lane
+        FROM options_structure_scan o
+        JOIN polygon_market_daily p
+            ON p.ticker = o.ticker
+           AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+        WHERE o.scan_date = %s
+          AND o.pc_skew_pp IS NOT NULL
+          AND o.front_iv > 0
+          AND o.spot > 10
+          AND o.pc_skew_tag = 'FEAR_PREMIUM'
+        ORDER BY o.pc_skew_pp DESC
+        LIMIT %s
+        """,
+        (oss_scan_date, put_n),
+    )
+    return cur.fetchall()
+
+
+def _merge_seed_lanes(call_rows: list, put_rows: list) -> list:
+    """CALL rows first (bullish priority), then PUTs; drop ticker dupes."""
+    merged = []
+    seen = set()
+    for row in list(call_rows or []) + list(put_rows or []):
+        tkr = row[0]
+        if tkr in seen:
+            continue
+        seen.add(tkr)
+        merged.append(row)
+    return merged
+
+
+def seed_daily_candidates(scan_date: date = None, limit: int = 6) -> dict:
     """
     Insert PENDING jobs for today's top options candidates.
+
+    Balanced lanes (2026-08-04 fix):
+      CALL — morning momentum / CALL_SKEW (was previously never seeded)
+      PUT  — FEAR_PREMIUM high put skew (prior sole ranking)
+
     UNIQUE(ticker, scan_date) prevents duplicates across calls.
-    Returns {seeded: N, skipped_duplicates: M}
+    Returns {seeded: N, skipped_duplicates: M, candidates: [...], lanes: {...}}
     """
     scan_date = scan_date or datetime.now(_ET).date()
     seeded = 0
     dupes  = 0
     candidates = []
+    call_n, put_n = _seed_lane_limits(limit)
     _double_zero = False   # True when both primary and fallback queries return 0 rows
+    _lane_meta = {"call": [], "put": []}
 
     # Stage 7: SEED_STAGE — write-before-work, before candidate query runs
     try:
@@ -608,30 +714,22 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             _s7_tid = _chkp.get_or_set_trace_id(scan_date, _DB_URL,
                                                   new_trace_id=str(uuid.uuid4()))
             _chkp.chk(_s7_tid, "SEED_STAGE",
-                       {"scan_date": str(scan_date), "limit": limit}, _DB_URL)
+                       {"scan_date": str(scan_date), "limit": limit,
+                        "call_n": call_n, "put_n": put_n}, _DB_URL)
     except Exception as _s7e:
         log.warning(f"[seed] checkpoint SEED_STAGE failed: {_s7e}")
 
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
-            # Top FEAR_PREMIUM bearish candidates with both OSS + PMD data.
-            # polygon_market_daily is EOD data — it never has today's date on
-            # the same calendar day.  Join on the latest available date so
+            # polygon_market_daily is EOD — join prior/latest available date so
             # a VM restart after 09:45 (missed-seed recovery) still seeds.
-            cur.execute("""
-                SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag
-                FROM options_structure_scan o
-                JOIN polygon_market_daily p
-                    ON p.ticker = o.ticker
-                   AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
-                WHERE o.scan_date = %s
-                  AND o.pc_skew_pp IS NOT NULL
-                  AND o.front_iv > 0
-                  AND o.spot > 10
-                ORDER BY o.pc_skew_pp DESC
-                LIMIT %s
-            """, (scan_date, limit))
-            candidates = cur.fetchall()
+            call_rows = _fetch_call_seed_rows(cur, scan_date, call_n)
+            put_rows = _fetch_put_seed_rows(cur, scan_date, put_n)
+            candidates = _merge_seed_lanes(call_rows, put_rows)
+            _lane_meta = {
+                "call": [r[0] for r in call_rows],
+                "put": [r[0] for r in put_rows],
+            }
 
             # Fallback: if today's scan_date has 0 eligible OSS rows (OSS scan not
             # yet run, or init-before-query race where startup seeded jobs before the
@@ -640,30 +738,30 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             if not candidates:
                 log.warning(f"[seed] 0 eligible OSS rows for scan_date={scan_date}; "
                             f"retrying with MAX(scan_date) fallback")
-                cur.execute("""
-                    SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag
-                    FROM options_structure_scan o
-                    JOIN polygon_market_daily p
-                        ON p.ticker = o.ticker
-                       AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
-                    WHERE o.scan_date = (SELECT MAX(scan_date) FROM options_structure_scan)
-                      AND o.pc_skew_pp IS NOT NULL
-                      AND o.front_iv > 0
-                      AND o.spot > 10
-                    ORDER BY o.pc_skew_pp DESC
-                    LIMIT %s
-                """, (limit,))
-                candidates = cur.fetchall()
+                cur.execute("SELECT MAX(scan_date) FROM options_structure_scan")
+                _fb_date = cur.fetchone()[0]
+                if _fb_date is not None:
+                    call_rows = _fetch_call_seed_rows(cur, _fb_date, call_n)
+                    put_rows = _fetch_put_seed_rows(cur, _fb_date, put_n)
+                    candidates = _merge_seed_lanes(call_rows, put_rows)
+                    _lane_meta = {
+                        "call": [r[0] for r in call_rows],
+                        "put": [r[0] for r in put_rows],
+                    }
                 if candidates:
                     log.info(f"[seed] fallback: found {len(candidates)} rows for "
-                             f"MAX scan_date={candidates[0][1]}")
+                             f"MAX scan_date={candidates[0][1]} "
+                             f"call={_lane_meta['call']} put={_lane_meta['put']}")
                 else:
                     log.warning(f"[seed] fallback also returned 0 rows — "
                                 f"double-zero condition; OSS has no qualifying rows on any date")
                     _double_zero = True
+            else:
+                log.info(f"[seed] lanes call={_lane_meta['call']} put={_lane_meta['put']}")
 
             for row in candidates:
-                ticker, sd, _, _, _ = row
+                ticker, sd = row[0], row[1]
+                lane = row[5] if len(row) > 5 else "?"
                 try:
                     cur.execute("""
                         INSERT INTO options_pipeline_jobs
@@ -673,10 +771,12 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
                     """, (ticker, scan_date))
                     if cur.rowcount > 0:
                         seeded += 1
-                        log.info(f"[seed] seeded {ticker} for {scan_date} (source OSS row {sd})")
+                        log.info(f"[seed] seeded {ticker} for {scan_date} "
+                                 f"(lane={lane} source OSS row {sd})")
                     else:
                         dupes += 1
-                        log.info(f"[seed] skip duplicate {ticker} for {scan_date} (source OSS row {sd})")
+                        log.info(f"[seed] skip duplicate {ticker} for {scan_date} "
+                                 f"(lane={lane} source OSS row {sd})")
                 except Exception as ie:
                     log.warning(f"[seed] insert error {ticker}: {ie}")
 
@@ -703,12 +803,14 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
         return {"seeded": 0, "skipped_duplicates": 0, "error": str(e)}
 
     log.info(f"[seed] scan_date={scan_date}  seeded={seeded}  skipped={dupes}  "
-             f"candidates={[r[0] for r in candidates]}")
+             f"candidates={[r[0] for r in candidates]}  lanes={_lane_meta}")
     if seeded:
         _tg(
             f"📋 <b>OPTIONS PIPELINE: Daily Jobs Seeded</b>\n"
             f"scan_date={scan_date}  seeded={seeded}  skipped_dupes={dupes}\n"
-            f"Tickers: {', '.join(r[0] for r in candidates[:seeded])}"
+            f"CALL lane: {', '.join(_lane_meta.get('call') or []) or '—'}\n"
+            f"PUT lane: {', '.join(_lane_meta.get('put') or []) or '—'}\n"
+            f"Tickers: {', '.join(r[0] for r in candidates)}"
         )
     elif _double_zero:
         _tg(
@@ -745,7 +847,9 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
         log.warning(f"[seed] daily_pipeline_runs write failed: {_de}")
 
     ret = {"seeded": seeded, "skipped_duplicates": dupes,
-           "candidates": [r[0] for r in candidates]}
+           "candidates": [r[0] for r in candidates],
+           "lanes": _lane_meta,
+           "call_n": call_n, "put_n": put_n}
     if _double_zero:
         ret["error"] = "zero_candidates"
     return ret
@@ -1185,9 +1289,29 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             log.debug(f"[registry] stage1 snapped 11 indicators trace_id={trace_id}")
 
         # ── Stage 2: Stock analysis ────────────────────────────────────────────
-        stock_direction = "BEAR" if (
-            close_price < vwap and close_str < 0.4 and pc_skew_tag == "FEAR_PREMIUM"
-        ) else "BULL"
+        # Morning momentum: OSS spot vs prior PMD close. Prior-day close_strength
+        # alone missed 2026-08-04 rippers (e.g. IDXX +8.9% with weak prior CS).
+        try:
+            _spot_f = float(spot) if spot is not None else 0.0
+            _close_f = float(close_price) if close_price is not None else 0.0
+            morning_mom = ((_spot_f - _close_f) / _close_f) if _close_f > 0 else 0.0
+        except (TypeError, ValueError):
+            morning_mom = 0.0
+
+        # BEAR only when fear + weak prior session AND not already ripping open.
+        if (
+            close_price < vwap and close_str < 0.4
+            and pc_skew_tag == "FEAR_PREMIUM" and morning_mom < 0.0
+        ):
+            stock_direction = "BEAR"
+        elif (
+            pc_skew_tag == "CALL_SKEW"
+            or morning_mom >= 0.015
+            or (close_price >= vwap and close_str >= 0.55)
+        ):
+            stock_direction = "BULL"
+        else:
+            stock_direction = "BULL"
 
         market_regime = (
             "LONG_GAMMA_FEAR_PREMIUM" if (pc_skew_tag == "FEAR_PREMIUM" and gex_regime == "SHORT_GAMMA")
@@ -1195,16 +1319,27 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             else "NEUTRAL"
         )
 
+        # Lift effective close_strength when morning already strong so CALL D10
+        # is not crushed by a weak prior-day print.
+        effective_cs = float(close_str or 0.5)
+        if morning_mom >= 0.015:
+            effective_cs = max(effective_cs, min(0.95, 0.55 + morning_mom * 5.0))
+
+        vwap_position = "BELOW_VWAP" if close_price < vwap else "ABOVE_VWAP"
+        if morning_mom >= 0.015:
+            vwap_position = "ABOVE_VWAP"
+
         stock_data = {
             "stock_direction": stock_direction,
             "market_regime":   market_regime,
             "iv_rank":         None,
             "iv_crush_risk":   "MODERATE_INVERTED_TERM" if term_tag == "INVERTED" else "LOW",
-            "vwap_position":   "BELOW_VWAP" if close_price < vwap else "ABOVE_VWAP",
+            "vwap_position":   vwap_position,
             "sector_strength": "LAGGING_SECTOR" if stock_direction == "BEAR" else "LEADING",
             "market_breadth":  "NEGATIVE" if stock_direction == "BEAR" else "POSITIVE",
-            "close_strength":  close_str,
+            "close_strength":  effective_cs,
             "pc_skew_tag":     pc_skew_tag,
+            "morning_momentum_pct": morning_mom,
         }
 
         # ── REGISTRY: Stage 2 — Technical-indicator + Market-regime engines ───
