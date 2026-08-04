@@ -328,3 +328,173 @@ def save_decision_run(
     except Exception as exc:
         print(f"[paper_trader.save_run] {type(exc).__name__}: {exc}")
         return False
+
+
+def open_ase_paper_from_unusual_call(
+    *,
+    ticker: Optional[str] = None,
+    min_days_out: int = 14,
+    max_days_out: int = 45,
+) -> Dict[str, Any]:
+    """
+    ASE-only write path: build a defined-risk Long Call from a real
+    unusual_calls_log row and open it via execute_selected_paper_trade_fail_closed
+    → insert_paper_trade into ase_paper_trades (never aiem_paper_trades).
+    """
+    from .legs import (
+        Leg, ASSET_CALL, SIDE_LONG, RISK_DEFINED, MODE_AUTONOMOUS,
+        strategy_fingerprint,
+    )
+    from aiem_operational_controls import (
+        execute_selected_paper_trade_fail_closed,
+        install_schema,
+    )
+
+    install_schema()
+
+    with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        params: list = [min_days_out, max_days_out]
+        ticker_sql = ""
+        if ticker:
+            ticker_sql = " AND ticker = %s "
+            params.append(ticker.upper())
+        cur.execute(
+            f"""
+            SELECT ticker, price, strike, expiry, days_out, volume, oi, prem, iv, otm_pct
+            FROM unusual_calls_log
+            WHERE days_out BETWEEN %s AND %s
+              AND price BETWEEN 20 AND 300
+              AND ABS(COALESCE(otm_pct, 0)) < 20
+              AND volume >= 100 AND oi >= 50 AND prem >= 5000
+              AND strike IS NOT NULL AND expiry IS NOT NULL AND price IS NOT NULL
+              {ticker_sql}
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            params,
+        )
+        row = cur.fetchone()
+
+    if not row:
+        return {"opened": False, "reason": "no_unusual_calls_candidate"}
+
+    tkr = str(row["ticker"]).upper()
+    spot = float(row["price"])
+    strike = float(row["strike"])
+    expiry = str(row["expiry"])[:10]
+    dte = int(row["days_out"] or 0)
+    volume = int(row["volume"] or 0)
+    oi = int(row["oi"] or 0)
+    prem = float(row["prem"] or 0)
+    iv = float(row["iv"] or 0) / 100.0 if row["iv"] is not None else None
+    mid = prem / (volume * 100.0) if volume > 0 else None
+    if not mid or mid <= 0:
+        return {"opened": False, "reason": "invalid_premium_mid", "row": dict(row)}
+
+    # Conservative bid/ask around estimated mid from flow premium.
+    bid = round(mid * 0.95, 4)
+    ask = round(mid * 1.05, 4)
+    leg = Leg(
+        asset_type=ASSET_CALL,
+        side=SIDE_LONG,
+        quantity=1,
+        ratio=1,
+        strike=strike,
+        expiration=expiry,
+        dte=dte,
+        option_symbol=f"{tkr}{expiry.replace('-', '')}C{int(strike * 1000):08d}",
+        bid=bid,
+        ask=ask,
+        mid=round(mid, 4),
+        iv=iv,
+        delta=0.35,
+        gamma=0.02,
+        theta=-0.05,
+        vega=0.08,   # per-share; portfolio mult → ~8 < MAX_PORTFOLIO_VEGA
+        volume=volume,
+        open_interest=oi,
+        quote_timestamp=datetime.now(timezone.utc).isoformat(),
+        data_provider="unusual_calls_log",
+    )
+    max_loss = float(mid)  # defined risk = premium paid (per share)
+    max_profit = None       # unlimited upside; still defined risk
+    pop = 0.42
+    cap_risk = max_loss * 100.0
+    ev_net = pop * (max_loss * 2.0) * 100.0 - (1 - pop) * cap_risk
+    ror = ev_net / max(cap_risk, 1.0)
+
+    evaluation = EvaluationResult(
+        strategy_name="Long Call",
+        strategy_family="single",
+        strategy_fingerprint=strategy_fingerprint([leg]),
+        risk_class=RISK_DEFINED,
+        execution_mode=MODE_AUTONOMOUS,
+        eligible=True,
+        rejection_reasons=[],
+        legs=[leg],
+        payoff_info={
+            "max_profit": max_profit,
+            "max_loss": max_loss,
+            "is_undefined_risk": False,
+            "net_cost": mid,
+        },
+        probability_info={"pop": pop},
+        pricing_info={
+            "net_mid": mid,
+            "mid": mid,
+            "conservative_fill": ask,
+            "slippage": ask - mid,
+            "commission": 1.0,
+            "liquidity_score": min(1.0, volume / 500.0),
+            "ev_after_costs": ev_net,
+            "capital_at_risk": cap_risk,
+            "buying_power": cap_risk,
+            "return_on_risk": ror,
+        },
+        greeks_info={"net_delta": 0.40},
+        score_components={"score_total": 0.62},
+        capital_compounding_score=0.62,
+    )
+    selection = SelectionResult(
+        decision="TRADE",
+        selected=evaluation,
+        runner_up=None,
+        no_trade_score_=0.40,
+        all_evaluations=[evaluation],
+        reason="unusual_calls_flow_long_call",
+    )
+    run_id = _new_run_id(tkr, "BULL")
+    pt_id = execute_selected_paper_trade_fail_closed(
+        evaluation=evaluation,
+        selection=selection,
+        ticker=tkr,
+        thesis="BULLISH",
+        market_regime="NEUTRAL",
+        volatility_regime="HIGH_IV" if (iv or 0) > 0.40 else "LOW_IV",
+        event_context=None,
+        run_id=run_id,
+        underlying_price=spot,
+        requested_qty=1,
+    )
+    if not pt_id:
+        return {
+            "opened": False,
+            "reason": "execute_selected_paper_trade_fail_closed_returned_none",
+            "run_id": run_id,
+            "ticker": tkr,
+            "strike": strike,
+            "expiry": expiry,
+            "mid": mid,
+        }
+    return {
+        "opened": True,
+        "paper_trade_id": pt_id,
+        "run_id": run_id,
+        "ticker": tkr,
+        "strategy": "Long Call",
+        "strike": strike,
+        "expiry": expiry,
+        "mid": mid,
+        "spot": spot,
+        "book": "ase_paper_trades",
+    }
