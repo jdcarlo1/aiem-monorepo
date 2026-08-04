@@ -1,5 +1,7 @@
 # AIEM Wiring Audit — 2026-08-04
 
+**Full E2E report (pages ↔ APIs, options pipeline, Telegram, services):** see [`AIEM_E2E_WIRING_AUDIT.md`](./AIEM_E2E_WIRING_AUDIT.md).
+
 **Scope:** Live entry points under `artifacts/stock-scanner-api/` + `artifacts/aiem-dashboard/`  
 **Standard:** Raw evidence only. “Unwired by design” is labeled separately from accidental gaps.
 
