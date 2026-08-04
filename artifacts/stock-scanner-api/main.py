@@ -3019,7 +3019,7 @@ def _dc_module1_gp_weekly_job() -> None:
             return
 
         _gp_df = _pd1.DataFrame(_gp_rows, columns=_gp_cols).dropna()
-        print(f"[gp_evolution] loaded {len(_gp_df)} rows")
+        print(f"[gp_evolution] loaded {len(_gp_df)} train rows")
 
         _best_node, _gp_log = _gp1.evolve_signal(
             train_df=_gp_df,
@@ -3035,6 +3035,55 @@ def _dc_module1_gp_weekly_job() -> None:
         print(f"[gp_evolution] best: {_best_str} "
               f"fitness={_best_fit:.5f} complexity={_best_cmplx}")
 
+        # Holdout = most recent 30 calendar days (excluded from train window above).
+        # Call evaluate_on_holdout EXACTLY ONCE per evolved formula.
+        _holdout = {
+            "holdout_correlation": None,
+            "holdout_win_rate": None,
+            "holdout_n": 0,
+        }
+        try:
+            _c_h = _gp_pg.connect(os.environ["DATABASE_URL"])
+            with _c_h.cursor() as _cur_h:
+                _cur_h.execute("""
+                    WITH w AS (
+                        SELECT ticker, scan_date,
+                               gap_pct, rvol, close_strength, range_pct, close_price,
+                               LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date)
+                                   AS next_close,
+                               LEAD(scan_date)   OVER (PARTITION BY ticker ORDER BY scan_date)
+                                   AS next_date
+                        FROM polygon_market_daily
+                        WHERE scan_date > (CURRENT_DATE - INTERVAL '30 days')
+                          AND scan_date <= CURRENT_DATE
+                          AND gap_pct IS NOT NULL AND rvol IS NOT NULL
+                          AND close_strength IS NOT NULL AND range_pct IS NOT NULL
+                          AND close_price > 2.0 AND rvol < 100.0
+                    )
+                    SELECT ticker, scan_date, gap_pct, rvol, close_strength, range_pct,
+                           (next_close / NULLIF(close_price, 0) - 1.0) AS next_day_return
+                    FROM w
+                    WHERE next_close IS NOT NULL
+                      AND next_date <= scan_date + 5
+                    LIMIT 20000
+                """)
+                _ho_rows = _cur_h.fetchall()
+                _ho_cols = [d[0] for d in _cur_h.description]
+            _c_h.close()
+            if _best_node is not None and len(_ho_rows) >= 50:
+                _ho_df = _pd1.DataFrame(_ho_rows, columns=_ho_cols).dropna()
+                _holdout = _gp1.evaluate_on_holdout(
+                    _best_node, _ho_df, forward_return_col="next_day_return",
+                )
+                print(f"[gp_evolution] holdout n={_holdout.get('holdout_n')} "
+                      f"corr={_holdout.get('holdout_correlation')} "
+                      f"wr={_holdout.get('holdout_win_rate')}")
+            else:
+                print(f"[gp_evolution] holdout skipped "
+                      f"(rows={len(_ho_rows)}, node={_best_node is not None})")
+        except Exception as _ho_e:
+            print(f"[gp_evolution] holdout error (non-fatal): {_ho_e}")
+
         _c2 = _gp_pg.connect(os.environ["DATABASE_URL"])
         with _c2.cursor() as _cur2:
             _cur2.execute("""
@@ -3048,11 +3097,27 @@ def _dc_module1_gp_weekly_job() -> None:
                     status      TEXT NOT NULL DEFAULT 'pending_review'
                 )
             """)
+            # Holdout columns (idempotent)
+            for _ddl in (
+                "ALTER TABLE gp_discovered_templates ADD COLUMN IF NOT EXISTS holdout_correlation NUMERIC(10,6)",
+                "ALTER TABLE gp_discovered_templates ADD COLUMN IF NOT EXISTS holdout_win_rate NUMERIC(10,6)",
+                "ALTER TABLE gp_discovered_templates ADD COLUMN IF NOT EXISTS holdout_n INT",
+            ):
+                try:
+                    _cur2.execute(_ddl)
+                except Exception:
+                    _c2.rollback()
             _cur2.execute("""
                 INSERT INTO gp_discovered_templates
-                    (formula, fitness, complexity, training_n)
-                VALUES (%s, %s, %s, %s)
-            """, (_best_str, _best_fit, _best_cmplx, len(_gp_df)))
+                    (formula, fitness, complexity, training_n,
+                     holdout_correlation, holdout_win_rate, holdout_n)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                _best_str, _best_fit, _best_cmplx, len(_gp_df),
+                _holdout.get("holdout_correlation"),
+                _holdout.get("holdout_win_rate"),
+                _holdout.get("holdout_n") or 0,
+            ))
             _c2.commit()
         _c2.close()
 
@@ -8495,7 +8560,23 @@ try:
         id="discovery_cycle_gp_weekly",
         replace_existing=True,
     )
-    print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET")
+    # Literature scanner — Sunday 05:00 ET (after Module 5/6 Sunday jobs)
+    def _run_literature_weekly_scan():
+        try:
+            import literature_scanner as _lit_sched
+            # Cap to 3 queries per run to keep LLM/network cost bounded.
+            _q = list(getattr(_lit_sched, "DEFAULT_QUERIES", []) or [])[:3]
+            _res = _lit_sched.run_weekly_scan(queries=_q or None)
+            print(f"[literature_scanner] weekly scan: {_res}")
+        except Exception as _lit_e:
+            print(f"[literature_scanner] weekly scan error: {_lit_e}")
+    _scheduler.add_job(
+        _run_literature_weekly_scan,
+        CronTrigger(day_of_week="sun", hour=5, minute=0, timezone=_ET),
+        id="literature_scanner_weekly",
+        replace_existing=True,
+    )
+    print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET | literature: Sun 05:00 ET")
 
     _scheduler.start()
     # ── Protection #4: internal paper trade watchdog ────────────────────────
@@ -32489,7 +32570,10 @@ def _mkt_layer9_score(ticker, days=120):
         if df is None or df.empty or len(df) < 30:
             return {"error": "insufficient_history", "ticker": ticker}
         from layer9_statistical_edge import compute_layer9_score
-        result = compute_layer9_score(ticker, df)
+        result = compute_layer9_score(
+            ticker, df,
+            db_url=os.environ.get("DATABASE_URL") or os.environ.get("AIEM_DATABASE_URL"),
+        )
         # Flatten components for agent readability
         comps = result.pop("components", {})
         result["hurst_raw"]        = comps.get("hurst_regime",       {}).get("raw")
@@ -59523,7 +59607,10 @@ def _build_ai_stock_picks():
                     try:
                         _l9df = _td_history(_l9t, days=90)
                         if _l9df is not None and not _l9df.empty and len(_l9df) >= 30:
-                            res = compute_layer9_score(_l9t, _l9df)
+                            res = compute_layer9_score(
+                                _l9t, _l9df,
+                                db_url=os.environ.get("DATABASE_URL") or os.environ.get("AIEM_DATABASE_URL"),
+                            )
                             l9_scores[_l9t] = res
                     except Exception as _exc:
                         print(f"[silent_except:L39298] {type(_exc).__name__}: {_exc}")
@@ -60459,7 +60546,10 @@ Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT cr
                         continue
                     _pdf = _td_history(_pt, days=120)
                     if _pdf is not None and not _pdf.empty and len(_pdf) >= 30:
-                        _pr = compute_layer9_score(_pt, _pdf)
+                        _pr = compute_layer9_score(
+                            _pt, _pdf,
+                            db_url=os.environ.get("DATABASE_URL") or os.environ.get("AIEM_DATABASE_URL"),
+                        )
                         _p["stat9_score"]  = _pr.get("statistical_score", 50.0)
                         _p["stat9_regime"] = _pr.get("regime", "")
                         _p["stat9_signal"] = format_layer9_signal(_pr)
@@ -61052,6 +61142,7 @@ def _run_layer9_bg_scan():
     _pca_factor1_var_scalar:   "float | None" = None   # same for all tickers in batch
     _absorption_ratio_scalar:  "float | None" = None   # same for all tickers in batch
     _pca_var_by_ticker: dict = {}                       # kept for upsert column write
+    _xmom_zscore_map: dict = {}                         # per-ticker cross-sectional mom z
     try:
         from advanced_quant_indicators import (
             pca_factor_decomposition as _pca_fn,
@@ -61080,6 +61171,20 @@ def _run_layer9_bg_scan():
                     print(f"[layer9_bg] absorption_ratio={_absorption_ratio_scalar:.4f} ({len(_ret_series)} tickers)")
                 except Exception as _are:
                     print(f"[layer9_bg] absorption_ratio failed: {_are}")
+                # Cross-sectional momentum z-score (per ticker, latest bar)
+                try:
+                    from advanced_quant_indicators import (
+                        cross_sectional_momentum_zscore as _xmom_fn,
+                    )
+                    _xmom_df = _xmom_fn(_ret_df, lookback=21)
+                    for _xt in _xmom_df.columns:
+                        _xs = _xmom_df[_xt].dropna()
+                        if len(_xs):
+                            _xmom_zscore_map[_xt] = float(_xs.iloc[-1])
+                    print(f"[layer9_bg] cross_sectional_momentum z-scores for "
+                          f"{len(_xmom_zscore_map)} tickers")
+                except Exception as _xme:
+                    print(f"[layer9_bg] cross_sectional_momentum failed: {_xme}")
     except Exception as _pca_e:
         print(f"[layer9_bg] PCA/absorption computation skipped: {_pca_e}")
 
@@ -61113,6 +61218,7 @@ def _run_layer9_bg_scan():
         stat_arb_coint_map=_stat_arb_coint_map if _stat_arb_coint_map else None,
         pca_factor1_var=_pca_factor1_var_scalar,
         absorption_ratio_val=_absorption_ratio_scalar,
+        xmom_zscore_map=_xmom_zscore_map if _xmom_zscore_map else None,
     )
 
     # ── 4. Upsert into layer9_scores table ────────────────────────────────

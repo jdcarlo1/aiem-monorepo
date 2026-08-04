@@ -137,7 +137,8 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                           db_url: "str | None" = None,
                           stat_arb_coint_pvalue: "float | None" = None,
                           pca_factor1_var: "float | None" = None,
-                          absorption_ratio_val: "float | None" = None) -> dict:
+                          absorption_ratio_val: "float | None" = None,
+                          xmom_zscore: "float | None" = None) -> dict:
     """
     Compute the Layer 9 Statistical Edge sub-score (0-100) for one ticker.
 
@@ -290,17 +291,37 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             "score": round(illiq_score_inverted, 1),   # already inverted
         }
 
-        # ── 7. Variance Risk Premium proxy (rolling vol differential) ──
-        # Without a live options chain we proxy "implied" vol using the
-        # 21-day trailing vol (market's medium-term expectation) and
-        # "realized" vol using the 5-day trailing vol (what just happened).
-        # VRP = slow_var − fast_var: positive = recent vol below expectation
-        # (historically bullish for calls: options tend to overprice risk).
+        # ── 7. Variance Risk Premium (true IV when available, else proxy) ──
+        # Preferred: ATM front_iv from options_structure_scan (percent → decimal)
+        # vs 20-day realized vol. Fallback: 21d trailing vol as "implied" proxy
+        # vs 5d realized (legacy rolling differential).
+        vrp_note = "rolling_vol_proxy_no_options_chain"
         try:
             realized_vol_fast = returns.tail(lk).rolling(5,  min_periods=3).std() * math.sqrt(252)
             implied_vol_proxy = returns.tail(lk).rolling(21, min_periods=10).std() * math.sqrt(252)
             vrp_series = variance_risk_premium(realized_vol_fast, implied_vol_proxy)
             vrp_latest = _safe_float(vrp_series.dropna().iloc[-1] if not vrp_series.dropna().empty else None, 0.0)
+
+            if db_url:
+                try:
+                    import psycopg2 as _vrp_pg
+                    with _vrp_pg.connect(db_url, connect_timeout=3) as _vrpc, _vrpc.cursor() as _vrpcu:
+                        _vrpcu.execute("""
+                            SELECT front_iv FROM options_structure_scan
+                            WHERE ticker = %s AND front_iv IS NOT NULL AND front_iv > 0
+                            ORDER BY scan_date DESC LIMIT 1
+                        """, (ticker,))
+                        _iv_row = _vrpcu.fetchone()
+                    if _iv_row and _iv_row[0] is not None:
+                        _front_iv = float(_iv_row[0])
+                        # Stored as percent (e.g. 25.5); convert if clearly percent-scale.
+                        _iv_dec = _front_iv / 100.0 if _front_iv > 2.0 else _front_iv
+                        _rv = float(returns.tail(20).std() * math.sqrt(252)) if len(returns) >= 5 else 0.0
+                        if _iv_dec > 0 and _rv > 0:
+                            vrp_latest = float((_iv_dec ** 2) - (_rv ** 2))
+                            vrp_note = "true_iv_from_options_structure_scan.front_iv"
+                except Exception:
+                    pass
         except Exception:
             vrp_latest = 0.0
         # Centre at 50; typical range −0.1 to +0.15 in variance units
@@ -308,7 +329,7 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
         components["vrp_proxy"] = {
             "raw": round(vrp_latest, 6),
             "score": round(vrp_score, 1),
-            "note": "rolling_vol_proxy_no_options_chain",
+            "note": vrp_note,
         }
 
         # ── 8. GARCH(1,1) persistence (optional — requires arch) ─────────
@@ -451,6 +472,25 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                 "note": "Kritzman absorption ratio; >0.75→-5, <0.35→+5, else 0",
             }
 
+        # ── 14. Cross-sectional momentum z-score (passed in from batch) ──
+        # Source: advanced_quant_indicators.cross_sectional_momentum_zscore
+        # computed once per bg_scan over the aligned returns matrix.
+        #   z >  1.0 → +4 (relative strength vs peers)
+        #   z < -1.0 → -4 (relative weakness)
+        #   else     →  0
+        xmom_adjustment = 0.0
+        if xmom_zscore is not None:
+            _xz = _safe_float(xmom_zscore, 0.0)
+            if _xz > 1.0:
+                xmom_adjustment = 4.0
+            elif _xz < -1.0:
+                xmom_adjustment = -4.0
+            components["cross_sectional_momentum"] = {
+                "raw":        round(_xz, 4),
+                "adjustment": xmom_adjustment,
+                "note": "cross_sectional_momentum_zscore; >1→+4, <-1→-4, else 0",
+            }
+
         # ── Compute weighted final score ─────────────────────────────
         weight_sum  = sum(weights.values())
         norm_w      = {k: v / weight_sum for k, v in weights.items()}
@@ -461,7 +501,8 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
         )
         final_score = round(float(np.clip(
             final_score + rnd_adjustment + garch_adjustment
-            + stat_arb_adjustment + pca_adjustment + absorption_adjustment,
+            + stat_arb_adjustment + pca_adjustment + absorption_adjustment
+            + xmom_adjustment,
             0.0, 100.0,
         )), 2)
 
@@ -485,7 +526,8 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
                         db_url: "str | None" = None,
                         stat_arb_coint_map: "dict | None" = None,
                         pca_factor1_var: "float | None" = None,
-                        absorption_ratio_val: "float | None" = None) -> dict:
+                        absorption_ratio_val: "float | None" = None,
+                        xmom_zscore_map: "dict | None" = None) -> dict:
     """
     Compute Layer 9 scores for a batch of tickers in parallel.
 
@@ -504,6 +546,7 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
                       _run_layer9_bg_scan step 3c.
         absorption_ratio_val: Kritzman absorption ratio (same for all tickers).
                       Computed alongside PCA in _run_layer9_bg_scan step 3c.
+        xmom_zscore_map: optional {ticker: latest cross-sectional momentum z}.
 
     Returns:
         {ticker: result_dict} mapping.
@@ -512,6 +555,7 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
 
     _chain_map    = chain_df_map or {}
     _stat_arb_map = stat_arb_coint_map or {}
+    _xmom_map     = xmom_zscore_map or {}
     results = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
@@ -522,6 +566,7 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
                 stat_arb_coint_pvalue=_stat_arb_map.get(t),
                 pca_factor1_var=pca_factor1_var,
                 absorption_ratio_val=absorption_ratio_val,
+                xmom_zscore=_xmom_map.get(t),
             ): t
             for t, df in tickers_histories.items()
             if df is not None and not df.empty

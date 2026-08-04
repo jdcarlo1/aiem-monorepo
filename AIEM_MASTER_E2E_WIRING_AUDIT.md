@@ -59,9 +59,17 @@
 2. **Two paper books remain separate tables** — UI now shows both; they are not merged into one ledger (by design: stock vs options engines)  
 3. **Learning “ML PIPELINE TRAINING” panel** — still an honest stub until an ML training-runs API exists  
 4. **PPO** — still MTM-batch only (close funnel marks `ppo_trained=False`)  
-5. **`literature_scanner.scan_and_save`** — still needs search API (blocked)  
-6. **`position_reconciler`** — documented dormant (no real brokerage)  
-7. **Discovery-row HMAC provenance** — still session/D2–D3 only  
+5. **`position_reconciler`** — documented dormant (no real brokerage)  
+6. **Discovery-row HMAC provenance** — still session/D2–D3 only  
+7. **Intraday continuation** — wired via daily OHLCV proxy features + heuristic score; full minute-bar RF scoring still needs a trained/promoted model  
+
+### Advanced indicators / discovery (wired this pass)
+- **skew_velocity** — all `compute_layer9_score` callers now pass `db_url` (orchestrator, tools, AI Short Calls, probability context)  
+- **True VRP** — uses `options_structure_scan.front_iv` when present; falls back to rolling-vol proxy  
+- **cross_sectional_momentum_zscore** — computed in Layer9 bg batch and applied as ±4 adjustment  
+- **Gaussian process** — weekly job runs holdout once; orchestrator scores packets from `gp_discovered_templates`  
+- **literature_scanner.scan_and_save** — `default_search_fn` (arXiv + DuckDuckGo) + Sunday 05:00 ET schedule  
+- **Orchestrator stubs closed** — AHS ranks candidates; deep_rl uses MLP policy; drift calls `check_all_active_signals`; security HMAC roundtrip; stat_tests live Fisher; intraday proxy scored  
 
 ---
 
