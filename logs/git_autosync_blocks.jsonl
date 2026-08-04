@@ -427,3 +427,6 @@
 {"ts": "2026-08-04T07:00:00Z", "sha": "62d9a54a5fc1", "reason": "protected file(s) [artifacts/stock-scanner-api/main.py] \u2014 no [TLA-<id>] token in commit message", "telegram_msg_id": 5966}
 {"ts": "2026-08-04T07:01:02Z", "sha": "62d9a54a5fc1", "reason": "protected file(s) [artifacts/stock-scanner-api/main.py] \u2014 no [TLA-<id>] token in commit message", "telegram_msg_id": 5969}
 {"ts": "2026-08-04T07:02:04Z", "sha": "62d9a54a5fc1", "reason": "protected file(s) [artifacts/stock-scanner-api/main.py] \u2014 no [TLA-<id>] token in commit message", "telegram_msg_id": 5970}
+{"ts": "2026-08-04T07:03:08Z", "sha": "9ab365192f99", "reason": "protected file(s) [artifacts/stock-scanner-api/main.py] \u2014 no [TLA-<id>] token in commit message", "telegram_msg_id": 5971}
+{"ts": "2026-08-04T07:04:11Z", "sha": "9ab365192f99", "reason": "protected file(s) [artifacts/stock-scanner-api/main.py] \u2014 no [TLA-<id>] token in commit message", "telegram_msg_id": 5972}
+{"ts": "2026-08-04T07:05:16Z", "sha": "093771365102", "reason": "[TLA-520d604e] exists but used=False \u2014 approval not consumed at commit time", "telegram_msg_id": 5973}
