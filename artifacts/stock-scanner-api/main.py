@@ -2482,6 +2482,81 @@ def _byok_get_subscriber_keys(token: str):
         print(f"[byok] _byok_get_subscriber_keys error: {_e}")
         return None
 
+
+def _byok_resolve_chat_auth(subscriber_token: str):
+    """Resolve Quant Agent BYOK auth.
+
+    Returns (status, openai_key, http_status, payload) where status is one of:
+      ok | missing_token | invalid_token | missing_openai_key | decrypt_failed
+    Quant Agent always burns the subscriber's OpenAI key — never the platform key.
+    """
+    token = (subscriber_token or "").strip()
+    if not token:
+        return ("missing_token", None, 401, {
+            "error": "subscriber_token_required",
+            "message": (
+                "Quant Agent requires your subscriber token and OpenAI API key "
+                "(Settings → API Keys). Paste the token from your welcome email first."
+            ),
+        })
+    keys = _byok_get_subscriber_keys(token)
+    if keys is None:
+        return ("invalid_token", None, 403, {
+            "error": "invalid_subscriber_token",
+            "message": "Invalid or inactive subscriber token. Check the token from your welcome email.",
+        })
+    openai_key = keys.get("openai_key")
+    if not openai_key:
+        # Distinguish "never saved" vs "saved but decrypt failed" via enc column presence
+        try:
+            import psycopg2 as _byok_pg3
+            with _byok_pg3.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT openai_key_enc FROM sm_subscribers "
+                    "WHERE token=%s AND active=true LIMIT 1",
+                    (token,),
+                )
+                row = cur.fetchone()
+            if row and row[0]:
+                return ("decrypt_failed", None, 500, {
+                    "error": "byok_decrypt_failed",
+                    "message": "Could not decrypt your stored OpenAI key. Re-save it in Settings → API Keys.",
+                })
+        except Exception:
+            pass
+        return ("missing_openai_key", None, 402, {
+            "error": "byok_required",
+            "message": (
+                "Add your OpenAI API key in Settings → API Keys to use the Quant Agent. "
+                "The platform does not pay for Quant Agent usage."
+            ),
+        })
+    return ("ok", openai_key, 200, None)
+
+
+def _qa_bind_session_owner(job_id: str, subscriber_token: str) -> None:
+    """Record which subscriber owns a Quant Agent session (for history scoping)."""
+    if not job_id or not subscriber_token:
+        return
+    try:
+        import psycopg2 as _qapg
+        with _qapg.connect(_byok_os.environ["DATABASE_URL"], connect_timeout=3) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS quant_agent_session_owners (
+                    job_id TEXT PRIMARY KEY,
+                    subscriber_token TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                INSERT INTO quant_agent_session_owners (job_id, subscriber_token)
+                VALUES (%s, %s)
+                ON CONFLICT (job_id) DO UPDATE SET subscriber_token = EXCLUDED.subscriber_token
+            """, (job_id, subscriber_token.strip()))
+            conn.commit()
+    except Exception as _e:
+        print(f"[byok] session owner bind error: {_e}")
+
 # ── Subscriber Preferences + Watchlist + Adaptive Signal Weights ──────────────
 def _init_subscriber_prefs():
     """Create subscriber_preferences, subscriber_watchlist, subscriber_signal_weights tables."""
@@ -71070,6 +71145,15 @@ def aiem_chat_start():
             return jsonify({"error": "Combined image size must be under 30 MB total. Please compress or send fewer images."}), 400
     # ─────────────────────────────────────────────────────────────────────
 
+    # BYOK before session insert — Quant Agent always burns subscriber OpenAI key.
+    # Internal signed callers (X-AIEM-Token) may omit token and use platform key.
+    _byok_openai_key = None
+    _internal_caller = bool(_req_token)
+    if not _internal_caller:
+        _auth_st, _byok_openai_key, _auth_code, _auth_body = _byok_resolve_chat_auth(subscriber_token)
+        if _auth_st != "ok":
+            return jsonify(_auth_body), _auth_code
+
     job_id = str(_uuid.uuid4())
     _has_image = bool(image_data_urls)
     try:
@@ -71082,6 +71166,8 @@ def aiem_chat_start():
             _c.commit()
     except Exception as _e:
         return jsonify({"error": f"DB error: {_e}"}), 500
+    if not _internal_caller:
+        _qa_bind_session_owner(job_id, subscriber_token)
 
     max_iters = _classify_question_complexity(question)
     # Images always need at least 3 iterations — the casual 1-iter path uses a
@@ -71164,21 +71250,6 @@ def aiem_chat_start():
         _session_deadline_s = 480  # 8 min — predictive scan questions (find stocks, call options)
     elif max_iters >= 5:
         _session_deadline_s = 360  # 6 min — allows forced-final-pass to complete (6-iter sessions avg ~280s)
-
-    # BYOK: look up subscriber's own OpenAI key so platform pays $0 for their compute
-    _byok_openai_key = None
-    if subscriber_token:
-        _byok_keys = _byok_get_subscriber_keys(subscriber_token)
-        if _byok_keys:
-            _byok_openai_key = _byok_keys.get("openai_key")
-
-    # Hard gate: subscribers MUST supply their own OpenAI key.
-    # Platform key is reserved for owner/admin use only (no subscriber_token).
-    if subscriber_token and not _byok_openai_key:
-        return jsonify({
-            "error": "byok_required",
-            "message": "Add your OpenAI API key in Settings → API Keys to use the Quant Agent."
-        }), 402
 
     # Personalization: build subscriber context block for AIEM system prompt
     _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
@@ -71352,15 +71423,10 @@ def aiem_chat_stream():
     image_data_urls  = body.get("image_data_urls") or ([image_data_url] if image_data_url else [])
     max_iters        = min(int(body.get("max_iterations", 0) or 0) or _classify_question_complexity(question), 12)
 
-    # BYOK gate — same rule as the polling endpoint
-    _byok_openai_key = None
-    if subscriber_token:
-        _byok_keys = _byok_get_subscriber_keys(subscriber_token)
-        if _byok_keys:
-            _byok_openai_key = _byok_keys.get("openai_key")
-    if subscriber_token and not _byok_openai_key:
-        return jsonify({"error": "byok_required",
-                        "message": "Add your OpenAI API key in Settings \u2192 API Keys to use the Quant Agent."}), 402
+    # BYOK gate — Quant Agent always burns the subscriber's OpenAI key.
+    _auth_st, _byok_openai_key, _auth_code, _auth_body = _byok_resolve_chat_auth(subscriber_token)
+    if _auth_st != "ok":
+        return jsonify(_auth_body), _auth_code
 
     _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
     job_id = str(_uuid.uuid4())
@@ -71378,6 +71444,7 @@ def aiem_chat_stream():
             _stc.commit()
     except Exception as _ste:
         print(f"[stream] initial DB insert error (non-fatal): {_ste}")
+    _qa_bind_session_owner(job_id, subscriber_token)
 
     event_q: "queue.Queue" = _ssq.Queue()
 
@@ -71992,15 +72059,38 @@ h2 {{ font-size: 18px; }}
 
 @app.route("/stock-api/aiem/chat/history", methods=["GET"])
 def aiem_chat_history():
-    """Return the last 20 Quant Agent sessions (newest first)."""
+    """Return the last 20 Quant Agent sessions for this subscriber (newest first).
+
+    Requires ?subscriber_token=… so history is not a global leak across users.
+    """
     import psycopg2 as _ph, json as _phj
+    token = (request.args.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token_required",
+                        "message": "Pass subscriber_token to load your Quant Agent history.",
+                        "sessions": []}), 401
+    keys = _byok_get_subscriber_keys(token)
+    if keys is None:
+        return jsonify({"error": "invalid_subscriber_token",
+                        "message": "Invalid or inactive subscriber token.",
+                        "sessions": []}), 403
     try:
         with _ph.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS quant_agent_session_owners (
+                    job_id TEXT PRIMARY KEY,
+                    subscriber_token TEXT NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
             _cu.execute(
-                """SELECT job_id, question, status, answer, error,
-                          current_tool, tool_trace, created_at
-                   FROM quant_agent_sessions
-                   ORDER BY created_at DESC LIMIT 20"""
+                """SELECT s.job_id, s.question, s.status, s.answer, s.error,
+                          s.current_tool, s.tool_trace, s.created_at
+                   FROM quant_agent_sessions s
+                   JOIN quant_agent_session_owners o ON o.job_id = s.job_id
+                   WHERE o.subscriber_token = %s
+                   ORDER BY s.created_at DESC LIMIT 20""",
+                (token,),
             )
             rows = _cu.fetchall()
             out = []
@@ -72217,13 +72307,33 @@ def byok_save_keys():
     for field, col in (("openai_key", "openai_key_enc"), ("polygon_key", "polygon_key_enc"), ("anthropic_key", "anthropic_key_enc")):
         val = (body.get(field) or "").strip()
         if val:
+            if field == "openai_key" and not val.startswith("sk-"):
+                return jsonify({"error": "OpenAI key must start with sk-"}), 400
             try:
                 enc = _byok_encrypt(val)
             except Exception as _e:
                 return jsonify({"error": f"Encryption error: {_e}"}), 500
             updates.append(f"{col}=%s"); params.append(enc)
     if not updates:
-        return jsonify({"error": "No keys provided"}), 400
+        # Token-only PUT = validate subscriber identity without changing keys.
+        try:
+            with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT openai_key_enc IS NOT NULL, polygon_key_enc IS NOT NULL, "
+                    "anthropic_key_enc IS NOT NULL FROM sm_subscribers "
+                    "WHERE token=%s AND active=true LIMIT 1",
+                    (token,),
+                )
+                st = cur.fetchone()
+        except Exception as _e:
+            return jsonify({"error": f"DB error: {_e}"}), 500
+        return jsonify({
+            "ok": True, "saved": 0, "token_valid": True,
+            "openai_key_set": bool(st[0]) if st else False,
+            "polygon_key_set": bool(st[1]) if st else False,
+            "anthropic_key_set": bool(st[2]) if st else False,
+            "message": "Subscriber token valid. Paste an OpenAI sk-… key and Save to enable Quant Agent.",
+        })
     params.append(token)
     try:
         with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
@@ -72231,7 +72341,7 @@ def byok_save_keys():
             conn.commit()
     except Exception as _e:
         return jsonify({"error": f"DB error: {_e}"}), 500
-    return jsonify({"ok": True, "saved": len(updates)})
+    return jsonify({"ok": True, "saved": len(updates), "token_valid": True})
 
 
 @app.route("/stock-api/user/keys", methods=["GET"])
