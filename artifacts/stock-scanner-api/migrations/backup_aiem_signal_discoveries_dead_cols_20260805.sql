@@ -1,0 +1,7 @@
+-- Backup of aiem_signal_discoveries dead columns (signature, signed_at, provenance_nonce)
+-- Captured 2026-08-05 before publish drop. Only 1 row had non-null values.
+-- id=10: signature=30880c75f74930d1bfdba096a8c05f75813e6d4c41d16462ef7ae0af5b22d197
+--        signed_at=2026-08-04 22:14:39.764868+00
+--        provenance_nonce=9d213bbf957647c1bfcb294263ea867f
+-- These columns had 0 live code references and were classified DEAD.
+-- Dropping them was intentional. This file is the permanent evidence record.

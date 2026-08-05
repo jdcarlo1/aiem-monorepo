@@ -538,7 +538,8 @@ CREATE TABLE IF NOT EXISTS stock_panic_exhaustion_results (
 CREATE TABLE IF NOT EXISTS gp_discovered_templates (
     id BIGSERIAL PRIMARY KEY, evolved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     formula TEXT NOT NULL, fitness NUMERIC(10,6), complexity INTEGER,
-    training_n INTEGER, status TEXT NOT NULL DEFAULT 'pending_review'
+    training_n INTEGER, status TEXT NOT NULL DEFAULT 'pending_review',
+    holdout_correlation NUMERIC, holdout_win_rate NUMERIC, holdout_n INTEGER
 );
 
 -- ── Operational logs ──────────────────────────────────────────────────────────
@@ -740,3 +741,11 @@ CREATE TABLE IF NOT EXISTS intraday_continuation_models (
 --   column_default='paper'::text.
 ALTER TABLE reconciliation_log
     ADD COLUMN IF NOT EXISTS mode TEXT NULL DEFAULT 'paper';
+
+-- ITEM 7 — aiem_paper_trades: ppo_trained / ppo_trained_at
+-- These columns exist on prod but aiem_paper_trades is not defined in this file
+-- (main.py creates it on startup). Added here so dev↔prod diff stays clean.
+-- ppo_trained is actively referenced in aiem_closed_loop_learning.py + main.py.
+ALTER TABLE aiem_paper_trades
+    ADD COLUMN IF NOT EXISTS ppo_trained     BOOLEAN,
+    ADD COLUMN IF NOT EXISTS ppo_trained_at  TIMESTAMPTZ;
