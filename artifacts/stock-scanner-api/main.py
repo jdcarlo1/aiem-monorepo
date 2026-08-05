@@ -8705,6 +8705,39 @@ try:
             _hour_et  = _now_et.hour
             _today_et = _now_et.strftime("%Y-%m-%d")
 
+            # ── Discovery cycle catch-up (Diagram2 stage 9) ─────────────────
+            # Stage 9 requires a successful discovery_cycle_log row in 7 days.
+            # Cron is 17:30 ET only; Publish after that (or NameError crashes)
+            # leaves stage 9 FAIL → all paper INSERTs skipped next morning.
+            # No prior startup path cleared this — add one on every weekday boot.
+            if _dow < 5:
+                _need_dc = True
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_dc, \
+                            _c_dc.cursor() as _cur_dc:
+                        _cur_dc.execute("""
+                            SELECT 1 FROM discovery_cycle_log
+                            WHERE error_msg IS NULL
+                              AND completed_at >= NOW() - INTERVAL '7 days'
+                            LIMIT 1
+                        """)
+                        if _cur_dc.fetchone():
+                            _need_dc = False
+                except Exception as _dc_ck_e:
+                    print(f"[startup_catchup] discovery freshness check error: {_dc_ck_e}")
+                if _need_dc:
+                    print(f"[startup_catchup] discovery_cycle_log stale (>7d or none) "
+                          f"— launching discovery catch-up (stage-9 unblock)")
+                    try:
+                        import threading as _dc_su_thr
+                        _dc_su_thr.Thread(
+                            target=_discovery_cycle_job,
+                            kwargs={"triggered_by": "startup_catchup"},
+                            daemon=True,
+                        ).start()
+                    except Exception as _dc_su_e:
+                        print(f"[startup_catchup] discovery catch-up launch error: {_dc_su_e}")
+
             # ── Unusual calls (Polygon) - run any time on weekdays ──────────
             # Polygon uses an API key (not Yahoo IP) so there's no throttle risk
             # running after hours.  This ensures the conviction tab is populated
@@ -39083,6 +39116,10 @@ try:
             reason="Startup integrity wiring — close D2/D3 fail-open gap on G0/G2/G3",
         )
         print(f"[aiem_integrity] D3 ENFORCE bootstrap: {_d3res.get('status')}")
+        # G3 ENFORCE + empty d3_strategy_registry = every paper INSERT BLOCKED.
+        # Seed known pick sources as approved/active (idempotent upsert).
+        _reg = _awi_d3.ensure_paper_strategy_registry()
+        print(f"[aiem_integrity] paper strategy registry seed: {_reg}")
     except Exception as _d3boot_e:
         print(f"[aiem_integrity] D3 ENFORCE bootstrap skipped: {_d3boot_e}")
     try:
