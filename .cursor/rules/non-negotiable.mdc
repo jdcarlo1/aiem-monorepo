@@ -1,0 +1,26 @@
+---
+description: Non-negotiable standing rules — read before every session (approvals, DB drops, migrations)
+alwaysApply: true
+---
+
+## Non-negotiable rules — read before every session
+
+1. Any pre-commit or pre-push block on files matching *_approvals*,
+   *_audit*, or any ledger/compliance file means STOP and ask Joel.
+   Never characterize a block as a "false positive" or "timing race"
+   and route around it. Never use --no-verify without Joel's explicit
+   go-ahead stated in that session.
+
+2. Never write Joel's name, or any human's name, into an approval,
+   authorization, or "approved_by" field unless Joel explicitly said
+   so in that session. If unsure who approved something, leave it
+   blank or write "unauthorized/unknown" — never guess.
+
+3. Never claim something is "safe to drop," "orphan," or "unused"
+   based on checking only one database. This project's prod (Neon)
+   and dev (Replit/helium) databases can diverge. Any drop/cleanup
+   claim must be checked against BOTH, or explicitly labeled
+   "single-environment check, other environment unverified."
+
+4. Never run a migration that drops or alters a table/column without
+   pasting the full diff and getting explicit approval first.
