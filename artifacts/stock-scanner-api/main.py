@@ -27259,9 +27259,13 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
     Pull today's fresh signals from all three sources:
       1. polygon_rvol_scan  - market-wide RVOL movers (8:35 AM scan)
       2. conviction_stack_watchlist - stocks scoring 4+ on conviction engine
-      3. call_sweep_log - unusual call sweeps from the last 2 trading days
+         (Neon DDL: total_pts / conviction_pct / layers / meta — NOT score/confirmed_2d)
+      3. unusual_calls_log - early CALL flow (call_sweep_log is empty / wrong schema)
     Cross-references them so stocks in multiple sources score higher.
     Returns ranked candidates so the morning agent can pick the best 5-8.
+
+    2026-08-05 fix: prior SELECT used phantom columns that are not in Neon DDL, which crashed
+    aiem_morning_scan every day with `column "score" does not exist` since at least Jul 30.
     """
     import datetime as _sdt
     try:
@@ -27283,34 +27287,53 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
                                      float(r[4] or 0) * float(r[2]) / 1e6, 2)}
                          for r in _cu.fetchall()}
 
+            # Real Neon schema (see _init_conviction_stack_watchlist):
+            # total_pts, conviction_pct, label, layers jsonb, meta jsonb.
+            # Freshness: only last 5 calendar days — stale June/July snaps must not
+            # pollute today's morning auto-picks.
             _cu.execute("""
-                SELECT ticker, score, confirmed_2d, high_conviction, scanner_count,
-                       sweep_premium_m, float_m
+                SELECT ticker,
+                       total_pts,
+                       (COALESCE(conviction_pct, 0) >= 70
+                        OR COALESCE(total_pts, 0) >= 6) AS high_conviction,
+                       (SELECT COUNT(*) FROM jsonb_each(COALESCE(layers, '{}'::jsonb)))
+                           AS scanner_count,
+                       COALESCE((meta->>'sweep_prem')::float, 0) / 1e6 AS sweep_premium_m,
+                       NULLIF((meta->>'float_m')::float, 0) AS float_m,
+                       (SELECT COUNT(*) FROM jsonb_each(COALESCE(layers, '{}'::jsonb))) >= 3
+                           AS multi_layer
                 FROM conviction_stack_watchlist
-                WHERE snap_date >= CURRENT_DATE - INTERVAL '2 days'
-                  AND score >= 4
-                ORDER BY score DESC LIMIT 60
+                WHERE snap_date >= CURRENT_DATE - INTERVAL '5 days'
+                  AND total_pts >= 4
+                ORDER BY snap_date DESC, total_pts DESC
+                LIMIT 60
             """)
             conv_rows = {}
             for r in _cu.fetchall():
                 conv_rows[r[0]] = {
                     "conviction_score": float(r[1] or 0),
-                    "confirmed_2d": bool(r[2]),
-                    "high_conviction": bool(r[3]),
-                    "scanner_count": int(r[4] or 0),
-                    "sweep_premium_m": float(r[5] or 0),
-                    "float_m": float(r[6] or 0) if r[6] else None
+                    # No confirmed_2d column in Neon — multi-layer stack is the proxy.
+                    "confirmed_2d": bool(r[6]),
+                    "high_conviction": bool(r[2]),
+                    "scanner_count": int(r[3] or 0),
+                    "sweep_premium_m": float(r[4] or 0),
+                    "float_m": float(r[5]) if r[5] is not None else None,
                 }
 
+            # Live CALL flow lives in unusual_calls_log (call_sweep_log has 0 rows and
+            # different column names: vol_oi_ratio/premium/sent_at).
             _cu.execute("""
-                SELECT ticker, MAX(vol_oi) as max_voi,
-                       MAX(premium_usd)/1e3 as prem_k,
-                       COUNT(*) as sweep_count
-                FROM call_sweep_log
-                WHERE detected_at >= NOW() - INTERVAL '2 days'
+                SELECT ticker,
+                       MAX(vol_oi)::float AS max_voi,
+                       MAX(prem)::float / 1e3 AS prem_k,
+                       COUNT(*)::int AS sweep_count
+                FROM unusual_calls_log
+                WHERE first_seen >= NOW() - INTERVAL '2 days'
                   AND vol_oi >= 2
+                  AND prem >= 100000
                 GROUP BY ticker
-                ORDER BY MAX(vol_oi) DESC LIMIT 60
+                ORDER BY MAX(vol_oi) DESC
+                LIMIT 60
             """)
             sweep_rows = {}
             for r in _cu.fetchall():
