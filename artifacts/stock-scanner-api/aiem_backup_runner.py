@@ -53,17 +53,23 @@ def _db():
 
 
 def _tg(text: str):
-    if not _TG_TOKEN or not _TG_CHAT:
-        return
-    url = f"https://api.telegram.org/bot{_TG_TOKEN}/sendMessage"
-    body = json.dumps({"chat_id": _TG_CHAT, "text": text, "parse_mode": "HTML"}).encode()
-    req = urllib.request.Request(url, data=body,
-                                  headers={"Content-Type": "application/json"})
+    ok = False
+    if _TG_TOKEN and _TG_CHAT:
+        url = f"https://api.telegram.org/bot{_TG_TOKEN}/sendMessage"
+        body = json.dumps({"chat_id": _TG_CHAT, "text": text, "parse_mode": "HTML"}).encode()
+        req = urllib.request.Request(url, data=body,
+                                      headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10):
+                ok = True
+        except Exception as e:
+            log.warning(f"[telegram] {e}")
+            ok = False
     try:
-        with urllib.request.urlopen(req, timeout=10):
-            pass
-    except Exception as e:
-        log.warning(f"[telegram] {e}")
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source="backup_runner", sent_ok=ok)
+    except Exception:
+        pass
 
 
 def _http_get(url: str, headers: dict = None, timeout: int = 10) -> dict:

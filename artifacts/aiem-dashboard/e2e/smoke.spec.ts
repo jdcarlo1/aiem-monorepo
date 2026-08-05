@@ -42,23 +42,22 @@ test.describe("Login page", () => {
   test("renders the AIEM heading and login form", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("h1").first()).toBeVisible();
-    await expect(page.getByText(/Institutional Terminal/i)).toBeVisible();
-    await expect(page.getByPlaceholder("admin")).toBeVisible();
+    await expect(page.getByText("AIEM Terminal")).toBeVisible();
+    await expect(page.getByText(/INSTITUTIONAL ACCESS/i)).toBeVisible();
+    await expect(page.getByPlaceholder("Enter username")).toBeVisible();
     await expect(page.getByPlaceholder("••••••••")).toBeVisible();
   });
 
   test("switches to token mode", async ({ page }) => {
     await page.goto("/");
     await page.getByText("Admin Token").click();
-    await expect(
-      page.getByPlaceholder("Enter or paste token…")
-    ).toBeVisible();
+    await expect(page.getByPlaceholder("Paste token…")).toBeVisible();
   });
 
   test("submit is disabled with empty token", async ({ page }) => {
     await page.goto("/");
     await page.getByText("Admin Token").click();
-    const submit = page.getByRole("button", { name: /Initialize Connection/i });
+    const submit = page.getByRole("button", { name: /Authenticate/i });
     await expect(submit).toBeDisabled();
   });
 
@@ -66,9 +65,10 @@ test.describe("Login page", () => {
     page,
   }) => {
     await page.addInitScript(() => sessionStorage.clear());
-    await page.goto("/command");
-    await expect(page).toHaveURL(/\//);
-    await expect(page.getByText("AIEM")).toBeVisible();
+    // Relative to PLAYWRIGHT baseURL (.../aiem/) — leading "/command" hits Vite root, not the app.
+    await page.goto("command");
+    await expect(page).toHaveURL(/\/aiem\/?$/);
+    await expect(page.getByText("AIEM Terminal")).toBeVisible();
   });
 });
 
@@ -90,12 +90,8 @@ test.describe("Authentication", () => {
 
     await page.goto("/");
     await page.getByText("Admin Token").click();
-    await page
-      .getByPlaceholder("Enter or paste token…")
-      .fill("any-token-value");
-    await page
-      .getByRole("button", { name: /Initialize Connection/i })
-      .click();
+    await page.getByPlaceholder("Paste token…").fill("any-token-value");
+    await page.getByRole("button", { name: /Authenticate/i }).click();
 
     await expect(page).toHaveURL(/\/command/);
   });
@@ -109,11 +105,9 @@ test.describe("Authentication", () => {
     );
 
     await page.goto("/");
-    await page.getByPlaceholder("admin").fill("wrong");
+    await page.getByPlaceholder("Enter username").fill("wrong");
     await page.getByPlaceholder("••••••••").fill("wrong");
-    await page
-      .getByRole("button", { name: /Initialize Connection/i })
-      .click();
+    await page.getByRole("button", { name: /Sign In/i }).click();
 
     await expect(page.getByText(/Invalid credentials/i)).toBeVisible();
   });

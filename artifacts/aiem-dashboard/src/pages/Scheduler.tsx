@@ -1,9 +1,13 @@
+import { useState } from "react";
 import { useApi } from "@/hooks/use-api";
-import { Calendar, Play, Clock, Server } from "lucide-react";
+import { getToken } from "@/lib/auth";
+import { Calendar, Play, Clock, Server, Loader2 } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
 
 export default function Scheduler() {
-  const { data, loading, lastUpdated: schedUpdated } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
+  const { data, loading, lastUpdated: schedUpdated, refetch } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
+  const [forcingId, setForcingId] = useState<string | null>(null);
+  const [forceMsg, setForceMsg] = useState<string | null>(null);
 
   const jobs = data?.jobs || [];
   
@@ -21,6 +25,31 @@ export default function Scheduler() {
     return acc;
   }, {});
 
+  async function forceJob(jobId: string) {
+    if (!jobId || forcingId) return;
+    setForcingId(jobId);
+    setForceMsg(null);
+    try {
+      const token = getToken();
+      const res = await fetch(`/stock-api/admin/scheduler-jobs/${encodeURIComponent(jobId)}/force`, {
+        method: "POST",
+        headers: token ? { "X-Admin-Token": token } : {},
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setForceMsg(`FORCE failed (${res.status}): ${body.error || body.detail || "unknown"}`);
+      } else {
+        setForceMsg(`Forced ${body.name || jobId} — next_run=${body.forced_next_run || "now"}`);
+        await refetch();
+      }
+    } catch (e: any) {
+      setForceMsg(`FORCE error: ${e?.message || String(e)}`);
+    } finally {
+      setForcingId(null);
+    }
+  }
+
   return (
     <div className="space-y-6 h-full flex flex-col">
       <div className="flex justify-between items-end border-b border-border pb-4 shrink-0">
@@ -35,6 +64,12 @@ export default function Scheduler() {
           </div>
         </div>
       </div>
+
+      {forceMsg && (
+        <div className="px-3 py-2 border border-border bg-black font-mono text-xs text-primary">
+          {forceMsg}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 flex-1 min-h-0">
         <div className="xl:col-span-1 border border-border bg-card flex flex-col h-full">
@@ -79,6 +114,7 @@ export default function Scheduler() {
                 ) : jobs.length ? (
                   jobs.map((job: any, i: number) => {
                     const isSoon = job.next_run && new Date(job.next_run).getTime() - Date.now() < 3600000;
+                    const busy = forcingId === job.id;
                     return (
                       <tr key={i} className="border-b border-border/50 hover:bg-white/5">
                         <td className="p-3 text-muted-foreground">{job.id}</td>
@@ -89,8 +125,14 @@ export default function Scheduler() {
                           {job.next_run ? new Date(job.next_run).toLocaleString() : 'N/A'}
                         </td>
                         <td className="p-3 text-right">
-                          <button className="px-2 py-1 bg-primary text-black text-xs hover:bg-primary/90 transition-colors inline-flex items-center gap-1">
-                            <Play size={10} /> FORCE
+                          <button
+                            type="button"
+                            disabled={!job.id || !!forcingId}
+                            onClick={() => forceJob(job.id)}
+                            className="px-2 py-1 bg-primary text-black text-xs hover:bg-primary/90 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
+                          >
+                            {busy ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
+                            FORCE
                           </button>
                         </td>
                       </tr>

@@ -3019,7 +3019,7 @@ def _dc_module1_gp_weekly_job() -> None:
             return
 
         _gp_df = _pd1.DataFrame(_gp_rows, columns=_gp_cols).dropna()
-        print(f"[gp_evolution] loaded {len(_gp_df)} rows")
+        print(f"[gp_evolution] loaded {len(_gp_df)} train rows")
 
         _best_node, _gp_log = _gp1.evolve_signal(
             train_df=_gp_df,
@@ -3035,6 +3035,55 @@ def _dc_module1_gp_weekly_job() -> None:
         print(f"[gp_evolution] best: {_best_str} "
               f"fitness={_best_fit:.5f} complexity={_best_cmplx}")
 
+        # Holdout = most recent 30 calendar days (excluded from train window above).
+        # Call evaluate_on_holdout EXACTLY ONCE per evolved formula.
+        _holdout = {
+            "holdout_correlation": None,
+            "holdout_win_rate": None,
+            "holdout_n": 0,
+        }
+        try:
+            _c_h = _gp_pg.connect(os.environ["DATABASE_URL"])
+            with _c_h.cursor() as _cur_h:
+                _cur_h.execute("""
+                    WITH w AS (
+                        SELECT ticker, scan_date,
+                               gap_pct, rvol, close_strength, range_pct, close_price,
+                               LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date)
+                                   AS next_close,
+                               LEAD(scan_date)   OVER (PARTITION BY ticker ORDER BY scan_date)
+                                   AS next_date
+                        FROM polygon_market_daily
+                        WHERE scan_date > (CURRENT_DATE - INTERVAL '30 days')
+                          AND scan_date <= CURRENT_DATE
+                          AND gap_pct IS NOT NULL AND rvol IS NOT NULL
+                          AND close_strength IS NOT NULL AND range_pct IS NOT NULL
+                          AND close_price > 2.0 AND rvol < 100.0
+                    )
+                    SELECT ticker, scan_date, gap_pct, rvol, close_strength, range_pct,
+                           (next_close / NULLIF(close_price, 0) - 1.0) AS next_day_return
+                    FROM w
+                    WHERE next_close IS NOT NULL
+                      AND next_date <= scan_date + 5
+                    LIMIT 20000
+                """)
+                _ho_rows = _cur_h.fetchall()
+                _ho_cols = [d[0] for d in _cur_h.description]
+            _c_h.close()
+            if _best_node is not None and len(_ho_rows) >= 50:
+                _ho_df = _pd1.DataFrame(_ho_rows, columns=_ho_cols).dropna()
+                _holdout = _gp1.evaluate_on_holdout(
+                    _best_node, _ho_df, forward_return_col="next_day_return",
+                )
+                print(f"[gp_evolution] holdout n={_holdout.get('holdout_n')} "
+                      f"corr={_holdout.get('holdout_correlation')} "
+                      f"wr={_holdout.get('holdout_win_rate')}")
+            else:
+                print(f"[gp_evolution] holdout skipped "
+                      f"(rows={len(_ho_rows)}, node={_best_node is not None})")
+        except Exception as _ho_e:
+            print(f"[gp_evolution] holdout error (non-fatal): {_ho_e}")
+
         _c2 = _gp_pg.connect(os.environ["DATABASE_URL"])
         with _c2.cursor() as _cur2:
             _cur2.execute("""
@@ -3048,11 +3097,27 @@ def _dc_module1_gp_weekly_job() -> None:
                     status      TEXT NOT NULL DEFAULT 'pending_review'
                 )
             """)
+            # Holdout columns (idempotent)
+            for _ddl in (
+                "ALTER TABLE gp_discovered_templates ADD COLUMN IF NOT EXISTS holdout_correlation NUMERIC(10,6)",
+                "ALTER TABLE gp_discovered_templates ADD COLUMN IF NOT EXISTS holdout_win_rate NUMERIC(10,6)",
+                "ALTER TABLE gp_discovered_templates ADD COLUMN IF NOT EXISTS holdout_n INT",
+            ):
+                try:
+                    _cur2.execute(_ddl)
+                except Exception:
+                    _c2.rollback()
             _cur2.execute("""
                 INSERT INTO gp_discovered_templates
-                    (formula, fitness, complexity, training_n)
-                VALUES (%s, %s, %s, %s)
-            """, (_best_str, _best_fit, _best_cmplx, len(_gp_df)))
+                    (formula, fitness, complexity, training_n,
+                     holdout_correlation, holdout_win_rate, holdout_n)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                _best_str, _best_fit, _best_cmplx, len(_gp_df),
+                _holdout.get("holdout_correlation"),
+                _holdout.get("holdout_win_rate"),
+                _holdout.get("holdout_n") or 0,
+            ))
             _c2.commit()
         _c2.close()
 
@@ -8200,7 +8265,8 @@ try:
             _CT_aiem(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
             id="signal_bridge_daily", replace_existing=True,
         )
-        # Auto-retire decaying signals: every Sunday 6 PM ET (before Loop A research)
+        # Recommend retire for decaying signals: every Sunday 6 PM ET (before Loop A research).
+        # Recommends only — Module 4 human gate applies status changes.
         _scheduler.add_job(
             lambda: (record_job_success("aiem_auto_retire")
                      if not _mkt_auto_retire_decaying_discoveries().get("status") == "error"
@@ -8498,7 +8564,97 @@ try:
         id="discovery_cycle_gp_weekly",
         replace_existing=True,
     )
-    print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET")
+    # Literature scanner — Sunday 05:00 ET (after Module 5/6 Sunday jobs)
+    def _run_literature_weekly_scan():
+        try:
+            import literature_scanner as _lit_sched
+            # Cap to 3 queries per run to keep LLM/network cost bounded.
+            _q = list(getattr(_lit_sched, "DEFAULT_QUERIES", []) or [])[:3]
+            _res = _lit_sched.run_weekly_scan(queries=_q or None)
+            print(f"[literature_scanner] weekly scan: {_res}")
+        except Exception as _lit_e:
+            print(f"[literature_scanner] weekly scan error: {_lit_e}")
+    _scheduler.add_job(
+        _run_literature_weekly_scan,
+        CronTrigger(day_of_week="sun", hour=5, minute=0, timezone=_ET),
+        id="literature_scanner_weekly",
+        replace_existing=True,
+    )
+    print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET | literature: Sun 05:00 ET")
+
+    # Paper position reconciler — after MTM (16:10 ET), never uses mock_position_source
+    def _run_paper_reconcile():
+        try:
+            import aiem_wiring_infra as _awi_rec
+            _res = _awi_rec.run_paper_reconciliation()
+            print(f"[position_reconciler] paper reconcile: mismatch={_res.get('mismatch_found')} "
+                  f"open={_res.get('broker_position_count')}")
+        except Exception as _rec_e:
+            print(f"[position_reconciler] error: {_rec_e}")
+    _scheduler.add_job(
+        _run_paper_reconcile,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
+        id="paper_position_reconcile",
+        replace_existing=True,
+    )
+
+    # Research → hypothesis bridge (Sun 05:30 ET, after literature)
+    def _run_research_bridge():
+        try:
+            import aiem_wiring_infra as _awi_rb
+            _res = _awi_rb.promote_research_insights_to_hypothesis()
+            print(f"[research_bridge] {_res}")
+        except Exception as _rb_e:
+            print(f"[research_bridge] error: {_rb_e}")
+    _scheduler.add_job(
+        _run_research_bridge,
+        CronTrigger(day_of_week="sun", hour=5, minute=30, timezone=_ET),
+        id="research_hypothesis_bridge",
+        replace_existing=True,
+    )
+
+    # Intraday continuation train (Sun 06:00 ET) — daily OHLCV proxies
+    def _run_intraday_train():
+        try:
+            import aiem_wiring_infra as _awi_ic
+            # Train + auto-promote only when held-out precision looks usable
+            _res = _awi_ic.train_intraday_from_daily_proxies(promote=False)
+            if _res.get("status") == "ok":
+                _prec = ((_res.get("held_out") or {}).get("precision_at_70pct_confidence"))
+                if _prec is not None and float(_prec) >= 0.55:
+                    _res2 = _awi_ic.train_intraday_from_daily_proxies(promote=True)
+                    print(f"[intraday_train] promoted: {_res2}")
+                else:
+                    print(f"[intraday_train] saved pending promote (prec={_prec}): {_res}")
+            else:
+                print(f"[intraday_train] {_res}")
+        except Exception as _ic_e:
+            print(f"[intraday_train] error: {_ic_e}")
+    _scheduler.add_job(
+        _run_intraday_train,
+        CronTrigger(day_of_week="sun", hour=6, minute=0, timezone=_ET),
+        id="intraday_continuation_train",
+        replace_existing=True,
+    )
+
+    # Deep RL train from closed paper (Sun 06:30 ET)
+    def _run_deep_rl_train():
+        try:
+            import aiem_wiring_infra as _awi_dr
+            _res = _awi_dr.train_deep_rl_from_paper(promote=False)
+            if _res.get("status") == "ok" and float(_res.get("held_out_avg_reward") or -1) > 0:
+                _res2 = _awi_dr.train_deep_rl_from_paper(promote=True)
+                print(f"[deep_rl_train] promoted: {_res2}")
+            else:
+                print(f"[deep_rl_train] {_res}")
+        except Exception as _dr_e:
+            print(f"[deep_rl_train] error: {_dr_e}")
+    _scheduler.add_job(
+        _run_deep_rl_train,
+        CronTrigger(day_of_week="sun", hour=6, minute=30, timezone=_ET),
+        id="deep_rl_paper_train",
+        replace_existing=True,
+    )
 
     _scheduler.start()
     # ── Protection #4: internal paper trade watchdog ────────────────────────
@@ -20652,6 +20808,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 # individually isolated so one honest FAIL never blocks the rest.
                 _d2_candidate_id = None  # set inside D2 block; used in INSERT below
                 _exec_plan_id    = None  # generated at stage 17; persisted to aiem_paper_trades
+                _d2_mandatory_failures = []  # integrity fail-closed accumulator
                 try:
                     import uuid as _d2_uuid
                     import aiem_master_orchestrator as _amo
@@ -20703,6 +20860,21 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                 )
                         except Exception as _d2_stage_e:
                             print(f"[diagram2] stage {stage_order} ({stage_name}) FAILED for {_t}: {_d2_stage_e}")
+                            if int(stage_order) <= 17:
+                                _d2_mandatory_failures.append(int(stage_order))
+                            # Re-enter execute_stage with a failing fn so G2 completeness
+                            # observes the FAIL (exception outside execute_stage was invisible).
+                            try:
+                                def _fail_fn(_err=str(_d2_stage_e)):
+                                    raise RuntimeError(f"stage_failed:{_err}")
+                                with _d3_gov_ctx.trace_context(root_trace_id=_d2_trace_id, is_test_record=False):
+                                    _d2_orch.execute_stage(
+                                        _d2_trace_id, _t, stage_order, stage_name, display,
+                                        runtime_fn_name, _fail_fn, paper_trade_id=None,
+                                        candidate_id=_d2_candidate_id,
+                                    )
+                            except Exception:
+                                pass
                             return None
 
                     _d2_run(1, "scanner_signals", "Scanner Signals",
@@ -20810,17 +20982,23 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     except Exception as _sup_h3_e:
                         print(f"[supervisor] hook3_final_decision skipped: {_sup_h3_e}")
 
+                # Hard fail-closed: mandatory D2 stage exceptions before G2
+                if _d2_mandatory_failures:
+                    print(f"[aiem_paper] D2 mandatory stage FAIL for {_t}: "
+                          f"stages={_d2_mandatory_failures} — skipping INSERT (integrity fail-closed)")
+                    continue
+
                 # ── G2 pre-decision trace-integrity checkpoint (Path B P4) ────
                 # Real per-CANDIDATE DB-backed check, immediately before THIS
                 # candidate's trade is inserted into aiem_paper_trades.
                 # Confirms every mandatory D2 stage (1-17) was actually
                 # observed via the real CommunicationBus for _d2_trace_id.
-                # While G2 is in SHADOW mode (the only mode it runs in today)
-                # this can never actually skip a candidate — it only records
-                # what an ENFORCE-mode gate would have done. A BLOCK skips
+                # While G2 is ENFORCE (integrity wiring), missing/FAIL stages
+                # produce decision=BLOCK and skip THIS candidate. A BLOCK skips
                 # only THIS ticker (`continue`) — it must never abort the
                 # whole batch or touch _AIEM_PAPER_LOCK (held once per batch
                 # by the caller, not per-candidate; untouched by this branch).
+                # SHADOW mode (if re-enabled) still records would_block only.
                 try:
                     import aiem_diagram3_governance as _d3_g2
                     _g2_result = _d3_g2.require_governance_authorization(
@@ -31674,6 +31852,20 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                 baseline_win_rate, notes, signal_name
             ))
             disc_id = cur.fetchone()[0]
+        try:
+            import aiem_wiring_infra as _awi_hmac
+            _awi_hmac.sign_discovery_row(int(disc_id), {
+                "hypothesis_text": hypothesis_text,
+                "signal_n": signal_n,
+                "signal_win_rate": signal_win_rate,
+                "edge_broad": edge_broad,
+                "edge_tight": edge_tight,
+                "p_value": p_value,
+                "oos_edge": oos_edge,
+                "status": "validated",
+            })
+        except Exception as _hmac_e:
+            print(f"[save_discovery] HMAC sign non-fatal: {_hmac_e}")
         return {
             "status": "ok",
             "discovery_id": disc_id,
@@ -32781,7 +32973,10 @@ def _mkt_layer9_score(ticker, days=120):
         if df is None or df.empty or len(df) < 30:
             return {"error": "insufficient_history", "ticker": ticker}
         from layer9_statistical_edge import compute_layer9_score
-        result = compute_layer9_score(ticker, df)
+        result = compute_layer9_score(
+            ticker, df,
+            db_url=os.environ.get("DATABASE_URL") or os.environ.get("AIEM_DATABASE_URL"),
+        )
         # Flatten components for agent readability
         comps = result.pop("components", {})
         result["hurst_raw"]        = comps.get("hurst_regime",       {}).get("raw")
@@ -36927,10 +37122,10 @@ def _mkt_classify_vix_regime(vix_value):
 # ── Enhancement #8: Automated decay-based auto-retirement ─────────────────────
 def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30,
                                            historical_days=90):
-    """Weekly scheduled job: re-test every validated discovery\'s recent edge vs
-    historical edge. Auto-demote to \'retired\' if decayed past threshold. This is the
-    mechanism that makes the system actually improve over time - not just accumulate
-    stale signals."""
+    """Weekly scheduled job: re-test every validated discovery's recent edge vs
+    historical edge. Recommends retirement candidates for Module 4 human review
+    when decayed past threshold — does NOT flip status itself. Module 4 human
+    gate applies status changes."""
     import psycopg2 as _pg_ar, json as _j_ar
     try:
         with _pg_ar.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
@@ -36945,12 +37140,12 @@ def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30
             all_dates = [str(r[0]) for r in cur.fetchall()]
 
         if len(all_dates) < recent_days + 5:
-            return {"status": "ok", "checked": 0, "retired": 0,
+            return {"status": "ok", "checked": 0, "recommended": 0, "candidates": [],
                     "note": "Not enough date history yet"}
 
         recent_dates = all_dates[:recent_days]
         hist_dates = all_dates[recent_days:historical_days]
-        retired = 0
+        candidates = []
 
         for disc_id, cond_json in discoveries:
             try:
@@ -36974,18 +37169,48 @@ def _mkt_auto_retire_decaying_discoveries(decay_threshold_pp=3.0, recent_days=30
 
                 drift = hist_res.get("edge_winrate", 0) - recent_res.get("edge_winrate", 0)
                 if drift > decay_threshold_pp:
+                    note = (f" [RETIRE-RECOMMEND: edge decayed {drift:.1f}pp"
+                            f" — Module 4 human review required]")
                     with _pg_ar.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
                         cur.execute(
-                            "UPDATE aiem_signal_discoveries SET status=\'retired\', "
-                            "notes = COALESCE(notes,\'\') || %s WHERE id=%s",
-                            (f" [AUTO-RETIRED: edge decayed {drift:.1f}pp]", disc_id),
+                            "UPDATE aiem_signal_discoveries SET "
+                            "notes = COALESCE(notes,\'\') || %s WHERE id=%s "
+                            "AND status=\'validated\'",
+                            (note, disc_id),
                         )
-                    retired += 1
-                    print(f"[auto_retire] discovery #{disc_id} retired - decayed {drift:.1f}pp")
+                    candidates.append({
+                        "discovery_id": disc_id,
+                        "drift_pp": round(float(drift), 1),
+                        "recent_edge": recent_res.get("edge_winrate"),
+                        "hist_edge": hist_res.get("edge_winrate"),
+                    })
+                    print(f"[auto_retire] discovery #{disc_id} recommended for retirement "
+                          f"- decayed {drift:.1f}pp (status unchanged; Module 4 gate)")
             except Exception as _e_ar:
                 print(f"[auto_retire] error on #{disc_id}: {_e_ar}")
 
-        return {"status": "ok", "checked": len(discoveries), "retired": retired}
+        if candidates:
+            lines = [
+                "⚠️ <b>RETIRE RECOMMENDATIONS</b> (Module 4 human review)",
+                f"Candidates: {len(candidates)} — status NOT changed",
+            ]
+            for c in candidates[:25]:
+                lines.append(
+                    f"#{c['discovery_id']}: decayed {c['drift_pp']}pp "
+                    f"(hist={c.get('hist_edge')}, recent={c.get('recent_edge')})"
+                )
+            msg = "\n".join(lines)
+            try:
+                _tg_send(msg, signal_source="auto_retire_recommend", alert_class="INFO")
+            except Exception as _tg_e:
+                print(f"[auto_retire] telegram notify failed: {_tg_e}\n{msg}")
+
+        return {
+            "status": "ok",
+            "checked": len(discoveries),
+            "recommended": len(candidates),
+            "candidates": candidates,
+        }
     except Exception as _e:
         return {"status": "error", "error": str(_e)}
 
@@ -38791,6 +39016,24 @@ try:
     _ol_mod.init_schema()
     _ls_mod.init_schema()
     print("[aiem_integrity] hypothesis_registry / shadow_ledger / regime_monitor / online_learning / literature_scanner schemas ready")
+
+    # Integrity: flip critical D3 checkpoints to ENFORCE so stage FAIL blocks inserts
+    try:
+        import aiem_wiring_infra as _awi_d3
+        _d3res = _awi_d3.ensure_critical_d3_enforce(
+            reason="Startup integrity wiring — close D2/D3 fail-open gap on G0/G2/G3",
+        )
+        print(f"[aiem_integrity] D3 ENFORCE bootstrap: {_d3res.get('status')}")
+    except Exception as _d3boot_e:
+        print(f"[aiem_integrity] D3 ENFORCE bootstrap skipped: {_d3boot_e}")
+    try:
+        import aiem_wiring_infra as _awi_ml
+        _awi_ml.init_ml_training_schema()
+        _awi_ml.ensure_discovery_hmac_columns()
+        _awi_ml.init_intraday_model_schema()
+        print("[aiem_integrity] ml_training_runs / discovery HMAC / intraday model schemas ready")
+    except Exception as _awi_init_e:
+        print(f"[aiem_integrity] wiring infra schema init skipped: {_awi_init_e}")
     import kill_switch       as _ks_mod
     import decision_logger   as _dl_mod
     import evaluation_windows as _ew_mod
@@ -48329,6 +48572,9 @@ def _init_aiem_paper_trades_table():
             # ever run once per trade, no matter which code path (autonomous
             # MTM exit, manual/admin close, or backfill) triggers the close.
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS learning_loop_fired_at TIMESTAMPTZ")
+            # Durable close-funnel PPO outcome (Item 5 / PR14) — not audit-text only.
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS ppo_trained BOOLEAN")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS ppo_trained_at TIMESTAMPTZ")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS exit_reason TEXT")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'BULLISH'")
             _c.commit()
@@ -49815,6 +50061,20 @@ def _aiem_close_paper_trade_and_run_loop(
             except Exception as _th_e:
                 print(f"[closed_loop] thompson update skipped (non-fatal): {_th_e}")
 
+            # ── Gap 4: attempt PPO update from close funnel ───────────
+            _ppo_trained_flag = False
+            try:
+                import aiem_closed_loop_learning as _acll_ppo_close
+                _ppo_close_res = _acll_ppo_close.maybe_run_ppo_training()
+                _ppo_trained_flag = bool(
+                    (_ppo_close_res or {}).get("trained")
+                    or (_ppo_close_res or {}).get("gradient_step_completed")
+                )
+                # Durable per-trade column (not audit-text only).
+                _acll_ppo_close.persist_ppo_trained(_id, _ppo_trained_flag)
+            except Exception as _ppo_close_e:
+                print(f"[closed_loop] close-funnel PPO skipped (non-fatal): {_ppo_close_e}")
+
             # ── Gap 1: log learning_update_applied audit step ─────────
             try:
                 if _trace_id:
@@ -49828,7 +50088,7 @@ def _aiem_close_paper_trade_and_run_loop(
                         thompson_before=0.5,
                         thompson_after=_thompson_new_score,
                         pnl_pct=float(_pnl_pct),
-                        ppo_trained=False,
+                        ppo_trained=_ppo_trained_flag,
                     )
             except Exception as _au_e:
                 print(f"[closed_loop] audit_step skipped (non-fatal): {_au_e}")
@@ -51380,6 +51640,37 @@ def admin_closed_loop_summary():
                 "verdict": "PASS" if _learn_applied > 0 else ("PARTIAL" if _audit_coverage else "FAIL"),
             },
         })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/ml-training-runs", methods=["GET"])
+def admin_ml_training_runs():
+    """List recent ML training runs for the Learning dashboard panel."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import aiem_wiring_infra as _awi
+        model = request.args.get("model")
+        limit = int(request.args.get("limit", 50))
+        runs = _awi.list_ml_training_runs(limit=limit, model_name=model or None)
+        return jsonify({"status": "ok", "count": len(runs), "runs": runs})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/adaptive-policies", methods=["GET"])
+def admin_adaptive_policies():
+    """Live adaptive policy state: trust weights, Thompson, retrain history."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import aiem_wiring_infra as _awi
+        return jsonify({"status": "ok", **_awi.list_adaptive_policies()})
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
@@ -59785,7 +60076,10 @@ def _build_ai_stock_picks():
                     try:
                         _l9df = _td_history(_l9t, days=90)
                         if _l9df is not None and not _l9df.empty and len(_l9df) >= 30:
-                            res = compute_layer9_score(_l9t, _l9df)
+                            res = compute_layer9_score(
+                                _l9t, _l9df,
+                                db_url=os.environ.get("DATABASE_URL") or os.environ.get("AIEM_DATABASE_URL"),
+                            )
                             l9_scores[_l9t] = res
                     except Exception as _exc:
                         print(f"[silent_except:L39298] {type(_exc).__name__}: {_exc}")
@@ -60721,7 +61015,10 @@ Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT cr
                         continue
                     _pdf = _td_history(_pt, days=120)
                     if _pdf is not None and not _pdf.empty and len(_pdf) >= 30:
-                        _pr = compute_layer9_score(_pt, _pdf)
+                        _pr = compute_layer9_score(
+                            _pt, _pdf,
+                            db_url=os.environ.get("DATABASE_URL") or os.environ.get("AIEM_DATABASE_URL"),
+                        )
                         _p["stat9_score"]  = _pr.get("statistical_score", 50.0)
                         _p["stat9_regime"] = _pr.get("regime", "")
                         _p["stat9_signal"] = format_layer9_signal(_pr)
@@ -60886,6 +61183,8 @@ def _init_layer9_scores_table():
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS pca_factor1_var FLOAT",
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS stat_arb_coint_pvalue FLOAT",
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS absorption_ratio_val  FLOAT",
+                # Cross-sectional momentum z from Layer9 bg scan (PR14 item 6).
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS xmom_zscore FLOAT",
             ]:
                 try:
                     _cu.execute(_col_sql)
@@ -61121,6 +61420,14 @@ def _run_layer9_bg_scan():
 
     # Sanitise: letters only, 1-6 chars
     _universe = {t for t in _universe if t and t.isalpha() and len(t) <= 6}
+    # Optional force-universe for verification / ops (comma-separated tickers).
+    _force_raw = (os.environ.get("LAYER9_FORCE_TICKERS") or "").strip()
+    if _force_raw:
+        _universe = {
+            t.strip().upper() for t in _force_raw.split(",")
+            if t.strip() and t.strip().isalpha() and len(t.strip()) <= 6
+        }
+        print(f"[layer9_bg] LAYER9_FORCE_TICKERS override → {sorted(_universe)}")
     if not _universe:
         # Fallback: always-liquid benchmark universe so layer9 never stays empty
         # (weekends, fresh deploys, or days before the Polygon 8:35 AM scan runs)
@@ -61181,7 +61488,8 @@ def _run_layer9_bg_scan():
             with _psycopg2.connect(_DB_URL, connect_timeout=5,
                                    options="-c statement_timeout=12000") as _fbc,                  _fbc.cursor() as _fbcu:
                 _fbcu.execute("""
-                    SELECT ticker, scan_date, open, high, low, close, volume
+                    SELECT ticker, scan_date, open_price, high_price, low_price,
+                           close_price, volume
                     FROM polygon_market_daily
                     WHERE ticker = ANY(%s)
                       AND scan_date >= CURRENT_DATE - INTERVAL '180 days'
@@ -61307,18 +61615,14 @@ def _run_layer9_bg_scan():
         print(f"[layer9_bg] GARCH persistence block skipped: {_ge}")
 
     # ── 3c. Cross-sectional PCA + Absorption Ratio (run BEFORE batch_layer9_scores) ──
-    # Both signals are cross-sectional: one value per batch, passed INTO the scoring
-    # function so they affect statistical_score at compute time, not post-hoc.
-    # Reorder reason: pca_factor_decomposition and absorption_ratio both need the full
-    # aligned returns matrix (all tickers × days) which is already built here.
+    # Single source of truth: layer9_statistical_edge.compute_cross_sectional_inputs
+    # → advanced_quant_indicators (pca / absorption_ratio / xmom). No inline reimplementation.
     _pca_factor1_var_scalar:   "float | None" = None   # same for all tickers in batch
     _absorption_ratio_scalar:  "float | None" = None   # same for all tickers in batch
     _pca_var_by_ticker: dict = {}                       # kept for upsert column write
+    _xmom_zscore_map: dict = {}                         # per-ticker cross-sectional mom z
     try:
-        from advanced_quant_indicators import (
-            pca_factor_decomposition as _pca_fn,
-            absorption_ratio as _ar_fn,
-        )
+        from layer9_statistical_edge import compute_cross_sectional_inputs as _l9_cs_fn
         _ret_series = {}
         for _pt, _pdf in _histories.items():
             _c_col = "close" if "close" in _pdf.columns else ("Close" if "Close" in _pdf.columns else None)
@@ -61328,20 +61632,21 @@ def _run_layer9_bg_scan():
             import pandas as _l9pd_pca
             _ret_df = _l9pd_pca.DataFrame(_ret_series).dropna(how="any")
             if len(_ret_df) >= 10:
-                # PCA — PC1 variance fraction
-                _pca_result  = _pca_fn(_ret_df)
-                _factor1_var = _pca_result.get("explained_variance_ratio", [None])[0]
-                if _factor1_var is not None:
-                    _pca_factor1_var_scalar = float(_factor1_var)
+                _cs = _l9_cs_fn(_ret_df)
+                if _cs.get("pca_factor1_var") is not None:
+                    _pca_factor1_var_scalar = float(_cs["pca_factor1_var"])
                     for _pt in _ret_series:
                         _pca_var_by_ticker[_pt] = _pca_factor1_var_scalar
-                    print(f"[layer9_bg] PCA factor1 variance={_factor1_var:.4f} ({len(_ret_series)} tickers)")
-                # Absorption Ratio — Kritzman systemic risk measure (same matrix)
-                try:
-                    _absorption_ratio_scalar = float(_ar_fn(_ret_df))
+                    print(f"[layer9_bg] PCA factor1 variance={_pca_factor1_var_scalar:.4f} ({len(_ret_series)} tickers)")
+                if _cs.get("absorption_ratio_val") is not None:
+                    _absorption_ratio_scalar = float(_cs["absorption_ratio_val"])
                     print(f"[layer9_bg] absorption_ratio={_absorption_ratio_scalar:.4f} ({len(_ret_series)} tickers)")
-                except Exception as _are:
-                    print(f"[layer9_bg] absorption_ratio failed: {_are}")
+                _xmom_zscore_map = dict(_cs.get("xmom_zscore_map") or {})
+                if _xmom_zscore_map:
+                    print(f"[layer9_bg] cross_sectional_momentum z-scores for "
+                          f"{len(_xmom_zscore_map)} tickers")
+                if _cs.get("error"):
+                    print(f"[layer9_bg] compute_cross_sectional_inputs note: {_cs['error']}")
     except Exception as _pca_e:
         print(f"[layer9_bg] PCA/absorption computation skipped: {_pca_e}")
 
@@ -61375,6 +61680,7 @@ def _run_layer9_bg_scan():
         stat_arb_coint_map=_stat_arb_coint_map if _stat_arb_coint_map else None,
         pca_factor1_var=_pca_factor1_var_scalar,
         absorption_ratio_val=_absorption_ratio_scalar,
+        xmom_zscore_map=_xmom_zscore_map if _xmom_zscore_map else None,
     )
 
     # ── 4. Upsert into layer9_scores table ────────────────────────────────
@@ -61395,6 +61701,10 @@ def _run_layer9_bg_scan():
                     _pca1_var = _pca_var_by_ticker.get(_t)
                     _sarb_c   = _comps.get("stat_arb_cointegration", {})
                     _ar_c     = _comps.get("absorption_ratio", {})
+                    _xmom_c   = _comps.get("cross_sectional_momentum", {})
+                    _xmom_val = _res.get("xmom_zscore")
+                    if _xmom_val is None and _xmom_c.get("raw") is not None:
+                        _xmom_val = _xmom_c.get("raw")
                     _cu.execute("""
                         INSERT INTO layer9_scores
                             (ticker, computed_at, scan_date,
@@ -61403,8 +61713,9 @@ def _run_layer9_bg_scan():
                              entropy_score, tail_score, vrp_score, amihud_score,
                              cs_spread_raw, rnd_skew, rnd_available, pca_factor1_var,
                              stat_arb_coint_pvalue, absorption_ratio_val,
+                             xmom_zscore,
                              error)
-                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (ticker, scan_date) DO UPDATE SET
                             computed_at           = EXCLUDED.computed_at,
                             statistical_score     = EXCLUDED.statistical_score,
@@ -61422,6 +61733,7 @@ def _run_layer9_bg_scan():
                             pca_factor1_var       = EXCLUDED.pca_factor1_var,
                             stat_arb_coint_pvalue = EXCLUDED.stat_arb_coint_pvalue,
                             absorption_ratio_val  = EXCLUDED.absorption_ratio_val,
+                            xmom_zscore           = EXCLUDED.xmom_zscore,
                             error                 = EXCLUDED.error
                     """, (
                         _t, _today,
@@ -61440,6 +61752,7 @@ def _run_layer9_bg_scan():
                         _pca1_var,
                         float(_sarb_c.get("raw_coint_pvalue"))           if _sarb_c.get("raw_coint_pvalue") is not None else None,
                         float(_ar_c.get("raw"))                          if _ar_c.get("raw") is not None else None,
+                        float(_xmom_val) if _xmom_val is not None else None,
                         _err_val,
                     ))
                     if _err_val:
@@ -72626,6 +72939,34 @@ def admin_scheduler_jobs():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/stock-api/admin/scheduler-jobs/<job_id>/force", methods=["POST"])
+def admin_scheduler_force_job(job_id):
+    """Force an APScheduler job to run ASAP (dashboard Scheduler FORCE button)."""
+    import hmac as _hmac_sf
+    from datetime import datetime as _dt_sf, timezone as _tz_sf
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_sf.compare_digest(tok, os.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        job = _scheduler.get_job(job_id)
+        if job is None:
+            return jsonify({"error": "job not found", "code": "NOT_FOUND", "job_id": job_id}), 404
+        now = _dt_sf.now(_tz_sf.utc)
+        job.modify(next_run_time=now)
+        return jsonify({
+            "ok": True,
+            "job_id": job_id,
+            "name": job.name,
+            "forced_next_run": now.isoformat(),
+            "note": "Job next_run_time set to now; APScheduler will fire it on the next wake.",
+        })
+    except NameError:
+        return jsonify({"error": "scheduler not initialized", "code": "NOT_READY"}), 503
+    except Exception as e:
+        return jsonify({"error": str(e), "code": "SCHEDULER_ERROR"}), 500
+
+
 # ── Unusual Puts & Bear Flow (added) ─────────────────────────────────────────
 # 6 quality rules (R1-R6) enforced at scan time:
 # R1: No put SALES — bid/ask fill-side inference; at-bid = writer → excluded
@@ -73050,6 +73391,418 @@ def admin_evidence_chain_status():
         return jsonify({"error": "chain file not found", "code": "NOT_FOUND", "seq": 0}), 404
     except Exception as _e_ec:
         return jsonify({"error": str(_e_ec), "code": "DB_ERROR"}), 503
+
+
+@app.route("/stock-api/admin/paper-job-ledger", methods=["GET"])
+def admin_paper_job_ledger():
+    """Return paper_trade_job_ledger rows (exactly-once paper execute ledger)."""
+    import hmac as _hmac_pjl
+    import psycopg2 as _pg_pjl, os as _os_pjl, time as _time_pjl
+
+    _t0 = _time_pjl.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_pjl.compare_digest(tok, _os_pjl.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    status_arg = request.args.get("status")
+    try:
+        with _pg_pjl.connect(_os_pjl.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds, params = [], []
+                if status_arg:
+                    conds.append("status = %s"); params.append(status_arg)
+                where = ("WHERE " + " AND ".join(conds)) if conds else ""
+                cur.execute(f"SELECT COUNT(*) FROM paper_trade_job_ledger {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, business_date::text, status, execution_id, trigger_source,
+                           claimed_at, started_at, completed_at, picks_count, error_text,
+                           heartbeat_at, watchdog_checks, recovery_attempts, created_at
+                    FROM paper_trade_job_ledger {where}
+                    ORDER BY business_date DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("claimed_at", "started_at", "completed_at", "heartbeat_at", "created_at"):
+                        if row.get(k) is not None:
+                            row[k] = row[k].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_pjl.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_pjl.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/daily-pipeline-runs", methods=["GET"])
+def admin_daily_pipeline_runs():
+    """Return daily_pipeline_runs (options pipeline failover ledger)."""
+    import hmac as _hmac_dpr
+    import psycopg2 as _pg_dpr, os as _os_dpr, time as _time_dpr
+
+    _t0 = _time_dpr.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_dpr.compare_digest(tok, _os_dpr.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    try:
+        with _pg_dpr.connect(_os_dpr.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM daily_pipeline_runs")
+                total = cur.fetchone()[0]
+                cur.execute("""
+                    SELECT id, run_date::text, trigger_source, status, claim_id, trace_id,
+                           polygon_rvol_rows, oss_rows, candidates_seeded, candidates_executed,
+                           candidates_no_trade, candidates_failed, error_text,
+                           started_at, completed_at, created_at
+                    FROM daily_pipeline_runs
+                    ORDER BY run_date DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, (limit,))
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("started_at", "completed_at", "created_at"):
+                        if row.get(k) is not None:
+                            row[k] = row[k].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_dpr.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_dpr.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/governance-decisions", methods=["GET"])
+def admin_governance_decisions():
+    """Return d3_governance_decisions for AIEM Institutional Terminal."""
+    import hmac as _hmac_gd
+    import psycopg2 as _pg_gd, json as _json_gd, os as _os_gd, time as _time_gd
+
+    _t0 = _time_gd.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_gd.compare_digest(tok, _os_gd.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    checkpoint = request.args.get("checkpoint")
+    decision = request.args.get("decision")
+    trace_id = request.args.get("trace_id")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    try:
+        with _pg_gd.connect(_os_gd.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds = ["is_test_record = FALSE"]
+                params = []
+                if checkpoint:
+                    conds.append("checkpoint = %s"); params.append(checkpoint)
+                if decision:
+                    conds.append("decision = %s"); params.append(decision)
+                if trace_id:
+                    conds.append("trace_id = %s"); params.append(trace_id)
+                where = " AND ".join(conds)
+                cur.execute(f"SELECT COUNT(*) FROM d3_governance_decisions WHERE {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, governance_decision_id, governance_request_id, trace_id,
+                           checkpoint, decision, blocking, reason_codes, policy_version,
+                           decision_hash, ledger_event_id, response_timestamp_utc
+                    FROM d3_governance_decisions WHERE {where}
+                    ORDER BY response_timestamp_utc DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    if isinstance(row.get("reason_codes"), str):
+                        try: row["reason_codes"] = _json_gd.loads(row["reason_codes"])
+                        except Exception: pass
+                    if row.get("response_timestamp_utc") is not None:
+                        row["response_timestamp_utc"] = row["response_timestamp_utc"].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_gd.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_gd.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/governance-modes", methods=["GET"])
+def admin_governance_modes():
+    """Return d3_checkpoint_config checkpoint → mode (SHADOW/ENFORCE/OFF) map."""
+    import hmac as _hmac_gm
+    import psycopg2 as _pg_gm, os as _os_gm, time as _time_gm
+
+    _t0 = _time_gm.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_gm.compare_digest(tok, _os_gm.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    try:
+        with _pg_gm.connect(_os_gm.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT checkpoint, mode, updated_by, updated_at, note
+                    FROM d3_checkpoint_config
+                    ORDER BY checkpoint
+                """)
+                rows = []
+                modes = {}
+                for checkpoint, mode, updated_by, updated_at, note in cur.fetchall():
+                    modes[checkpoint] = mode
+                    rows.append({
+                        "checkpoint": checkpoint,
+                        "mode": mode,
+                        "updated_by": updated_by,
+                        "updated_at": updated_at.isoformat() if updated_at is not None else None,
+                        "note": note,
+                    })
+                return jsonify({
+                    "modes": modes,
+                    "checkpoints": rows,
+                    "count": len(rows),
+                    "elapsed_ms": round((_time_gm.monotonic() - _t0) * 1000),
+                })
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({
+                "modes": {},
+                "checkpoints": [],
+                "count": 0,
+                "elapsed_ms": round((_time_gm.monotonic() - _t0) * 1000),
+            }), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/telegram-alerts", methods=["GET"])
+def admin_telegram_alerts():
+    """Return telegram_alert_ledger rows for Alerts / notification audit."""
+    import hmac as _hmac_ta
+    import psycopg2 as _pg_ta, os as _os_ta, time as _time_ta
+
+    _t0 = _time_ta.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_ta.compare_digest(tok, _os_ta.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    ticker = request.args.get("ticker")
+    signal_source = request.args.get("signal_source")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit", "code": "INVALID_PARAM"}), 400
+    try:
+        with _pg_ta.connect(_os_ta.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=5000") as conn:
+            with conn.cursor() as cur:
+                conds = ["is_test = FALSE"]
+                params = []
+                if ticker:
+                    conds.append("ticker = %s"); params.append(ticker.upper())
+                if signal_source:
+                    conds.append("signal_source = %s"); params.append(signal_source)
+                where = " AND ".join(conds)
+                cur.execute(f"SELECT COUNT(*) FROM telegram_alert_ledger WHERE {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, sent_at, signal_source, ticker, alert_class, alert_text,
+                           audit_trace_id, trust_weight_at_send, trigger_price, sent_ok,
+                           graded, outcome_d1_pct, outcome_d3_pct, outcome_d5_pct,
+                           win_loss, graded_at
+                    FROM telegram_alert_ledger WHERE {where}
+                    ORDER BY sent_at DESC NULLS LAST, id DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("sent_at", "graded_at"):
+                        if row.get(k) is not None:
+                            row[k] = row[k].isoformat()
+                    for k in ("trust_weight_at_send", "trigger_price",
+                              "outcome_d1_pct", "outcome_d3_pct", "outcome_d5_pct"):
+                        if row.get(k) is not None:
+                            row[k] = float(row[k])
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_ta.monotonic() - _t0) * 1000)})
+    except Exception as _e:
+        if "does not exist" in str(_e):
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_ta.monotonic() - _t0) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
+
+
+@app.route("/stock-api/admin/trace-explorer", methods=["GET"])
+def admin_trace_explorer():
+    """Composite ticker+date trace across paper, council, sizing, governance."""
+    import hmac as _hmac_te
+    import psycopg2 as _pg_te, json as _json_te, os as _os_te, time as _time_te
+
+    _t0 = _time_te.monotonic()
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_te.compare_digest(tok, _os_te.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
+    ticker = (request.args.get("ticker") or "").upper().strip()
+    date_arg = request.args.get("date")
+    if not ticker or not date_arg:
+        return jsonify({"error": "ticker and date required", "code": "INVALID_PARAM"}), 400
+    from datetime import datetime as _dt_te
+    try:
+        _dt_te.strptime(date_arg, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "invalid date format", "code": "INVALID_PARAM"}), 400
+
+    out = {"ticker": ticker, "date": date_arg, "paper_trades": [], "council_runs": [],
+           "position_sizing": [], "governance_decisions": [], "gate_events": []}
+    try:
+        with _pg_te.connect(_os_te.environ["DATABASE_URL"],
+                            connect_timeout=5,
+                            options="-c statement_timeout=8000") as conn:
+            with conn.cursor() as cur:
+                # Paper trades (best-effort column set)
+                try:
+                    cur.execute("""
+                        SELECT id, ticker, status, signal_source, entry_price, exit_price,
+                               pnl_pct, trade_date::text, created_at, audit_trace_id
+                        FROM aiem_paper_trades
+                        WHERE UPPER(ticker) = %s
+                          AND (
+                               trade_date = %s
+                            OR DATE(created_at AT TIME ZONE 'America/New_York') = %s
+                          )
+                        ORDER BY id DESC LIMIT 50
+                    """, (ticker, date_arg, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("created_at") is not None:
+                            row["created_at"] = row["created_at"].isoformat()
+                        if row.get("entry_price") is not None:
+                            row["entry_price"] = float(row["entry_price"])
+                        if row.get("exit_price") is not None:
+                            row["exit_price"] = float(row["exit_price"])
+                        if row.get("pnl_pct") is not None:
+                            row["pnl_pct"] = float(row["pnl_pct"])
+                        out["paper_trades"].append(row)
+                except Exception as _pe:
+                    out["paper_trades_error"] = str(_pe)
+
+                try:
+                    cur.execute("""
+                        SELECT id, run_time, context, ticker, trace_id, weighted_vote, variance
+                        FROM aiem_specialist_council_runs
+                        WHERE UPPER(ticker) = %s
+                          AND DATE(run_time AT TIME ZONE 'America/New_York') = %s
+                        ORDER BY run_time DESC LIMIT 50
+                    """, (ticker, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("run_time") is not None:
+                            row["run_time"] = row["run_time"].isoformat()
+                        out["council_runs"].append(row)
+                except Exception as _ce:
+                    out["council_runs_error"] = str(_ce)
+
+                try:
+                    cur.execute("""
+                        SELECT id, logged_at, ticker, signal_source, conviction_score,
+                               entry_price, calculated_notional, gate_result, paper_trade_id
+                        FROM aiem_position_sizing_log
+                        WHERE UPPER(ticker) = %s
+                          AND DATE(logged_at AT TIME ZONE 'America/New_York') = %s
+                        ORDER BY logged_at DESC LIMIT 50
+                    """, (ticker, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("logged_at") is not None:
+                            row["logged_at"] = row["logged_at"].isoformat()
+                        for k in ("conviction_score", "entry_price", "calculated_notional"):
+                            if row.get(k) is not None:
+                                row[k] = float(row[k])
+                        out["position_sizing"].append(row)
+                except Exception as _se:
+                    out["position_sizing_error"] = str(_se)
+
+                try:
+                    cur.execute("""
+                        SELECT governance_decision_id, checkpoint, decision, blocking,
+                               reason_codes, trace_id, response_timestamp_utc
+                        FROM d3_governance_decisions
+                        WHERE is_test_record = FALSE
+                          AND trace_id IN (
+                              SELECT DISTINCT audit_trace_id FROM aiem_paper_trades
+                              WHERE UPPER(ticker) = %s
+                                AND audit_trace_id IS NOT NULL
+                                AND (
+                                     trade_date = %s
+                                  OR DATE(created_at AT TIME ZONE 'America/New_York') = %s
+                                )
+                          )
+                        ORDER BY response_timestamp_utc DESC LIMIT 50
+                    """, (ticker, date_arg, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if isinstance(row.get("reason_codes"), str):
+                            try: row["reason_codes"] = _json_te.loads(row["reason_codes"])
+                            except Exception: pass
+                        if row.get("response_timestamp_utc") is not None:
+                            row["response_timestamp_utc"] = row["response_timestamp_utc"].isoformat()
+                        out["governance_decisions"].append(row)
+                except Exception as _ge:
+                    out["governance_decisions_error"] = str(_ge)
+
+                try:
+                    cur.execute("""
+                        SELECT gate_event_id, gate_name, fired_at, ticker, trace_id,
+                               action_taken, reason
+                        FROM oe_gate_events
+                        WHERE is_test_record = FALSE AND UPPER(ticker) = %s
+                          AND DATE(fired_at AT TIME ZONE 'America/New_York') = %s
+                        ORDER BY fired_at DESC LIMIT 50
+                    """, (ticker, date_arg))
+                    cols = [d[0] for d in cur.description]
+                    for r in cur.fetchall():
+                        row = dict(zip(cols, r))
+                        if row.get("fired_at") is not None:
+                            row["fired_at"] = row["fired_at"].isoformat()
+                        out["gate_events"].append(row)
+                except Exception as _gae:
+                    out["gate_events_error"] = str(_gae)
+
+        out["elapsed_ms"] = round((_time_te.monotonic() - _t0) * 1000)
+        return jsonify(out)
+    except Exception as _e:
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e)}), 503
 
 
 @app.route("/stock-api/admin/options-metrics", methods=["GET"])

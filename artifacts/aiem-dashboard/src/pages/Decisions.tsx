@@ -1,10 +1,53 @@
+import { useEffect, useState } from "react";
 import { useApi } from "@/hooks/use-api";
+import { getToken } from "@/lib/auth";
 import { Activity, ShieldCheck, ShieldAlert, FileWarning, Search } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
+
+const SHADOW_BADGE = "D3 GOVERNANCE: SHADOW (logs only, does not block)";
 
 export default function Decisions() {
   const { data: decisions, loading: decLoading, lastUpdated: decUpdated } = useApi<any>("/stock-api/admin/decision-audit?limit=50", {}, 30000);
   const { data: gateEvents, loading: gateLoading } = useApi<any>("/stock-api/admin/gate-events?limit=50", {}, 30000);
+  const { data: gov, loading: govLoading } = useApi<any>("/stock-api/admin/governance-decisions?limit=40", {}, 60000);
+  const [govModeLabel, setGovModeLabel] = useState(SHADOW_BADGE);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = getToken();
+        const res = await fetch("/stock-api/admin/governance-modes", {
+          headers: token ? { "X-Admin-Token": token } : {},
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (res.status === 404) {
+          setGovModeLabel(SHADOW_BADGE);
+          return;
+        }
+        if (!res.ok) {
+          setGovModeLabel(SHADOW_BADGE);
+          return;
+        }
+        const body = await res.json();
+        const mode = (body?.mode || body?.governance_mode || body?.d3_mode || "SHADOW").toString().toUpperCase();
+        const blocking = body?.blocking === true || mode === "ENFORCE" || mode === "ACTIVE";
+        if (blocking) {
+          setGovModeLabel(`D3 GOVERNANCE: ${mode} (blocking)`);
+        } else {
+          setGovModeLabel(
+            mode === "SHADOW"
+              ? SHADOW_BADGE
+              : `D3 GOVERNANCE: ${mode} (logs only, does not block)`
+          );
+        }
+      } catch {
+        if (!cancelled) setGovModeLabel(SHADOW_BADGE);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -13,7 +56,7 @@ export default function Decisions() {
           <h1 className="text-2xl font-mono font-bold text-white tracking-tight uppercase">Live Decisions</h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">Audit Trail & Gate Events</p>
         </div>
-        <div className="flex gap-4 font-mono text-xs">
+        <div className="flex gap-4 font-mono text-xs items-end">
           <div className="text-right">
             <div className="text-muted-foreground">DECISION ROWS</div>
             <div className="text-primary font-bold text-lg">{decisions?.count || 0}</div>
@@ -23,6 +66,10 @@ export default function Decisions() {
             <div className="text-secondary font-bold text-lg">{gateEvents?.count || 0}</div>
           </div>
         </div>
+      </div>
+
+      <div className="px-3 py-2 border border-border bg-black/40 font-mono text-[11px] text-accent uppercase tracking-wide shrink-0">
+        {govModeLabel}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
@@ -123,8 +170,55 @@ export default function Decisions() {
           </div>
         </div>
       </div>
+
+      <div className="border border-border bg-card flex flex-col min-h-[220px]">
+        <div className="p-3 border-b border-border bg-sidebar/50 flex justify-between items-center shrink-0">
+          <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2">
+            <Search size={14} /> D3 GOVERNANCE DECISIONS
+          </h2>
+          <span className="text-xs font-mono text-muted-foreground">{gov?.count ?? 0} rows</span>
+        </div>
+        <div className="flex-1 overflow-auto p-0">
+          <table className="w-full text-left font-mono text-sm border-collapse">
+            <thead className="sticky top-0 bg-card border-b border-border text-muted-foreground text-xs z-10">
+              <tr>
+                <th className="p-3 font-normal">TIME</th>
+                <th className="p-3 font-normal">CP</th>
+                <th className="p-3 font-normal">DECISION</th>
+                <th className="p-3 font-normal">BLOCKING</th>
+                <th className="p-3 font-normal">TRACE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {govLoading ? (
+                <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
+              ) : gov?.rows?.length ? (
+                gov.rows.map((row: any, i: number) => {
+                  const color =
+                    row.decision === "BLOCK" ? "text-destructive" :
+                    row.decision === "ALLOW" ? "text-success" : "text-accent";
+                  return (
+                    <tr key={i} className="border-b border-border/50 hover:bg-white/5">
+                      <td className="p-3 text-xs text-muted-foreground">
+                        {row.response_timestamp_utc ? new Date(row.response_timestamp_utc).toLocaleString() : "—"}
+                      </td>
+                      <td className="p-3 font-bold text-white">{row.checkpoint}</td>
+                      <td className={`p-3 font-bold ${color}`}>{row.decision}</td>
+                      <td className="p-3 text-xs">{row.blocking ? "YES" : "no"}</td>
+                      <td className="p-3 text-xs text-muted-foreground truncate max-w-[160px]">{row.trace_id || "—"}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">NO GOVERNANCE ROWS (or all SHADOW/empty)</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <DataFooter
-        source="oe_decision_audit, oe_gate_events"
+        source="oe_decision_audit, oe_gate_events, d3_governance_decisions"
         lastUpdated={decUpdated}
         pollIntervalSec={30}
         operatingMode="AUDIT READ-ONLY"
