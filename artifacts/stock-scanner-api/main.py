@@ -4681,8 +4681,12 @@ def _save_scan_cache(endpoint: str, payload: dict) -> None:
         print(f"[scan_cache] save error for {endpoint}: {_sce}")
 
 
-def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
-    """Load the most recent cached scan result (up to days_back calendar days)."""
+def _load_scan_cache(endpoint: str, days_back: int = 60) -> dict | None:
+    """Load the most recent cached scan result (up to days_back calendar days).
+
+    Default lookback is 60 days so weekend/Yahoo-throttle EMPTY tabs still
+    recover last-good snapshots (many endpoints only wrote cache through late June).
+    """
     try:
         import psycopg2 as _psycopg2  # local import — don't depend on module-level alias timing
         from datetime import date as _lcd, timedelta as _lctd
@@ -4697,6 +4701,134 @@ def _load_scan_cache(endpoint: str, days_back: int = 5) -> dict | None:
             return _row[0] if _row else None
     except Exception as _lsc_e:
         print(f"[load_scan_cache] error ({endpoint}): {_lsc_e}")
+        return None
+
+
+def _composite_history_fallback(limit: int = 40) -> dict | None:
+    """Build composite-score payload from composite_score_history when scan cache is empty."""
+    try:
+        import psycopg2 as _pg_ch
+        with _pg_ch.connect(os.environ.get("DATABASE_URL", ""), connect_timeout=3,
+                            options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (ticker)
+                       ticker, score::float, rating, price::float, price_change_pct::float,
+                       rsi::float, volume_ratio::float, scan_date
+                FROM composite_score_history
+                WHERE scan_date >= CURRENT_DATE - INTERVAL '90 days'
+                ORDER BY ticker, scan_date DESC, score DESC
+            """)
+            rows = cur.fetchall()
+        if not rows:
+            return None
+        results = []
+        for ticker, score, rating, price, chg, rsi, vol_ratio, scan_date in rows:
+            results.append({
+                "ticker": ticker,
+                "score": round(float(score or 0), 1),
+                "rating": rating or "",
+                "price": round(float(price or 0), 2),
+                "price_change_pct": round(float(chg or 0), 2) if chg is not None else None,
+                "rsi": round(float(rsi or 0), 1) if rsi is not None else None,
+                "volume_ratio": round(float(vol_ratio or 0), 2) if vol_ratio is not None else None,
+                "scan_date": scan_date.isoformat() if hasattr(scan_date, "isoformat") else str(scan_date),
+            })
+        results.sort(key=lambda x: x["score"], reverse=True)
+        results = results[:limit]
+        return {"results": results, "scanned": len(results), "stale": True,
+                "note": "DB history snapshot — live composite scan unavailable"}
+    except Exception as _e:
+        print(f"[composite_history_fallback] {_e}")
+        return None
+
+
+def _earnings_db_fallback(window_days: int = 45) -> dict | None:
+    """Serve earnings_calendar table when Yahoo earnings scrape is throttled."""
+    try:
+        import psycopg2 as _pg_ec
+        with _pg_ec.connect(os.environ.get("DATABASE_URL", ""), connect_timeout=3,
+                            options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, earnings_date::text, timing
+                FROM earnings_calendar
+                WHERE earnings_date >= CURRENT_DATE
+                  AND earnings_date <= CURRENT_DATE + (%s || ' days')::interval
+                ORDER BY earnings_date ASC, ticker ASC
+                LIMIT 200
+            """, (window_days,))
+            rows = cur.fetchall()
+        if not rows:
+            return None
+        earnings = []
+        for ticker, ed, timing in rows:
+            earnings.append({
+                "ticker": ticker,
+                "earnings_date": ed,
+                "timing": timing or "",
+                "mkt_cap_b": None,
+            })
+        return {"earnings": earnings, "count": len(earnings), "stale": True,
+                "as_of": __import__("datetime").date.today().isoformat(),
+                "window_days": window_days,
+                "note": "DB earnings calendar — live Yahoo scrape unavailable"}
+    except Exception as _e:
+        print(f"[earnings_db_fallback] {_e}")
+        return None
+
+
+def _convergence_db_fallback() -> dict | None:
+    """Approximate convergence from unusual_calls_log + polygon_rvol when live scan empty."""
+    try:
+        import psycopg2 as _pg_cv
+        with _pg_cv.connect(os.environ.get("DATABASE_URL", ""), connect_timeout=3,
+                            options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
+            cur.execute("""
+                WITH calls AS (
+                    SELECT DISTINCT ON (ticker)
+                           ticker, price::float, strike::float, expiry::text,
+                           vol_oi::float, prem::bigint
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '5 days'
+                      AND prem >= 100000
+                      AND vol_oi >= 1.3
+                    ORDER BY ticker, prem DESC
+                ),
+                rvol AS (
+                    SELECT DISTINCT ON (ticker) ticker, rvol::float
+                    FROM polygon_rvol_scan
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '5 days'
+                    ORDER BY ticker, scan_date DESC
+                )
+                SELECT c.ticker, c.price, c.strike, c.expiry, c.vol_oi, c.prem,
+                       COALESCE(r.rvol, 1.5) AS rvol
+                FROM calls c
+                LEFT JOIN rvol r ON r.ticker = c.ticker
+                WHERE COALESCE(r.rvol, 1.5) >= 1.2
+                ORDER BY (COALESCE(r.rvol, 1.5) * LEAST(c.vol_oi, 20)) DESC
+                LIMIT 15
+            """)
+            rows = cur.fetchall()
+        if not rows:
+            return None
+        results = []
+        for i, (ticker, price, strike, expiry, vol_oi, prem, rvol) in enumerate(rows):
+            cpr = min(float(vol_oi or 1.5), 20.0)
+            score = min(round(float(rvol) * cpr, 1), 10.0)
+            results.append({
+                "rank": i + 1,
+                "ticker": ticker,
+                "price": round(float(price or 0), 2),
+                "vol_ratio": round(float(rvol or 0), 2),
+                "call_put_ratio": round(cpr, 2),
+                "premium_m": round(float(prem or 0) / 1_000_000, 2),
+                "convergence_score": score,
+                "expiry": expiry,
+                "strike": float(strike) if strike is not None else None,
+            })
+        return {"results": results, "scanned": len(results), "stale": True,
+                "note": "DB approximation from unusual calls + RVOL"}
+    except Exception as _e:
+        print(f"[convergence_db_fallback] {_e}")
         return None
 
 
@@ -12447,6 +12579,7 @@ def _run_nano_morning_outcomes():
 def nano_morning_candidates():
     import psycopg2 as _pg
     try:
+        _nano_fb_note = None
         with _pg.connect(os.environ["DATABASE_URL"],
                          connect_timeout=2,
                          options="-c statement_timeout=2500") as c, c.cursor() as cur:
@@ -12460,6 +12593,20 @@ def nano_morning_candidates():
             """)
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            if not rows:
+                cur.execute("""
+                    SELECT snap_date, ticker, rank, conviction, price, mcap_m, avg_vol,
+                           accum_pts, steady_pts, vol_pts, mom_pts, net_flow_m, up_days,
+                           meta, universe_count
+                    FROM sc_morning_candidates
+                    WHERE snap_date = (SELECT MAX(snap_date) FROM sc_morning_candidates)
+                    ORDER BY rank ASC
+                    LIMIT 80
+                """)
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                if rows:
+                    _nano_fb_note = "sc_morning_candidates fallback — nano_morning_candidates empty"
         for r in rows:
             if r.get("snap_date"):
                 r["snap_date"] = r["snap_date"].isoformat()
@@ -12489,14 +12636,18 @@ def nano_morning_candidates():
         strong = [r for r in rows if r.get("quant_grade") == "STRONG"]
         watch  = [r for r in rows if r.get("quant_grade") == "WATCH"]
         snap   = rows[0]["snap_date"] if rows else None
-        return jsonify({
+        _out = {
             "count": len(rows),
             "strong_count": len(strong),
             "watch_count": len(watch),
             "snap_date": snap,
             "candidates": rows,
             "edge_note": "48% WR +3.0%/capital (Apr-Jun 2026 backtest). STRONG = top 15% composite z-score."
-        }), 200
+        }
+        if _nano_fb_note:
+            _out["stale"] = True
+            _out["note"] = _nano_fb_note
+        return jsonify(_out), 200
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
@@ -52836,7 +52987,7 @@ def bull_flow_persistence():
                    call_put_ratio, premium_m, strike, expiry
             FROM signal_outcomes
             WHERE call_put_ratio >= 2
-              AND signal_date >= (now() AT TIME ZONE 'America/New_York')::date - 14
+              AND signal_date >= (now() AT TIME ZONE 'America/New_York')::date - 60
             ORDER BY ticker, signal_date DESC
         """)
         rows = cur.fetchall()
@@ -53936,8 +54087,16 @@ def market_overview():
     if _yf_breaker_open():
         if _cache:
             return jsonify({**_cache, "stale": True})
-        return jsonify({"sectors": [], "indices": [], "stale": True,
-                        "note": "feed temporarily paused - try again shortly"})
+        # Tradier still works when Yahoo is tripped — don't return empty.
+        # Fall through to background Tradier path below; if we already have a
+        # scan_result_cache row, serve it immediately.
+        _mo_db = _load_scan_cache("market-overview")
+        if _mo_db:
+            app._mo_cache = _mo_db
+            app._mo_cache_ts = _et_today().isoformat()
+            return jsonify({**_mo_db, "stale": True,
+                            "note": "DB market overview — Yahoo paused, Tradier path warming"})
+        # continue into bg Tradier fetch rather than hard-empty
 
     def _bg_mo():
         if getattr(app, "_mo_scanning", False):
@@ -54028,6 +54187,10 @@ def market_overview():
             }
             app._mo_cache    = out
             app._mo_cache_ts = _et_today().isoformat()
+            try:
+                _save_scan_cache("market-overview", out)
+            except Exception as _mo_sv:
+                print(f"[market_overview] cache save: {_mo_sv}")
         except Exception as _moe:
             print(f"[market_overview] bg scan error: {_moe}", file=_sys.stderr)
         finally:
@@ -54039,6 +54202,9 @@ def market_overview():
         stale = dict(_cache)
         stale["stale"] = True
         return jsonify(stale)
+    _mo_db2 = _load_scan_cache("market-overview")
+    if _mo_db2:
+        return jsonify({**_mo_db2, "stale": True, "generating": True})
     return jsonify({
         "sectors": [], "indices": [],
         "advance_decline": {"up": 0, "down": 0, "unchanged": 0},
@@ -54235,11 +54401,23 @@ def insider_trades_route():
     # Cache hit (30 min) — return instantly with no blocking
     if _it_cache and _it_ts and (_dt_it.now() - _it_ts).total_seconds() < 1800:
         return jsonify(_it_cache)
-    # Yahoo throttled — fail fast from memory cache only (zero sync calls)
+    # Cold start / Yahoo throttled — serve last DB snapshot before empty
+    if not _it_cache:
+        _it_db = _load_scan_cache("insider-trades")
+        if _it_db and (_it_db.get("trades") or _it_db.get("count")):
+            app._insider_trades_cache = _it_db
+            app._insider_trades_ts = _dt_it.now()
+            return jsonify({**_it_db, "stale": True,
+                            "note": "DB snapshot — live insider feed warming"})
+    # Yahoo throttled — fail fast from memory/DB cache (zero sync Yahoo calls)
     if _yf_breaker_open():
         if _it_cache:
             return jsonify({**_it_cache, "stale": True,
                             "note": "Yahoo throttled - showing cached insider activity"})
+        _it_db2 = _load_scan_cache("insider-trades")
+        if _it_db2:
+            return jsonify({**_it_db2, "stale": True,
+                            "note": "Yahoo throttled - showing DB insider snapshot"})
         return jsonify({"trades": [], "count": 0, "stale": True,
                         "note": "Yahoo throttled - no cached data yet"})
     # Background fetch — never blocks the request thread
@@ -54509,6 +54687,8 @@ def convergence():
         if _cache: return jsonify({**_cache, "stale": True})
         _db_conv = _load_scan_cache("convergence")
         if _db_conv: return jsonify({**_db_conv, "stale": True})
+        _cv_fb = _convergence_db_fallback()
+        if _cv_fb: return jsonify(_cv_fb)
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
 
     tickers = DEFAULT_LEADERBOARD
@@ -54586,6 +54766,14 @@ def convergence():
         _conv_thr.Thread(target=_bg_conv, daemon=True).start()
     if _cache:
         return jsonify({**_cache, "stale": True})
+    _db_conv2 = _load_scan_cache("convergence")
+    if _db_conv2:
+        app._conv_cache = _db_conv2
+        app._conv_cache_ts = _cvdt.now()
+        return jsonify({**_db_conv2, "stale": True, "generating": True})
+    _cv_fb2 = _convergence_db_fallback()
+    if _cv_fb2:
+        return jsonify({**_cv_fb2, "generating": True})
     return jsonify({"results": [], "scanned": len(tickers), "generating": True})
 
 
@@ -56803,6 +56991,11 @@ def composite_score():
             app._cs_cache = _cs_db_cold
             app._cs_cache_ts = _dt.now()
             return jsonify({**_cs_db_cold, "stale": True})
+        _cs_hist = _composite_history_fallback()
+        if _cs_hist:
+            app._cs_cache = _cs_hist
+            app._cs_cache_ts = _dt.now()
+            return jsonify(_cs_hist)
 
     if _yf_breaker_open():
         if _cache:
@@ -56810,6 +57003,9 @@ def composite_score():
         _db_cs_brk = _load_scan_cache("composite-score")
         if _db_cs_brk:
             return jsonify({**_db_cs_brk, "stale": True, "note": "feed temporarily paused - try again shortly"})
+        _cs_hist2 = _composite_history_fallback()
+        if _cs_hist2:
+            return jsonify(_cs_hist2)
         return jsonify({"results": [], "scanned": 0, "stale": True,
                         "note": "feed temporarily paused - try again shortly"})
 
@@ -56819,6 +57015,9 @@ def composite_score():
             app._cs_cache = _db_cs_wknd
             app._cs_cache_ts = _dt.now()
             return jsonify({**_db_cs_wknd, "stale": True})
+        _cs_hist3 = _composite_history_fallback()
+        if _cs_hist3:
+            return jsonify(_cs_hist3)
         if _cache:
             return jsonify({**_cache, "stale": True})
         return jsonify({"results": [], "scanned": 0, "stale": True,
@@ -56965,12 +57164,20 @@ def composite_score():
         if _cache: return jsonify({**_cache, "stale": True})
         _db_cs = _load_scan_cache("composite-score")
         if _db_cs: return jsonify({**_db_cs, "stale": True})
+        _cs_hist4 = _composite_history_fallback()
+        if _cs_hist4: return jsonify(_cs_hist4)
         return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "stale": True})
     import threading as _cs_thr
     if not getattr(app, "_cs_scanning", False):
         _cs_thr.Thread(target=_bg_cs, daemon=True).start()
     if _cache:
         return jsonify({**_cache, "stale": True})
+    _db_cs2 = _load_scan_cache("composite-score")
+    if _db_cs2:
+        return jsonify({**_db_cs2, "stale": True, "generating": True})
+    _cs_hist5 = _composite_history_fallback()
+    if _cs_hist5:
+        return jsonify({**_cs_hist5, "generating": True})
     return jsonify({"results": [], "scanned": len(DEFAULT_LEADERBOARD), "generating": True})
 
 
@@ -64304,11 +64511,14 @@ def earnings_calendar():
     with _ec_lock:
         if _ec_cache and _ec_cache_ts and (_dt_ec2.datetime.now() - _ec_cache_ts).total_seconds() < _EC_TTL:
             return jsonify(_ec_cache)
-    # Yahoo throttled - serve cached earnings rather than hanging
+    # Yahoo throttled - serve memory cache, then earnings_calendar table
     if _yf_breaker_open():
         with _ec_lock:
             if _ec_cache:
                 return jsonify({**_ec_cache, "stale": True, "note": "cached - Yahoo rate limited"})
+        _ec_db = _earnings_db_fallback()
+        if _ec_db:
+            return jsonify(_ec_db)
         return jsonify({"earnings": [], "count": 0, "stale": True,
                         "note": "Yahoo rate limited - try again shortly"})
     def _bg_ec():
@@ -64330,6 +64540,20 @@ def earnings_calendar():
             with _ec_lock:
                 global _ec_cache, _ec_cache_ts
                 _ec_cache, _ec_cache_ts = _out, _dt_ec2.datetime.now()
+            # Persist to earnings_calendar for future DB fallback
+            if _res:
+                try:
+                    import psycopg2 as _pg_ecw
+                    with _pg_ecw.connect(os.environ["DATABASE_URL"], connect_timeout=3) as _c, _c.cursor() as _cu:
+                        for row in _res:
+                            _cu.execute("""
+                                INSERT INTO earnings_calendar (ticker, earnings_date, timing)
+                                VALUES (%s, %s, %s)
+                                ON CONFLICT DO NOTHING
+                            """, (row.get("ticker"), row.get("earnings_date"), row.get("timing") or ""))
+                        _c.commit()
+                except Exception as _ecw_e:
+                    print(f"[earnings-calendar] persist: {_ecw_e}")
         except Exception as _e:
             print(f"[earnings-calendar] bg error: {_e}", file=_sys.stderr)
         finally:
@@ -64339,6 +64563,8 @@ def earnings_calendar():
         with _ec_lock:
             _stale = _ec_cache
         if _stale: return jsonify({**_stale, "stale": True})
+        _ec_db2 = _earnings_db_fallback()
+        if _ec_db2: return jsonify(_ec_db2)
         return jsonify({"earnings": [], "count": 0, "stale": True})
     import threading as _ec_thr
     if not getattr(app, "_ec_scanning", False):
@@ -64347,6 +64573,9 @@ def earnings_calendar():
         _stale = _ec_cache
     if _stale:
         return jsonify({**_stale, "stale": True})
+    _ec_db3 = _earnings_db_fallback()
+    if _ec_db3:
+        return jsonify({**_ec_db3, "generating": True})
     return jsonify({"earnings": [], "count": 0, "generating": True})
 
 
@@ -65272,8 +65501,8 @@ def eod_accumulation():
                            closing_range, price_chg_pct, mkt_cap_m, news_type, news_headline,
                            COALESCE(signal_type, 'accum') AS signal_type, scanned_at
                     FROM eod_accum_picks
-                    WHERE scan_date = (now() AT TIME ZONE 'America/New_York')::date
-                    ORDER BY accum_score DESC
+                    WHERE scan_date >= (now() AT TIME ZONE 'America/New_York')::date - INTERVAL '90 days'
+                    ORDER BY scan_date DESC, accum_score DESC
                     LIMIT 30
                 """)
                 _db_rows_ea = _cu_db.fetchall()
@@ -65938,12 +66167,42 @@ def short_squeeze_radar():
 
     # Market closed - serve Friday's saved scan from DB instead of running live gates
     if not _intraday_scan_allowed():
-        _sq_rad_db = _load_scan_cache("squeeze-radar", days_back=5)
+        _sq_rad_db = _load_scan_cache("squeeze-radar", days_back=60) or _load_scan_cache("squeeze-setup", days_back=60)
         if _sq_rad_db:
             app._sq_rad_cache = _sq_rad_db
             app._sq_rad_ts    = _dt_sq.datetime.now()
             return jsonify({**_sq_rad_db, "stale": True,
                             "stale_label": f"Last market scan · {_sq_rad_db.get('as_of', 'recent')}"})
+        # Fall back to aiem_squeeze_signals table
+        try:
+            with _pg_sq.connect(_DB_URL, connect_timeout=3,
+                                options="-c statement_timeout=3000") as _c_sqfb, _c_sqfb.cursor() as _cu_sqfb:
+                _cu_sqfb.execute("""
+                    SELECT ticker, signal_date::text,
+                           si_pct::float AS short_float,
+                           conviction_score::float AS squeeze_score,
+                           rvol::float, volume
+                    FROM aiem_squeeze_signals
+                    WHERE signal_date >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY conviction_score DESC NULLS LAST
+                    LIMIT 40
+                """)
+                _sq_cols = [d[0] for d in _cu_sqfb.description]
+                _sq_rows = [dict(zip(_sq_cols, r)) for r in _cu_sqfb.fetchall()]
+            if _sq_rows:
+                _sq_out = {
+                    "candidates": _sq_rows,
+                    "total_found": len(_sq_rows),
+                    "scanned": len(_sq_rows),
+                    "as_of": _sq_rows[0].get("signal_date"),
+                    "stale": True,
+                    "note": "DB squeeze signals — live radar runs in market hours",
+                }
+                app._sq_rad_cache = _sq_out
+                app._sq_rad_ts = _dt_sq.datetime.now()
+                return jsonify(_sq_out)
+        except Exception as _sq_fb_e:
+            print(f"[short-squeeze] signal fallback: {_sq_fb_e}")
         if _sq_rad_cache:
             return jsonify({**_sq_rad_cache, "stale": True,
                             "stale_label": f"Last market scan · {_sq_rad_cache.get('as_of', 'recent')}"})
