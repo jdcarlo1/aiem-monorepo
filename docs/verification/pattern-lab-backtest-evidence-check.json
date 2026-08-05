@@ -1,0 +1,211 @@
+{
+  "item4_oos_period": {
+    "start": "2025-08-05",
+    "end": "2026-02-05",
+    "bars": 110553,
+    "sessions": 128
+  },
+  "best_r_locked": {
+    "ORB": 3.0,
+    "WEEKLY_MACRO_ORB": 2.5,
+    "LIQUIDITY_SWEEP": 1.5
+  },
+  "is_best": {
+    "ORB_r3.0": {
+      "trades": 409,
+      "win_pct": 46.9,
+      "net": 1811.1
+    },
+    "WM_r2.5": {
+      "trades": 364,
+      "win_pct": 47.5,
+      "net": 1803.25
+    },
+    "LS_r1.5": {
+      "trades": 367,
+      "win_pct": 46.6,
+      "net": 624.03
+    }
+  },
+  "oos_best": {
+    "ORB_r3.0": {
+      "trades": 399,
+      "win_pct": 42.6,
+      "net": 2774.3
+    },
+    "WM_r2.5": {
+      "trades": 347,
+      "win_pct": 41.8,
+      "net": 1151.14
+    },
+    "LS_r1.5": {
+      "trades": 359,
+      "win_pct": 39.8,
+      "net": -6146.74
+    }
+  },
+  "oos_defaults": {
+    "GAP_FILL": {
+      "trades": 58,
+      "win_pct": 22.4,
+      "net": -1518.74
+    },
+    "ORB": {
+      "trades": 419,
+      "win_pct": 42.2,
+      "net": 2140.26
+    },
+    "WEEKLY_MACRO_ORB": {
+      "trades": 367,
+      "win_pct": 42.2,
+      "net": 674.21
+    },
+    "HIGH_BETA_ORB": {
+      "trades": 394,
+      "win_pct": 41.6,
+      "net": -703.67
+    },
+    "VWAP_REVERSION": {
+      "trades": 723,
+      "win_pct": 46.5,
+      "net": 24314.5
+    },
+    "LIQUIDITY_SWEEP": {
+      "trades": 359,
+      "win_pct": 39.8,
+      "net": -6146.74
+    }
+  },
+  "vwap_is_sample_first10": [
+    {
+      "side": "SHORT",
+      "entry": 686.1,
+      "exit": 686.7795723729781,
+      "shares": 147,
+      "pnl_usd": -99.9,
+      "reason": "STOP",
+      "stop": 686.7796,
+      "target": 684.4617,
+      "raw_stop": 686.7596,
+      "raw_target": 684.4417,
+      "exit_ts": "2026-02-06 10:46:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 686.86,
+      "exit": 687.6797436044532,
+      "shares": 121,
+      "pnl_usd": -99.19,
+      "reason": "STOP",
+      "stop": 687.6797,
+      "target": 685.119,
+      "raw_stop": 687.6597,
+      "raw_target": 685.099,
+      "exit_ts": "2026-02-06 11:34:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 688.04,
+      "exit": 688.3071170005971,
+      "shares": 374,
+      "pnl_usd": -99.9,
+      "reason": "STOP",
+      "stop": 688.3071,
+      "target": 685.5457,
+      "raw_stop": 688.2871,
+      "raw_target": 685.5257,
+      "exit_ts": "2026-02-06 12:27:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 688.32,
+      "exit": 688.3429519567133,
+      "shares": 4356,
+      "pnl_usd": -99.98,
+      "reason": "STOP",
+      "stop": 688.343,
+      "target": 685.568,
+      "raw_stop": 688.323,
+      "raw_target": 685.548,
+      "exit_ts": "2026-02-06 12:29:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 688.72,
+      "exit": 688.5563287745181,
+      "shares": 610,
+      "pnl_usd": 99.84,
+      "reason": "STOP",
+      "stop": 688.5563,
+      "target": 685.704,
+      "raw_stop": 688.5363,
+      "raw_target": 685.684,
+      "exit_ts": "2026-02-06 12:47:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 688.87,
+      "exit": 688.5901349289321,
+      "shares": 357,
+      "pnl_usd": 99.91,
+      "reason": "STOP",
+      "stop": 688.5901,
+      "target": 685.7204,
+      "raw_stop": 688.5701,
+      "raw_target": 685.7004,
+      "exit_ts": "2026-02-06 12:49:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 688.88,
+      "exit": 688.6301582318843,
+      "shares": 400,
+      "pnl_usd": 99.94,
+      "reason": "STOP",
+      "stop": 688.6302,
+      "target": 685.7417,
+      "raw_stop": 688.6102,
+      "raw_target": 685.7217,
+      "exit_ts": "2026-02-06 12:51:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 688.845,
+      "exit": 689.0496179173786,
+      "shares": 488,
+      "pnl_usd": -99.85,
+      "reason": "STOP",
+      "stop": 689.0496,
+      "target": 685.9479,
+      "raw_stop": 689.0296,
+      "raw_target": 685.9279,
+      "exit_ts": "2026-02-06 13:18:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 689.14,
+      "exit": 689.071204611394,
+      "shares": 1453,
+      "pnl_usd": 99.96,
+      "reason": "STOP",
+      "stop": 689.0712,
+      "target": 685.9602,
+      "raw_stop": 689.0512,
+      "raw_target": 685.9402,
+      "exit_ts": "2026-02-06 13:20:00-05:00"
+    },
+    {
+      "side": "SHORT",
+      "entry": 689.1199,
+      "exit": 689.0960565659537,
+      "shares": 4194,
+      "pnl_usd": 100.0,
+      "reason": "STOP",
+      "stop": 689.0961,
+      "target": 685.978,
+      "raw_stop": 689.0761,
+      "raw_target": 685.958,
+      "exit_ts": "2026-02-06 13:22:00-05:00"
+    }
+  ]
+}
