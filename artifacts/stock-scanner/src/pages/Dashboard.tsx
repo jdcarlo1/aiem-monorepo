@@ -12634,21 +12634,21 @@ function SignalIntelTab() {
 
         <SigCard
           icon="📊" name="GARCH Volatility Clustering"
-          desc="Fits a GARCH(1,1) model to each ticker's daily returns to detect whether it is entering a high-volatility regime (explosive moves likely) or a calm regime. Votes into the Layer 9 statistical score."
+          desc="Fits a GARCH(1,1) model to each ticker's daily returns to detect whether it is entering a high-volatility regime (explosive moves likely) or a calm regime. Votes into the Layer 9 statistical score. Status from garch_regime_log (real fits)."
           status={gc.tickers_analyzed > 0 ? "active" : "pending"}
           reading={gc.tickers_analyzed > 0
-            ? `${gc.tickers_analyzed} tickers analyzed · ${gc.regime_covered} with regime computed · feeds Layer 9 vote`
-            : "Awaiting scan"}
-          last="Today (Layer 9 scan)" />
+            ? `${gc.tickers_analyzed} tickers in garch_regime_log · high-vol votes ${gc.vote_high_vol ?? 0} · calm ${gc.vote_calm ?? 0} · last ${gc.last_log ?? "—"}`
+            : "Awaiting GARCH regime log write"}
+          last={gc.last_log ?? "—"} />
 
         <SigCard
           icon="🔮" name="Gaussian Process Signal Search"
-          desc="Fits a Gaussian Process regression to each ticker to learn which features (RVOL, gap, range, close-strength) best predict its forward move. Builds a per-ticker 'best signal' map."
-          status={gp.tickers_fitted > 0 ? "active" : "pending"}
-          reading={gp.tickers_fitted > 0
-            ? `${gp.tickers_fitted} tickers fitted · feature rankings learned per ticker · feeds Layer 9`
-            : "Awaiting scan"}
-          last="Today (Layer 9 scan)" />
+          desc="Weekly GP evolution (Module 1) discovers formula templates stored in gp_discovered_templates — not a Layer 9 ticker-count proxy. Sklearn gp_signal_search remains an on-demand AIEM tool."
+          status={gp.tickers_fitted > 0 || gp.templates > 0 ? "active" : "pending"}
+          reading={(gp.tickers_fitted > 0 || gp.templates > 0)
+            ? `${gp.templates ?? gp.tickers_fitted} evolved templates · best fitness ${gp.best_fitness ?? "—"} · holdout WR ${gp.best_holdout_wr ?? "—"} · ${gp.note ?? "Module 1"}`
+            : "Awaiting weekly GP evolution job"}
+          last={gp.last_evolved ?? "—"} />
 
         <SigCard
           icon="⚡" name="RND / Volatility Risk Premium"

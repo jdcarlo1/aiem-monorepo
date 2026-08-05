@@ -20312,6 +20312,36 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 # or ...` for candidates that pass every gate).
                 import uuid as _d2_uuid_early
                 _d2_trace_id_early = str(_d2_uuid_early.uuid4())
+
+                # Soft debate gate: BEAR_WINS / high-risk NO_TRADE on top-3 debate
+                # batch → skip insert (debate was previously audit-only).
+                _dv_pre = _debate_verdicts.get(_t)
+                if isinstance(_dv_pre, dict):
+                    _verd_pre = str((_dv_pre.get("verdict") or "")).upper()
+                    _risk_pre = str((((_dv_pre.get("debate") or {}).get("risk_review") or {})
+                                     .get("risk_level") or "")).upper()
+                    if _verd_pre in ("BEAR_WINS", "BEAR_WIN", "AVOID", "NO_TRADE") or (
+                            _verd_pre in ("CONFLICTED",) and _risk_pre in ("HIGH", "CRITICAL", "SEVERE")):
+                        print(f"[aiem_paper] debate soft-gate SKIP {_t}: "
+                              f"verdict={_verd_pre} risk={_risk_pre}")
+                        try:
+                            import aiem_diagram2_trace_audit as _ad2_deb
+                            _ad2_deb.record_terminal(
+                                trace_id=_d2_trace_id_early,
+                                ticker=_t,
+                                terminal_status="REJECTED",
+                                rejected_at_stage_order=15,
+                                rejected_at_stage_name="specialist_council",
+                                rejecting_component="bull_bear_debate_soft_gate",
+                                human_readable_reason=(
+                                    f"Debate soft-gate: verdict={_verd_pre} risk={_risk_pre}"
+                                ),
+                                reason_codes=[f"DEBATE_{_verd_pre}"],
+                                last_successful_stage=None,
+                            )
+                        except Exception:
+                            pass
+                        continue
                 _q    = quotes.get(_t) or {}
                 _price = float(_q.get("last") or _q.get("bid") or 0)
                 _price_source = "live_quote" if _price > 0 else None
@@ -20924,9 +20954,43 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     _d2_run(12, "quant_stat_edge", "Quant / Statistical Edge",
                             "layer9_scores (global scanner freshness)",
                             _d2_help.check_layer9_freshness, _t)
+                    # Capture PE/TreeSHAP result for soft sizing (SKIP = no gate).
+                    _pe_result_for_gate: dict = {"status": "SKIP"}
+                    def _pe_stage_fn(_tk=_t, _store=[_pe_result_for_gate]):
+                        _res = _d2_help.run_probability_engine_for_ticker(_tk)
+                        if isinstance(_res, dict):
+                            _store[0].clear()
+                            _store[0].update(_res)
+                        return _res
                     _d2_run(13, "probability_engine", "Probability Engine",
                             "aiem_probability_engine.live_query.run_live_query(mode='ticker')",
-                            _d2_help.run_probability_engine_for_ticker, _t)
+                            _pe_stage_fn)
+                    # Soft TreeSHAP/PE size gate — never hard-block on SKIP/fallback.
+                    try:
+                        if (_pe_result_for_gate.get("status") != "SKIP"
+                                and not _pe_result_for_gate.get("polygon_fallback")
+                                and _pe_result_for_gate.get("numeric_score_emitted", True)):
+                            _pe_pay = ((_pe_result_for_gate.get("envelope") or {}).get("payload")
+                                       or _pe_result_for_gate)
+                            _pe_sc = (_pe_pay.get("score") if isinstance(_pe_pay, dict) else None)
+                            if _pe_sc is None and isinstance(_pe_pay, dict):
+                                _pe_sc = _pe_pay.get("p_up") or _pe_pay.get("probability")
+                            if _pe_sc is not None:
+                                _pe_sc_f = float(_pe_sc)
+                                # Scores may be 0-1 or 0-100
+                                if _pe_sc_f > 1.5:
+                                    _pe_sc_f = _pe_sc_f / 100.0
+                                if _pe_sc_f < 0.45:
+                                    _notional = round(_notional * 0.5, 2)
+                                    if _trade_type == "CALL_OPTION":
+                                        pass  # keep 1 contract, reduced notional tracked
+                                    else:
+                                        _qty = round(_notional / _fill_price, 4)
+                                    print(f"[pe_treeshap_soft_gate] {_t} PE={_pe_sc_f:.3f} "
+                                          f"→ notional×0.5 (${_notional})")
+                                pick["pe_score"] = _pe_sc_f
+                    except Exception as _pe_gate_e:
+                        print(f"[pe_treeshap_soft_gate] skipped (non-fatal): {_pe_gate_e}")
                     _d2_run(14, "scoring_synthesis", "Scoring / Synthesis",
                             "candidate_ranking_created + trust_weights_applied + drift_gate_checked",
                             lambda: {"raw_score": _raw_sc, "trust_mult": _tw_lbl,
@@ -24841,6 +24905,56 @@ def _run_conviction_scanner(max_tickers: int = 15, force_tickers=None) -> list:
                     penalty_pts=penalty,
                     total_pts_before=total_pts_before,
                 )
+
+    # ── Layer 9: Statistical Edge pts (fills shadow-learning key layer9_edge) ─
+    # Prefetch today's/recent layer9_scores for tickers already in the stack.
+    # Design-choice thresholds (audit-flagged same as L10):
+    #   statistical_score ≥ 70 → 2.0 pts
+    #   statistical_score ≥ 55 → 1.0 pts
+    #   statistical_score < 40 or jump_detected → 0 pts (no boost; meta flagged)
+    # Does NOT invent a new pipeline — reuses layer9_scores written by
+    # _run_layer9_bg_scan every 2h.
+    try:
+        import psycopg2 as _pg_l9e
+        _l9_tickers = list(scores.keys())
+        _l9_map: dict = {}
+        if _l9_tickers:
+            with _pg_l9e.connect(os.environ["DATABASE_URL"]) as _l9c, _l9c.cursor() as _l9cu:
+                _l9cu.execute("""
+                    SELECT DISTINCT ON (ticker)
+                           ticker,
+                           COALESCE(statistical_score, 50)::float,
+                           COALESCE(regime, 'unknown'),
+                           COALESCE(vpin_raw, 0.5)::float,
+                           COALESCE(jump_detected, FALSE)
+                    FROM layer9_scores
+                    WHERE ticker = ANY(%s)
+                      AND computed_at >= NOW() - INTERVAL '2 days'
+                    ORDER BY ticker, computed_at DESC
+                """, (_l9_tickers,))
+                for _r in _l9cu.fetchall():
+                    _l9_map[_r[0]] = _r
+        for _tk, _row in _l9_map.items():
+            if _tk not in scores:
+                continue
+            _ss = float(_row[1])
+            _jmp = bool(_row[4])
+            if _jmp or _ss < 40:
+                _l9_pts = 0.0
+            elif _ss >= 70:
+                _l9_pts = 2.0
+            elif _ss >= 55:
+                _l9_pts = 1.0
+            else:
+                _l9_pts = 0.5
+            scores[_tk]["pts"]["layer9_edge"] = _l9_pts
+            scores[_tk]["meta"]["layer9_score"] = round(_ss, 1)
+            scores[_tk]["meta"]["layer9_regime"] = str(_row[2])
+            scores[_tk]["meta"]["layer9_vpin"] = round(float(_row[3]), 3)
+            scores[_tk]["meta"]["layer9_jump"] = _jmp
+        print(f"[L9-edge] applied layer9_edge pts to {len(_l9_map)}/{len(scores)} tickers")
+    except Exception as _l9e_exc:
+        print(f"[L9-edge] layer9_edge inject skipped (non-fatal): {_l9e_exc}")
 
     # ── Build ranked results ───────────────────────────────────────────────────
     results = []
@@ -48710,6 +48824,50 @@ def _aiem_paper_pick_candidates(
     except Exception as _dme:
         print(f"[learning_gate] drift gate skipped (non-fatal): {_dme}")
 
+    # ── Module 2 decay → entry rank (closes M2 into pick decisions) ────────
+    # If Module 2 most recently marked a discovery/source DECAYING or failing,
+    # further penalise that source at entry (MTM already uses this on exits).
+    try:
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _m2c, \
+                _m2c.cursor() as _m2cu:
+            _m2cu.execute("""
+                SELECT COALESCE(d.signal_name, d.invented_indicator), m.decay_verdict
+                FROM aiem_module2_evaluations m
+                JOIN aiem_signal_discoveries d ON d.id = m.discovery_id
+                WHERE m.run_at >= NOW() - INTERVAL '14 days'
+                  AND LOWER(COALESCE(m.decay_verdict, '')) IN ('decaying', 'failing')
+            """)
+            for _m2src, _m2verd in _m2cu.fetchall():
+                if not _m2src:
+                    continue
+                _cur = _drift_mult.get(_m2src, 1.0)
+                _drift_mult[_m2src] = min(_cur, 0.50)
+                print(f"[m2_entry_gate] {_m2src} score×{_drift_mult[_m2src]} "
+                      f"(module2 decay_verdict={_m2verd})")
+    except Exception as _m2e:
+        print(f"[m2_entry_gate] skipped (non-fatal): {_m2e}")
+
+    # ── BH-FDR / discovery retirement → entry rank ─────────────────────────
+    # Retired discoveries (BH-FDR / Module 4 retire path) must not keep full
+    # weight when a candidate source name matches.
+    try:
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _bh_c, \
+                _bh_c.cursor() as _bh_cu:
+            _bh_cu.execute("""
+                SELECT DISTINCT COALESCE(signal_name, invented_indicator)
+                FROM aiem_signal_discoveries
+                WHERE status IN ('retired', 'superseded')
+            """)
+            for (_bh_src,) in _bh_cu.fetchall():
+                if not _bh_src:
+                    continue
+                _cur = _drift_mult.get(_bh_src, 1.0)
+                _drift_mult[_bh_src] = min(_cur, 0.25)
+                print(f"[bh_fdr_retire_gate] {_bh_src} score×{_drift_mult[_bh_src]} "
+                      f"(discovery retired/superseded)")
+    except Exception as _bhe:
+        print(f"[bh_fdr_retire_gate] skipped (non-fatal): {_bhe}")
+
     def _add(ticker, score, trade_type, source, detail="", strike=None, expiry=None,
              direction="BULLISH"):
         t = ticker.upper().strip()
@@ -49167,9 +49325,44 @@ def _aiem_paper_pick_candidates(
     # SpecialistOpinion objects inline — see specialist_council.py's
     # "CANONICAL COUNCIL FACTORY" docstring section for why. Vote math is
     # unchanged (verbatim formulas now live in _build_opinion()).
+    # Prefetch Layer 9 so council signal_engine seat sees Hurst/VPIN/stat edge
+    # without adding a duplicate GARCH council seat (double-count forbidden).
+    _l9_council_ctx: dict = {}
+    try:
+        _prelim_tickers = [_sp["ticker"] for _sp in _prelim]
+        if _prelim_tickers:
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _l9cc, \
+                    _l9cc.cursor() as _l9ccu:
+                _l9ccu.execute("""
+                    SELECT DISTINCT ON (ticker)
+                           ticker,
+                           COALESCE(statistical_score, 50)::float,
+                           COALESCE(regime, 'unknown'),
+                           COALESCE(vpin_raw, 0.5)::float,
+                           COALESCE(hurst_raw, 0.5)::float,
+                           COALESCE(jump_detected, FALSE),
+                           COALESCE(amihud_score, 50)::float
+                    FROM layer9_scores
+                    WHERE ticker = ANY(%s)
+                      AND computed_at >= NOW() - INTERVAL '2 days'
+                    ORDER BY ticker, computed_at DESC
+                """, (_prelim_tickers,))
+                for _r in _l9ccu.fetchall():
+                    _l9_council_ctx[_r[0]] = {
+                        "statistical_score": float(_r[1]),
+                        "regime": str(_r[2]),
+                        "vpin_raw": float(_r[3]),
+                        "hurst_raw": float(_r[4]),
+                        "jump_detected": bool(_r[5]),
+                        "amihud_score": float(_r[6]),
+                    }
+    except Exception as _l9ce:
+        print(f"[council_l9] prefetch skipped (non-fatal): {_l9ce}")
+
     if _council_eff:
         for _sp in _prelim:
             try:
+                _l9c = _l9_council_ctx.get(_sp["ticker"], {})
                 _council = _council_eff.run_council(
                     "candidate_entry",
                     _sp["ticker"],
@@ -49179,6 +49372,13 @@ def _aiem_paper_pick_candidates(
                             "source": _sp.get("source"),
                             "detail": _sp.get("detail", ""),
                             "trade_type": _sp.get("trade_type"),
+                            # Layer 9 / microstructure context for council vote
+                            "layer9_score": _l9c.get("statistical_score"),
+                            "layer9_regime": _l9c.get("regime"),
+                            "vpin_raw": _l9c.get("vpin_raw"),
+                            "hurst_raw": _l9c.get("hurst_raw"),
+                            "jump_detected": _l9c.get("jump_detected"),
+                            "amihud_score": _l9c.get("amihud_score"),
                         },
                         "macro_bias": float(_macro_bias),
                     },
@@ -49190,6 +49390,29 @@ def _aiem_paper_pick_candidates(
                 print(f'[silent_except:L41476_specialist_council] {type(_exc).__name__}: {_exc}')
                 # council is additive; never block a pick — but log so a dead
                 # council doesn't go unnoticed indefinitely (Diagram-2 lesson)
+
+    # ── Layer 9 soft rank multiplier (after council) ───────────────────────
+    # Soft only: elevates names with real statistical edge; dampens weak/jump.
+    for _sp in _prelim:
+        _l9c = _l9_council_ctx.get(_sp["ticker"])
+        if not _l9c:
+            continue
+        _ss = float(_l9c.get("statistical_score") or 50)
+        _jmp = bool(_l9c.get("jump_detected"))
+        if _jmp or _ss < 40:
+            _sp["score"] *= 0.85
+            _sp["detail"] = (_sp.get("detail", "") + f" | L9↓{_ss:.0f}").strip(" |")
+        elif _ss >= 65:
+            _sp["score"] *= 1.10
+            _sp["detail"] = (_sp.get("detail", "") + f" | L9↑{_ss:.0f}").strip(" |")
+        _sp["layer9_score"] = _ss
+        # Keep _candidates map in sync for tickers still present
+        if _sp["ticker"] in _candidates:
+            _candidates[_sp["ticker"]]["score"] = _sp["score"]
+            _candidates[_sp["ticker"]]["detail"] = _sp.get("detail", "")
+            _candidates[_sp["ticker"]]["layer9_score"] = _ss
+            if _sp.get("_council_run_id"):
+                _candidates[_sp["ticker"]]["_council_run_id"] = _sp["_council_run_id"]
 
     _gate_rejections = {}  # ticker → (stage, reason, no_trade_reason)
     _ncm_cand_save = {}    # data snapshot for news-blocked candidates
@@ -72330,17 +72553,63 @@ def signal_intelligence_endpoint():
             "note": "Needs live Tradier chains — activates Mon–Fri during market hours"
         }
 
-        # ── GARCH + GP status (feed into layer9 statistical_score) ───────────
-        _l9t = out["layer9"].get("tickers", 0)
-        out["groups"]["garch"] = {
-            "tickers_analyzed": _l9t,
-            "regime_covered": out["layer9"].get("regime_covered", 0),
-            "status": "active" if _l9t > 0 else "pending"
-        }
-        out["groups"]["gp"] = {
-            "tickers_fitted": _l9t,
-            "status": "active" if _l9t > 0 else "pending"
-        }
+        # ── GARCH status from garch_regime_log (real fits, not Layer 9 proxy) ─
+        try:
+            _sicu.execute("""
+                SELECT COUNT(DISTINCT ticker),
+                       COUNT(*),
+                       MAX(logged_at),
+                       COUNT(*) FILTER (WHERE vote > 0),
+                       COUNT(*) FILTER (WHERE vote < 0)
+                FROM garch_regime_log
+                WHERE logged_at >= NOW() - INTERVAL '2 days'
+            """)
+            _gc = _sicu.fetchone()
+            _gc_tickers = int(_gc[0] or 0)
+            out["groups"]["garch"] = {
+                "tickers_analyzed": _gc_tickers,
+                "regime_covered": _gc_tickers,
+                "rows": int(_gc[1] or 0),
+                "last_log": _ago(_gc[2]) if _gc[2] else None,
+                "vote_high_vol": int(_gc[3] or 0),
+                "vote_calm": int(_gc[4] or 0),
+                "status": "active" if _gc_tickers > 0 else "pending",
+                "source": "garch_regime_log",
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["garch"] = {
+                "tickers_analyzed": 0, "regime_covered": 0,
+                "status": "pending", "source": "garch_regime_log",
+            }
+
+        # ── GP status from gp_discovered_templates (weekly Module 1 evolution)
+        # NOT ml_infrastructure.gp_signal_search (tool-only, not scheduled).
+        try:
+            _sicu.execute("""
+                SELECT COUNT(*), MAX(evolved_at),
+                       MAX(fitness), MAX(holdout_win_rate)
+                FROM gp_discovered_templates
+            """)
+            _gp = _sicu.fetchone()
+            _gp_n = int(_gp[0] or 0)
+            out["groups"]["gp"] = {
+                "tickers_fitted": _gp_n,  # FE key kept for Signal Intel card
+                "templates": _gp_n,
+                "last_evolved": _ago(_gp[1]) if _gp[1] else None,
+                "best_fitness": _safe(float(_gp[2])) if _gp[2] is not None else None,
+                "best_holdout_wr": _safe(float(_gp[3])) if _gp[3] is not None else None,
+                "status": "active" if _gp_n > 0 else "pending",
+                "source": "gp_discovered_templates",
+                "note": "GP evolution (Module 1 weekly) — not sklearn gp_signal_search",
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["gp"] = {
+                "tickers_fitted": 0, "templates": 0,
+                "status": "pending", "source": "gp_discovered_templates",
+                "note": "GP evolution table unavailable",
+            }
 
         # ── job heartbeats ────────────────────────────────────────────────────
         try:
