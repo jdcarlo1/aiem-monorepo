@@ -77,18 +77,26 @@ log = logging.getLogger("aiem_strat_scheduler")
 def _tg(text: str) -> bool:
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    ok = False
     if not token or not chat_id:
-        return False
+        ok = False
+    else:
+        try:
+            body = json.dumps({"chat_id": chat_id, "text": text[:4096]}).encode()
+            req  = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=body, headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                ok = r.status == 200
+        except Exception:
+            ok = False
     try:
-        body = json.dumps({"chat_id": chat_id, "text": text[:4096]}).encode()
-        req  = urllib.request.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=body, headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=6) as r:
-            return r.status == 200
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source="ase_strat_scheduler", sent_ok=ok)
     except Exception:
-        return False
+        pass
+    return ok
 
 
 # ── Structured module-failure logger ────────────────────────────────────────
@@ -258,10 +266,9 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
     from aiem_strat_engine.selector import EvaluationResult, select, evaluation_summary  # noqa: F401 (filter_compatible imported below)
     from aiem_strat_engine.greeks import aggregate as agg_greeks
     from aiem_strat_engine.legs import strategy_fingerprint, net_debit_credit
-    from aiem_strat_engine.paper_trader import insert_paper_trade, save_decision_run, _new_run_id
+    from aiem_strat_engine.paper_trader import save_decision_run, _new_run_id
     from aiem_strat_engine.config import config_sha256, PORTFOLIO_CAPITAL
-    from aiem_portfolio_engine import run_portfolio_gate
-    from aiem_portfolio_engine.config import PE_GATING_ENABLED as _PE_GATING
+    from aiem_operational_controls import execute_selected_paper_trade_fail_closed
 
     run_id = _new_run_id(ticker, thesis)
     log.info(f"[{run_id}] START {ticker} {thesis}")
@@ -615,34 +622,19 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
         selection=selection, config_sha=config_sha256(),
     )
 
-    # Paper trade if selected
+    # Paper trade if selected — fail-closed operational controls gateway
     if selection.decision == "TRADE" and selection.selected:
-        # ── Portfolio Gate (Phase 2) ───────────────────────────────────────────
-        try:
-            pe_decision = run_portfolio_gate(
-                evaluation=selection.selected,
-                selection=selection,
-                ticker=ticker,
-                run_id=run_id,
-                db_url=os.environ.get("DATABASE_URL", ""),
-            )
-            log.info(
-                f"[{run_id}] PortfolioGate decision={pe_decision.decision} "
-                f"gating={_PE_GATING} "
-                f"hash={pe_decision.evidence_hash[:12]}"
-            )
-            if _PE_GATING and not pe_decision.gate_passed():
-                log.info(f"[{run_id}] Portfolio gate BLOCKED trade: "
-                         f"{pe_decision.decision_reasons[:1]}")
-                return True
-        except Exception as _pge:
-            log.warning(f"[{run_id}] Portfolio gate error (non-blocking in observe mode): {_pge}")
-
-        pt_id = insert_paper_trade(
-            evaluation=selection.selected, selection=selection,
-            ticker=ticker, thesis=thesis, market_regime=market_regime,
-            volatility_regime=vol_regime, event_context=None,
-            run_id=run_id, underlying_price=spot,
+        pt_id = execute_selected_paper_trade_fail_closed(
+            evaluation=selection.selected,
+            selection=selection,
+            ticker=ticker,
+            thesis=thesis,
+            market_regime=market_regime,
+            volatility_regime=vol_regime,
+            event_context=None,
+            run_id=run_id,
+            underlying_price=spot,
+            requested_qty=1,
         )
         if pt_id:
             log.info(f"[{run_id}] Paper trade inserted: {pt_id}")
@@ -681,6 +673,12 @@ def _run_all_pending():
     """Claim and run all PENDING ase_engine_jobs."""
     if not _is_market_day():
         return
+
+    try:
+        from aiem_operational_controls import recover_and_reconcile
+        recover_and_reconcile()
+    except Exception as _ocr:
+        log.debug(f"recover_and_reconcile skipped: {_ocr}")
 
     _recover_stale_jobs()
     today = date.today()
@@ -848,6 +846,15 @@ def main():
     tables = list_tables()
     log.info(f"Tables: {tables}")
 
+    # 1b. Operational controls schema + restart reconciliation
+    try:
+        from aiem_operational_controls import install_schema, recover_and_reconcile
+        install_schema()
+        recover_and_reconcile()
+        log.info("Operational controls: schema installed, recover_and_reconcile done")
+    except Exception as _oce:
+        log.warning(f"Operational controls bootstrap failed (non-fatal): {_oce}")
+
     # 2. Start health server
     _start_health_server()
 
@@ -868,9 +875,15 @@ def main():
     sched.add_job(_monthly_report,    CronTrigger(day_of_week="mon-fri", hour=22, minute=0), id="monthly_rpt")
     # 00:05 ET — cleanup old jobs
     sched.add_job(_cleanup_old_jobs,  CronTrigger(hour=0, minute=5),                         id="cleanup")
-    # Heartbeat every 5 min
-    sched.add_job(lambda: _heartbeat("alive", {"tables": len(tables)}),
-                  "interval", minutes=5, id="heartbeat")
+    # Heartbeat every 5 min + operational recover/reconcile
+    def _hb_and_recover():
+        _heartbeat("alive", {"tables": len(tables)})
+        try:
+            from aiem_operational_controls import recover_and_reconcile
+            recover_and_reconcile()
+        except Exception as _ocr:
+            log.debug(f"periodic recover_and_reconcile skipped: {_ocr}")
+    sched.add_job(_hb_and_recover, "interval", minutes=5, id="heartbeat")
 
     sched.start()
     log.info("Scheduler started")

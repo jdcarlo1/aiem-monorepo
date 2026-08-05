@@ -11,6 +11,10 @@ name: AIEM Market-Hours Watchdog
 # All trade logic lives in aiem_backup_runner.py running on the Replit VM.
 
 on:
+  # push: invalid YAML previously caused 0s startup-failure checks on every
+  # push (workflow name shown as file path). Keep push so tip commits get a
+  # real green run; body exits immediately on push (schedule/dispatch do work).
+  push:
   schedule:
     # Every minute, Mon-Fri, 13:00-20:00 UTC (09:00-16:00 ET)
     - cron: '* 13-19 * * 1-5'
@@ -44,8 +48,16 @@ jobs:
           echo "=== AIEM Watchdog ==="
           echo "UTC time : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
           echo "Run ID   : ${{ github.run_id }}"
+          echo "Event    : ${{ github.event_name }}"
           echo "Dry run  : ${DRY_RUN}"
           echo "=============================="
+
+          # Push events only validate workflow YAML parses and the job starts.
+          # Recovery logic remains schedule / workflow_dispatch only.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Push event — YAML-valid smoke OK (no recovery on push)"
+            exit 0
+          fi
 
           # ── Recovery window check (9:55 AM - 3:00 PM ET = 13:55-19:00 UTC) ──
           HOUR_UTC=$(date -u +%H)
@@ -101,19 +113,22 @@ jobs:
 
           echo "Recovery response: ${RESPONSE}"
 
+          # NOTE: python body MUST stay indented inside this run:| block scalar.
+          # Column-0 lines terminate the YAML scalar → GitHub startup-failure
+          # runs named ".github/workflows/market-hours-watchdog.yml" with 0s/no jobs.
           echo "${RESPONSE}" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-except Exception as e:
-    print(f'ERROR: non-JSON response: {e}')
-    sys.exit(1)
-status = d.get('status', 'UNKNOWN')
-print(f'Pipeline status : {status}')
-print(f'Summary         : {d.get(\"summary\",\"\")}')
-for line in d.get('log_tail', [])[-10:]:
-    print(f'  {line}')
-if 'error' in d:
-    print(f'ERROR: {d[\"error\"]}')
-    sys.exit(1)
-"
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+          except Exception as e:
+              print(f'ERROR: non-JSON response: {e}')
+              sys.exit(1)
+          status = d.get('status', 'UNKNOWN')
+          print(f'Pipeline status : {status}')
+          print(f'Summary         : {d.get(\"summary\",\"\")}')
+          for line in d.get('log_tail', [])[-10:]:
+              print(f'  {line}')
+          if 'error' in d:
+              print(f'ERROR: {d[\"error\"]}')
+              sys.exit(1)
+          "

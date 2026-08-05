@@ -50,17 +50,38 @@ def get_spot(ticker: str) -> Optional[float]:
         if cached and now - cached[1] < 60:  # 1-min cache for spot
             return cached[0]
     data = _get("quotes", {"symbols": ticker.upper(), "greeks": "false"})
-    if not data:
-        return None
+    if data:
+        try:
+            q = data.get("quotes", {}).get("quote", {})
+            if isinstance(q, list):
+                q = q[0]
+            price = float(q.get("last") or q.get("close") or 0)
+            if price > 0:
+                with _lock:
+                    _quote_cache[ticker] = (price, now)
+                return price
+        except Exception:
+            pass
+    # DB fallback when Tradier is unavailable (ASE remains independent of AIEM paper book).
     try:
-        q = data.get("quotes", {}).get("quote", {})
-        if isinstance(q, list):
-            q = q[0]
-        price = float(q.get("last") or q.get("close") or 0)
-        if price > 0:
-            with _lock:
-                _quote_cache[ticker] = (price, now)
-            return price
+        import psycopg2
+        db_url = os.environ.get("AIEM_DATABASE_URL") or os.environ.get("DATABASE_URL")
+        if db_url:
+            with psycopg2.connect(db_url, connect_timeout=3) as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT close_price FROM polygon_market_daily
+                    WHERE ticker=%s AND close_price > 0
+                    ORDER BY scan_date DESC LIMIT 1
+                    """,
+                    (ticker.upper(),),
+                )
+                row = cur.fetchone()
+                if row and float(row[0]) > 0:
+                    price = float(row[0])
+                    with _lock:
+                        _quote_cache[ticker] = (price, now)
+                    return price
     except Exception:
         pass
     return None

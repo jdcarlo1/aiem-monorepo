@@ -694,8 +694,16 @@ def run_scan() -> dict:
                     if sig:
                         _save(sig, tg_sent=False)
                         if sig["state"] == "CONFIRMED":
-                            _tg(_format_alert(sig), ticker=ticker, trigger_price=closes[-1])
-                            _save(sig, tg_sent=True)
+                            try:
+                                import aiem_wiring_infra as _awi_tg
+                                _tg_ok = _awi_tg.discovery_allows_live_alert(_SIGNAL_NAME)
+                            except Exception:
+                                _tg_ok = False
+                            if _tg_ok:
+                                _tg(_format_alert(sig), ticker=ticker, trigger_price=closes[-1])
+                                _save(sig, tg_sent=True)
+                            else:
+                                print(f"[momentum_exhaustion] TG suppressed — discovery not validated for {ticker}")
                         fired += 1
                     else:
                         skipped += 1

@@ -114,22 +114,29 @@ log.info(
 def _tg(text: str) -> bool:
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    ok = False
     if not token or not chat_id:
         log.warning("[telegram] token/chat_id not configured")
-        return False
+    else:
+        try:
+            payload = json.dumps({"chat_id": chat_id, "text": text,
+                                  "parse_mode": "HTML"}).encode()
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                ok = r.status == 200
+        except Exception as e:
+            log.warning(f"[telegram] send failed: {e}")
+            ok = False
     try:
-        payload = json.dumps({"chat_id": chat_id, "text": text,
-                              "parse_mode": "HTML"}).encode()
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.status == 200
-    except Exception as e:
-        log.warning(f"[telegram] send failed: {e}")
-        return False
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source="options_scheduler", sent_ok=ok)
+    except Exception:
+        pass
+    return ok
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DB BOOTSTRAP
@@ -323,6 +330,13 @@ def _bootstrap_db() -> None:
                 log.info("[bootstrap] oe_execution_plans (Phase 6 trigger engine) ready")
             except Exception as _ote_be:
                 log.warning(f"[bootstrap] trigger_engine bootstrap skipped: {_ote_be}")
+            # Operational controls schema (fail-open — never block scheduler boot)
+            try:
+                from aiem_operational_controls import install_schema as _oc_install
+                _oc_install()
+                log.info("[bootstrap] aiem_operational_controls schema ready")
+            except Exception as _oc_be:
+                log.warning(f"[bootstrap] operational_controls install_schema skipped: {_oc_be}")
             return
         except Exception as e:
             last_exc = e
@@ -2836,6 +2850,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 )
             except Exception as _st_rg_e:
                 log.debug(f"[scheduler_trace] RISK_GATE: {_st_rg_e}")
+
+        # ── Kill switch (fail-closed on active switch; ImportError = fail-open) ─
+        try:
+            from aiem_operational_controls import kill_switch_reason
+            _ks = kill_switch_reason(ticker)
+            if _ks:
+                raise ValueError(f"kill_switch_blocked: {_ks}")
+        except ImportError:
+            pass
 
         # ── Stage 8: DB persist ────────────────────────────────────────────────
         save_result = _pipe.save_options_alert(

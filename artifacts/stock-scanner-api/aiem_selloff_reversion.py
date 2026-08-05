@@ -398,6 +398,37 @@ def _compute_signal(ticker: str, closes: list, highs: list, lows: list,
         "vol_bucket":                    vb,
     }
 
+
+def compute_signal(ticker: str, closes: list, highs: list, lows: list,
+                   volumes: list, dates: list,
+                   spy_closes=None, cur=None, conn=None, sm=None) -> Optional[dict]:
+    """Public entry for orchestrator (same gates as run_scan → _compute_signal).
+
+    Expects chronological ascending OHLCV (oldest→newest), matching run_scan.
+    Returns signal dict, or {"status": "no_signal"|"insufficient_data", ...}.
+    """
+    if len(closes) < 210:
+        return {"status": "insufficient_data", "bars": len(closes), "min_required": 210}
+    if cur is None:
+        return {"status": "error", "error": "compute_signal requires DB cursor"}
+    if sm is None:
+        try:
+            sm = _smart_money(ticker, dates[-1], cur)
+        except Exception:
+            sm = None
+    sig = _compute_signal(ticker, closes, highs, lows, volumes, dates, sm, cur)
+    if sig is None:
+        return {
+            "status": "no_signal",
+            "ticker": ticker,
+            "bars": len(closes),
+            "entry_point": "aiem_selloff_reversion.compute_signal/_compute_signal",
+        }
+    sig["status"] = "signal"
+    sig["entry_point"] = "aiem_selloff_reversion.compute_signal/_compute_signal"
+    return sig
+
+
 # ── Telegram message format (spec §7.3) ───────────────────────────────────────
 
 def _format_alert(sig: dict, overnight: bool = False) -> str:
@@ -621,13 +652,23 @@ def run_scan() -> dict:
                 # scan that crosses 16:00 ET does not fire alerts after close.
                 send_now = sig["state"] == "CONFIRMED" and _market_open() and cooldown_ok
 
-                _save_signal(sig, tg_sent=send_now)
+                _save_signal(sig, tg_sent=False)
 
                 if send_now:
-                    _tg(_format_alert(sig), ticker=sig["ticker"],
-                        trigger_price=d["closes"][-1])
-                    _TG_COOLDOWN[ticker] = _et_now()
-                    alerted.append(ticker)
+                    try:
+                        import aiem_wiring_infra as _awi_tg
+                        _tg_ok = _awi_tg.discovery_allows_live_alert("Oversold_Bounce_Uptrend")
+                    except Exception:
+                        _tg_ok = False
+                    if _tg_ok:
+                        _tg(_format_alert(sig), ticker=sig["ticker"],
+                            trigger_price=d["closes"][-1])
+                        _TG_COOLDOWN[ticker] = _et_now()
+                        alerted.append(ticker)
+                        _save_signal(sig, tg_sent=True)
+                    else:
+                        print(f"[bounce] TG suppressed — discovery not validated for {ticker}")
+                        queued.append(ticker)
                 elif sig["state"] == "CONFIRMED":
                     queued.append(ticker)
 

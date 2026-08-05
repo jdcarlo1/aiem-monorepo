@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getToken, getCsrfToken } from "@/lib/auth";
+import { getToken, getCsrfToken, clearToken } from "@/lib/auth";
 
 export interface UseApiResponse<T> {
   data: T | null;
@@ -44,7 +44,13 @@ export function useApi<T>(
         credentials: "include",
       });
 
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          clearToken();
+          window.location.href = "/aiem/";
+        }
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
 
       const json = await res.json();
       setData(json);

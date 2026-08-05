@@ -4,12 +4,14 @@ import { DataFooter } from "@/components/data-footer";
 
 export default function Alerts() {
   const { data: heartbeats, loading, lastUpdated: alertUpdated } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
+  const { data: tgAlerts, loading: tgLoading } = useApi<any>("/stock-api/admin/telegram-alerts?limit=40", {}, 30000);
 
   const jobs: any[] = heartbeats?.jobs ?? [];
   const failedJobs = jobs.filter((j: any) => j.consecutive_failures > 0 || j.last_error);
   const okJobs = jobs.filter((j: any) => !j.consecutive_failures && !j.last_error);
   const telegramJob = jobs.find((j: any) => j.job_name?.toLowerCase().includes("telegram") || j.job_name?.toLowerCase().includes("notif"));
   const telegramOk = telegramJob ? !telegramJob.consecutive_failures && !telegramJob.last_error : null;
+  const alertRows: any[] = tgAlerts?.rows ?? [];
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -122,18 +124,63 @@ export default function Alerts() {
             </div>
 
             <div className="pt-4 border-t border-border">
-              <div className="text-xs text-muted-foreground mb-2">NOTE</div>
-              <div className="text-xs text-muted-foreground italic">
-                Telegram dispatch logs (per-message history, delivery receipts, bot ping latency)
-                are not stored in a queryable backend table. This panel shows job heartbeat
-                status only — not individual message delivery confirmation.
-              </div>
+              <div className="text-xs text-muted-foreground mb-2">LEDGER COUNT</div>
+              <div className="text-white font-bold">{tgAlerts?.count ?? (tgLoading ? "…" : 0)}</div>
+              <div className="text-xs text-muted-foreground mt-1">telegram_alert_ledger rows</div>
             </div>
           </div>
         </div>
       </div>
+
+      <div className="border border-border bg-card flex flex-col min-h-[240px]">
+        <div className="p-3 border-b border-border bg-sidebar/50 flex justify-between items-center shrink-0">
+          <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2">
+            <Send size={14} /> TELEGRAM ALERT LEDGER
+          </h2>
+          <span className="text-xs font-mono text-muted-foreground">
+            {alertRows.length} shown
+          </span>
+        </div>
+        <div className="flex-1 overflow-auto p-0">
+          <table className="w-full text-left font-mono text-sm border-collapse">
+            <thead className="sticky top-0 bg-card border-b border-border text-muted-foreground text-xs z-10">
+              <tr>
+                <th className="p-3 font-normal">SENT</th>
+                <th className="p-3 font-normal">TICKER</th>
+                <th className="p-3 font-normal">SOURCE</th>
+                <th className="p-3 font-normal">CLASS</th>
+                <th className="p-3 font-normal">OK</th>
+                <th className="p-3 font-normal">RESULT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tgLoading ? (
+                <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
+              ) : alertRows.length ? (
+                alertRows.map((row: any) => (
+                  <tr key={row.id} className="border-b border-border/50 hover:bg-white/5">
+                    <td className="p-3 text-xs text-muted-foreground">
+                      {row.sent_at ? new Date(row.sent_at).toLocaleString() : "—"}
+                    </td>
+                    <td className="p-3 font-bold text-white">{row.ticker || "—"}</td>
+                    <td className="p-3 text-xs text-secondary">{row.signal_source}</td>
+                    <td className="p-3 text-xs">{row.alert_class}</td>
+                    <td className={`p-3 font-bold ${row.sent_ok ? "text-success" : "text-destructive"}`}>
+                      {row.sent_ok == null ? "—" : row.sent_ok ? "YES" : "NO"}
+                    </td>
+                    <td className="p-3 text-xs text-muted-foreground">{row.win_loss || (row.graded ? "graded" : "ungraded")}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">NO TELEGRAM LEDGER ROWS</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <DataFooter
-        source="job_heartbeats"
+        source="job_heartbeats, telegram_alert_ledger"
         lastUpdated={alertUpdated}
         pollIntervalSec={30}
         operatingMode="LIVE MONITORING"

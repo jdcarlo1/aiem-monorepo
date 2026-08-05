@@ -733,6 +733,140 @@ def get_backtest_summary(conn=None) -> dict:
 
 # ── Live scanner ────────────────────────────────────────────────────────────────
 
+def compute_signal(ticker: str, sig_date: date = None, cur=None, conn=None) -> Dict[str, Any]:
+    """
+    Single-ticker evaluation using the same gates as run_scan's per-row loop.
+    Public orchestrator entry (replaces SI-lookup-only handler path).
+    """
+    t = (ticker or "").upper().strip()
+    if not t:
+        return {"status": "error", "error": "empty_ticker"}
+    own_conn = False
+    try:
+        if cur is None:
+            if not _DB_URL:
+                return {"status": "error", "error": "no DB_URL"}
+            conn = psycopg2.connect(
+                _DB_URL, connect_timeout=8,
+                options="-c statement_timeout=15000",
+            )
+            cur = conn.cursor()
+            own_conn = True
+
+        if sig_date is None:
+            cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily WHERE ticker=%s", (t,))
+            sig_date = cur.fetchone()[0]
+        if sig_date is None:
+            return {"status": "no_data", "ticker": t}
+
+        cur.execute("""
+            SELECT close_price, rvol, close_strength, range_pct, volume, gap_pct
+            FROM polygon_market_daily
+            WHERE ticker=%s AND scan_date=%s
+        """, (t, sig_date))
+        row = cur.fetchone()
+        if not row:
+            return {"status": "no_bar", "ticker": t, "signal_date": str(sig_date)}
+
+        close_p = float(row[0] or 0)
+        rvol = float(row[1] or 0)
+        cs = float(row[2] or 0)
+        rng = float(row[3] or 0)
+        vol = int(row[4] or 0)
+        gap = float(row[5] or 0)
+
+        cur.execute("""
+            SELECT close_price FROM polygon_market_daily
+            WHERE ticker=%s AND scan_date < %s
+            ORDER BY scan_date DESC LIMIT 1 OFFSET 4
+        """, (t, sig_date))
+        c5row = cur.fetchone()
+        prior_5d = None
+        if c5row and c5row[0] and float(c5row[0]) > 0:
+            prior_5d = (close_p - float(c5row[0])) / float(c5row[0]) * 100
+
+        gate_notes = []
+        if not (_PRICE_MIN <= close_p <= _PRICE_MAX):
+            gate_notes.append("price_out_of_band")
+        if vol < _VOLUME_MIN:
+            gate_notes.append("volume_below_min")
+        if rvol < _RVOL_MIN:
+            gate_notes.append("rvol_below_min")
+        if cs < _CLOSE_STR_MIN:
+            gate_notes.append("close_strength_below_min")
+        if rng < _RANGE_MIN_PCT:
+            gate_notes.append("range_below_min")
+        if prior_5d is None:
+            gate_notes.append("missing_prior_5d")
+        elif prior_5d > _PRIOR_5D_DROP_MAX:
+            gate_notes.append("prior_5d_not_weak_enough")
+
+        mf = _module_f_gate(t, prior_5d if prior_5d is not None else 0.0, sig_date, cur)
+        si_d = _get_si_for_signal(t, sig_date, cur)
+        if si_d["si_status"] == _SI_NOT_AVAILABLE and _POLY_KEY:
+            live = _fetch_si_for_ticker(t)
+            if live:
+                for lr in live:
+                    try:
+                        cur.execute("""
+                            INSERT INTO polygon_short_interest
+                                (ticker, settlement_date, short_interest, avg_daily_volume, days_to_cover)
+                            VALUES (%s,%s,%s,%s,%s)
+                            ON CONFLICT DO NOTHING
+                        """, (t, lr["settlement_date"], lr.get("short_interest"),
+                              lr.get("avg_daily_volume"), lr.get("days_to_cover")))
+                    except Exception:
+                        pass
+                if own_conn and conn is not None:
+                    conn.commit()
+                si_d = _get_si_for_signal(t, sig_date, cur)
+
+        si_pct = None
+        if si_d["si_status"] == _SI_AVAILABLE and si_d["short_interest"]:
+            shares = _get_shares_outstanding(t)
+            if shares and shares > 0:
+                si_pct = round(si_d["short_interest"] / shares * 100, 2)
+
+        dtc = si_d["days_to_cover"]
+        conv = _conviction(rvol, cs, gap, dtc)
+        fired = (not gate_notes) and (not mf.get("suppress"))
+
+        return {
+            "status": "signal" if fired else "no_signal",
+            "entry_point": "aiem_short_squeeze.compute_signal",
+            "ticker": t,
+            "signal_date": str(sig_date),
+            "fired": fired,
+            "gate_notes": gate_notes,
+            "module_f": mf,
+            "conviction_score": conv,
+            "rvol": rvol,
+            "close_strength": cs,
+            "range_pct": rng,
+            "gap_pct": gap,
+            "volume": vol,
+            "prior_5d_ret": prior_5d,
+            "si_status": si_d["si_status"],
+            "si_settlement_date": si_d.get("si_settlement_date"),
+            "si_staleness_days": si_d.get("si_staleness_days"),
+            "avg_daily_volume_si": si_d.get("avg_daily_volume_si"),
+            "days_to_cover": dtc,
+            "si_pct": si_pct,
+            "short_interest": si_d.get("short_interest"),
+            "borrow_cost_status": _BORROW_COST_STATUS,
+            "data_available": si_d["si_status"] != _SI_NOT_AVAILABLE,
+        }
+    except Exception as e:
+        return {"status": "error", "ticker": t, "error": str(e),
+                "entry_point": "aiem_short_squeeze.compute_signal"}
+    finally:
+        if own_conn and conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def run_scan() -> dict:
     """
     Daily scanner with real Polygon SI data.
@@ -757,15 +891,6 @@ def run_scan() -> dict:
                 return {"status": "no_data"}
 
             cur.execute("""
-                SELECT ticker, close_price FROM polygon_market_daily
-                WHERE scan_date = (
-                    SELECT scan_date FROM polygon_market_daily
-                    WHERE scan_date < %s ORDER BY scan_date DESC LIMIT 1 OFFSET 4
-                )
-            """, (latest_date,))
-            close_5d_ago = {r[0]: float(r[1]) for r in cur.fetchall()}
-
-            cur.execute("""
                 SELECT ticker, close_price, rvol, close_strength, range_pct, volume, gap_pct
                 FROM polygon_market_daily
                 WHERE scan_date = %s
@@ -783,89 +908,59 @@ def run_scan() -> dict:
             hits = []; suppressed = []
             for r in rows:
                 ticker = r[0]
-                close_p, rvol, cs, rng, vol, gap = (
-                    float(r[1]), float(r[2] or 0), float(r[3] or 0),
-                    float(r[4] or 0), int(r[5] or 0), float(r[6] or 0))
-
-                c5 = close_5d_ago.get(ticker)
-                if c5 is None or c5 <= 0:
+                # Per-ticker path shares compute_signal (same gates / SI / Module F).
+                sig = compute_signal(ticker, sig_date=latest_date, cur=cur, conn=conn)
+                if sig.get("status") == "error":
                     continue
-                prior_5d = (close_p - c5) / c5 * 100
-                if prior_5d > _PRIOR_5D_DROP_MAX:
-                    continue
-
-                mf   = _module_f_gate(ticker, prior_5d, latest_date, cur)
-                si_d = _get_si_for_signal(ticker, latest_date, cur)
-
-                # If not in cache, attempt a live fetch (rate-limit aware: max 1 per ticker)
-                if si_d["si_status"] == _SI_NOT_AVAILABLE and _POLY_KEY:
-                    live = _fetch_si_for_ticker(ticker)
-                    if live:
-                        for lr in live:
-                            try:
-                                cur.execute("""
-                                    INSERT INTO polygon_short_interest
-                                        (ticker, settlement_date, short_interest, avg_daily_volume, days_to_cover)
-                                    VALUES (%s,%s,%s,%s,%s)
-                                    ON CONFLICT DO NOTHING
-                                """, (ticker, lr["settlement_date"], lr.get("short_interest"),
-                                      lr.get("avg_daily_volume"), lr.get("days_to_cover")))
-                            except Exception:
-                                pass
-                        conn.commit()
-                        si_d = _get_si_for_signal(ticker, latest_date, cur)
-
-                # Compute si_pct if data available
-                si_pct = None
-                if si_d["si_status"] == _SI_AVAILABLE and si_d["short_interest"]:
-                    shares = _get_shares_outstanding(ticker)
-                    if shares and shares > 0:
-                        si_pct = round(si_d["short_interest"] / shares * 100, 2)
-
-                dtc  = si_d["days_to_cover"]
-                conv = _conviction(rvol, cs, gap, dtc)
-
-                try:
-                    cur.execute("""
-                        INSERT INTO aiem_squeeze_signals (
-                            ticker, signal_date, conviction_score,
-                            rvol, close_strength, range_pct, gap_pct, volume,
-                            si_settlement_date, si_staleness_days, si_status,
-                            short_interest, avg_daily_volume_si, days_to_cover, si_pct,
-                            borrow_cost_status,
-                            earnings_excl, falling_knife, days_to_earnings, module_f_suppressed
-                        ) VALUES (
-                            %s,%s,%s,%s,%s,%s,%s,%s,
-                            %s,%s,%s,%s,%s,%s,%s,
-                            'NOT_IMPLEMENTED',
-                            %s,%s,%s,%s
-                        )
-                        ON CONFLICT (ticker, signal_date) DO UPDATE SET
-                            si_status        = EXCLUDED.si_status,
-                            days_to_cover    = EXCLUDED.days_to_cover,
-                            si_pct           = EXCLUDED.si_pct,
-                            conviction_score = EXCLUDED.conviction_score,
-                            scanned_at       = NOW()
-                    """, (
-                        ticker, latest_date, conv, rvol, cs, rng, gap, vol,
-                        si_d["si_settlement_date"], si_d["si_staleness_days"],
-                        si_d["si_status"], si_d["short_interest"],
-                        si_d["avg_daily_volume_si"], dtc, si_pct,
-                        mf["earnings_excl"], mf["falling_knife"],
-                        mf["days_to_earnings"], mf["suppress"],
-                    ))
-                except Exception as ie:
-                    print(f"[squeeze] scan insert {ticker}: {ie}")
-
-                if mf["suppress"]:
+                if sig.get("module_f", {}).get("suppress"):
                     suppressed.append(ticker)
-                else:
+                    continue
+                if sig.get("fired"):
+                    try:
+                        cur.execute("""
+                            INSERT INTO aiem_squeeze_signals (
+                                ticker, signal_date, conviction_score,
+                                rvol, close_strength, range_pct, gap_pct, volume,
+                                si_settlement_date, si_staleness_days, si_status,
+                                short_interest, avg_daily_volume_si, days_to_cover, si_pct,
+                                borrow_cost_status,
+                                earnings_excl, falling_knife, days_to_earnings, module_f_suppressed
+                            ) VALUES (
+                                %s,%s,%s,%s,%s,%s,%s,%s,
+                                %s,%s,%s,%s,%s,%s,%s,
+                                'NOT_IMPLEMENTED',
+                                %s,%s,%s,%s
+                            )
+                            ON CONFLICT (ticker, signal_date) DO UPDATE SET
+                                si_status        = EXCLUDED.si_status,
+                                days_to_cover    = EXCLUDED.days_to_cover,
+                                si_pct           = EXCLUDED.si_pct,
+                                conviction_score = EXCLUDED.conviction_score,
+                                scanned_at       = NOW()
+                        """, (
+                            ticker, latest_date, sig.get("conviction_score"),
+                            sig.get("rvol"), sig.get("close_strength"),
+                            sig.get("range_pct"), sig.get("gap_pct"), sig.get("volume"),
+                            sig.get("si_settlement_date"), sig.get("si_staleness_days"),
+                            sig.get("si_status"), sig.get("short_interest"),
+                            sig.get("avg_daily_volume_si"), sig.get("days_to_cover"),
+                            sig.get("si_pct"),
+                            sig.get("module_f", {}).get("earnings_excl"),
+                            sig.get("module_f", {}).get("falling_knife"),
+                            sig.get("module_f", {}).get("days_to_earnings"),
+                            bool(sig.get("module_f", {}).get("suppress")),
+                        ))
+                    except Exception as ie:
+                        print(f"[squeeze] scan insert {ticker}: {ie}")
                     hits.append({
                         "ticker": ticker, "signal_date": str(latest_date),
-                        "conviction_score": conv, "rvol": rvol,
-                        "close_strength": cs, "range_pct": rng,
-                        "si_status": si_d["si_status"],
-                        "days_to_cover": dtc, "si_pct": si_pct,
+                        "conviction_score": sig.get("conviction_score"),
+                        "rvol": sig.get("rvol"),
+                        "close_strength": sig.get("close_strength"),
+                        "range_pct": sig.get("range_pct"),
+                        "si_status": sig.get("si_status"),
+                        "days_to_cover": sig.get("days_to_cover"),
+                        "si_pct": sig.get("si_pct"),
                         "borrow_cost_status": _BORROW_COST_STATUS,
                     })
 

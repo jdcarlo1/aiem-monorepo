@@ -226,6 +226,146 @@ def evaluate_on_holdout(
     }
 
 
+def parse_formula(formula_str: str, feature_names: Optional[List[str]] = None) -> Node:
+    """Reconstruct a Node tree from Node.to_string() output.
+
+    Supports binary ops (+ - * /), unary ops (neg/abs/log1p_abs/sign),
+    feature terminals, and numeric constants (including signed floats).
+    """
+    feature_names = list(feature_names or [])
+    s = (formula_str or "").strip()
+    if not s:
+        raise ValueError("empty formula")
+    i = [0]
+
+    def peek() -> str:
+        while i[0] < len(s) and s[i[0]].isspace():
+            i[0] += 1
+        return s[i[0]] if i[0] < len(s) else ""
+
+    def parse_number() -> Node:
+        start = i[0]
+        if peek() in "+-":
+            i[0] += 1
+        while i[0] < len(s) and (s[i[0]].isdigit() or s[i[0]] == "."):
+            i[0] += 1
+        return Node(constant=float(s[start:i[0]]))
+
+    def parse_expr() -> Node:
+        peek()
+        if peek() == "(":
+            i[0] += 1
+            left = parse_expr()
+            peek()
+            op = peek()
+            if op not in BINARY_OPS:
+                raise ValueError(f"bad binary op {op!r} at pos {i[0]}")
+            i[0] += 1
+            right = parse_expr()
+            peek()
+            if peek() != ")":
+                raise ValueError(f"missing ')' at pos {i[0]}")
+            i[0] += 1
+            return Node(op=op, children=[left, right])
+
+        ch = peek()
+        if ch.isdigit() or ch == "." or (
+            ch in "+-" and i[0] + 1 < len(s) and (s[i[0] + 1].isdigit() or s[i[0] + 1] == ".")
+        ):
+            return parse_number()
+
+        start = i[0]
+        while i[0] < len(s) and (s[i[0]].isalnum() or s[i[0]] == "_"):
+            i[0] += 1
+        tok = s[start:i[0]]
+        if peek() == "(" and tok in UNARY_OPS:
+            i[0] += 1
+            child = parse_expr()
+            if peek() != ")":
+                raise ValueError(f"missing ')' after unary {tok}")
+            i[0] += 1
+            return Node(op=tok, children=[child])
+        if feature_names and tok in feature_names:
+            return Node(feature=tok)
+        if not feature_names:
+            # Allow any identifier as a feature when the feature list is unknown.
+            return Node(feature=tok)
+        raise ValueError(f"unknown token {tok!r}")
+
+    node = parse_expr()
+    peek()
+    if i[0] != len(s):
+        raise ValueError(f"unparsed leftover: {s[i[0]]!r}")
+    return node
+
+
+DEFAULT_GP_FEATURES = ["gap_pct", "rvol", "close_strength", "range_pct"]
+
+
+def score_features_with_formula(
+    formula_str: str,
+    features: Dict[str, float],
+    feature_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Evaluate a stored GP formula on a single feature row (orchestrator path)."""
+    names = list(feature_names or DEFAULT_GP_FEATURES)
+    node = parse_formula(formula_str, names)
+    row = {k: float(features.get(k, 0.0) or 0.0) for k in names}
+    df = pd.DataFrame([row])
+    raw = float(node.evaluate(df)[0])
+    if not np.isfinite(raw):
+        raw = 0.0
+    # Map unbounded formula output to a 0-100 score centered at 50.
+    score = float(np.clip(50.0 + np.tanh(raw) * 50.0, 0.0, 100.0))
+    return {
+        "formula": formula_str,
+        "raw": round(raw, 6),
+        "score": round(score, 2),
+        "features_used": row,
+        "complexity": node.complexity(),
+    }
+
+
+def load_promoted_formulas(db_url: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Load promoted (else pending_review) GP formulas for live packet scoring."""
+    import psycopg2
+    import psycopg2.extras
+
+    with psycopg2.connect(db_url, connect_timeout=3) as conn, conn.cursor(
+        cursor_factory=psycopg2.extras.RealDictCursor
+    ) as cur:
+        # Holdout columns are added by the weekly GP job (ALTER IF NOT EXISTS).
+        try:
+            cur.execute("""
+                SELECT id, formula, fitness, complexity, training_n, status,
+                       holdout_correlation, holdout_win_rate, holdout_n, evolved_at
+                FROM gp_discovered_templates
+                WHERE status IN ('promoted', 'pending_review')
+                ORDER BY
+                    CASE WHEN status = 'promoted' THEN 0 ELSE 1 END,
+                    evolved_at DESC
+                LIMIT %s
+            """, (limit,))
+        except Exception:
+            conn.rollback()
+            cur.execute("""
+                SELECT id, formula, fitness, complexity, training_n, status, evolved_at
+                FROM gp_discovered_templates
+                WHERE status IN ('promoted', 'pending_review')
+                ORDER BY
+                    CASE WHEN status = 'promoted' THEN 0 ELSE 1 END,
+                    evolved_at DESC
+                LIMIT %s
+            """, (limit,))
+        rows = []
+        for r in cur.fetchall():
+            d = dict(r)
+            if d.get("evolved_at"):
+                d["evolved_at"] = d["evolved_at"].isoformat()
+            rows.append(d)
+        return rows
+
+
 if __name__ == "__main__":
     print("signal_discovery_gp: train-only genetic search engine.")
     print("Call evolve_signal() on a TRAIN split, then evaluate_on_holdout() exactly once.")
