@@ -618,7 +618,7 @@ MAX_PRICE         = 20.0
 MIN_PM_VOLUME     = 50_000      # post-open / late-window floor (see _pm_volume_threshold)
 MIN_GAP_PCT       = 2.0
 MAX_FLOAT_SHARES  = 20_000_000
-CONFIDENCE_THRESH = 50          # S1b/S1c/S1d score 54-61%; gap_large (non-validated) tops out at ~48%
+CONFIDENCE_THRESH = 45          # Was 50; loosened 2026-08-05 after GTE 49.8 / FLZH 48.5 near-misses. S1b/c/d still score 54-61%; gap_large tops ~48%
 CANDIDATE_LIMIT   = 50          # max after float filter before scoring
 
 
