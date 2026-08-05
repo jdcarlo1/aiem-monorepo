@@ -3,15 +3,21 @@
 git_autosync_daemon.py — Keeps origin/dev in sync with local HEAD.
 
 Every 60 seconds:
-  1. git fetch origin dev          — update remote-tracking ref
-  2. Compare local HEAD vs origin/dev
+  1. git fetch origin dev main     — update both remote-tracking refs
+  2. Compare local HEAD vs origin/dev  — determines whether a push is needed
   3. If local is ahead  → PRE-PUSH GATE (Python, runs before git push):
-                          inspect every commit between origin/dev and HEAD;
-                          any commit touching a PROTECTED_PATTERNS file must
-                          carry a [TLA-<id>] token whose record in
-                          trading_logic_approvals.jsonl has used=True.
-                          If any commit fails: push is BLOCKED, Telegram alert
-                          sent, block written to git_autosync_blocks.jsonl.
+                          Gate range is origin/main..HEAD, NOT origin/dev..HEAD.
+                          Rationale: PRs merge directly to origin/main, so
+                          origin/dev can fall behind main.  Using origin/dev as
+                          the gate base would include already-merged commits in
+                          the range, causing spurious TLA blocks on clean work.
+                          origin/main is always the authoritative lower bound.
+                          Any commit in origin/main..HEAD touching a
+                          PROTECTED_PATTERNS file must carry a [TLA-<id>] token
+                          whose record in trading_logic_approvals.jsonl has
+                          used=True.  If any commit fails: push is BLOCKED,
+                          Telegram alert sent, block written to
+                          git_autosync_blocks.jsonl.
                           If all pass: git push origin HEAD:dev proceeds.
   4. If local is behind → git pull --ff-only origin dev
   5. If diverged        → log warning, do nothing (requires manual reconcile)
@@ -223,61 +229,73 @@ def sync_cycle() -> None:
             log.info("git-autosync PAUSED (flag=%s) — skipping cycle", _flag)
             return
 
-    # 1. Fetch remote tracking ref
-    rc, _, err = _run(["git", "fetch", "origin", "dev"])
-    if rc != 0:
-        log.error("fetch failed (rc=%d): %s", rc, err)
+    # 1. Fetch both tracking refs.
+    #    origin/dev  — determines push/pull/in-sync decision (push target)
+    #    origin/main — used as the gate range lower bound only
+    #    These are independent fetches; both must succeed.
+    for branch in ("dev", "main"):
+        rc, _, err = _run(["git", "fetch", "origin", branch])
+        if rc != 0:
+            log.error("fetch origin/%s failed (rc=%d): %s", branch, rc, err)
+            return
+
+    local_hash = _rev("HEAD")
+    dev_hash   = _rev("origin/dev")   # push/pull/in-sync decisions
+    main_hash  = _rev("origin/main")  # gate range base only
+
+    if local_hash is None or dev_hash is None or main_hash is None:
+        log.error(
+            "could not resolve refs: local=%s dev=%s main=%s",
+            local_hash, dev_hash, main_hash,
+        )
         return
 
-    local_hash  = _rev("HEAD")
-    remote_hash = _rev("origin/dev")
-
-    if local_hash is None or remote_hash is None:
-        log.error("could not resolve refs: local=%s remote=%s", local_hash, remote_hash)
+    # In-sync check against origin/dev (the actual push target)
+    if local_hash == dev_hash:
+        log.info("local=%s dev=%s action=none (in-sync)", local_hash[:12], dev_hash[:12])
         return
 
-    if local_hash == remote_hash:
-        log.info("local=%s remote=%s action=none (in-sync)", local_hash[:12], remote_hash[:12])
-        return
-
-    # Determine relationship
-    # Is local ahead of remote? i.e. remote is an ancestor of local?
-    rc_ahead,  _, _ = _run(["git", "merge-base", "--is-ancestor", remote_hash, local_hash])
-    # Is local behind remote? i.e. local is an ancestor of remote?
-    rc_behind, _, _ = _run(["git", "merge-base", "--is-ancestor", local_hash, remote_hash])
+    # Determine relationship between local HEAD and origin/dev
+    rc_ahead,  _, _ = _run(["git", "merge-base", "--is-ancestor", dev_hash,   local_hash])
+    rc_behind, _, _ = _run(["git", "merge-base", "--is-ancestor", local_hash, dev_hash])
 
     if rc_ahead == 0 and rc_behind != 0:
-        # local is strictly ahead — run pre-push gate BEFORE touching git push
-        ok, bad_sha, reason = _check_commits_before_push(remote_hash, local_hash)
+        # local is strictly ahead of dev — run pre-push gate BEFORE git push.
+        # Gate range: origin/main..HEAD (not origin/dev..HEAD).
+        # If PRs merged directly to main, origin/dev falls behind main.  Using
+        # dev as the lower bound would re-scan already-merged commits and cause
+        # spurious TLA blocks on clean local work.  main is always the right
+        # lower bound: it represents what has already been reviewed and merged.
+        ok, bad_sha, reason = _check_commits_before_push(main_hash, local_hash)
 
         if not ok:
             log.error(
-                "[pre-push-gate] BLOCKED local=%s remote=%s bad_sha=%s reason=%s",
-                local_hash[:12], remote_hash[:12], bad_sha, reason,
+                "[pre-push-gate] BLOCKED local=%s gate-base=%s bad_sha=%s reason=%s",
+                local_hash[:12], main_hash[:12], bad_sha, reason,
             )
             msg_id = _tg_send_block(bad_sha, reason)
             _log_block(bad_sha, reason, msg_id)
             log.error(
-                "local=%s remote=%s action=PUSH_BLOCKED bad_sha=%s",
-                local_hash[:12], remote_hash[:12], bad_sha,
+                "local=%s dev=%s action=PUSH_BLOCKED bad_sha=%s",
+                local_hash[:12], dev_hash[:12], bad_sha,
             )
             return   # ← git push is NEVER called when gate fails
 
-        # Gate passed — proceed with push
+        # Gate passed — push to dev (origin/main is PR-only)
         rc, out, err = _run(["git", "push", "origin", "HEAD:dev"])
         if rc == 0:
-            log.info("local=%s remote=%s action=PUSHED", local_hash[:12], remote_hash[:12])
+            log.info("local=%s dev=%s action=PUSHED", local_hash[:12], dev_hash[:12])
         else:
             log.error("push failed (rc=%d): %s", rc, err)
 
     elif rc_behind == 0 and rc_ahead != 0:
-        # local is strictly behind
+        # local is strictly behind dev
         rc, out, err = _run(["git", "pull", "--ff-only", "origin", "dev"])
         if rc == 0:
             new_hash = _rev("HEAD") or "?"
             log.info(
-                "local=%s remote=%s action=PULLED new_local=%s",
-                local_hash[:12], remote_hash[:12], new_hash[:12],
+                "local=%s dev=%s action=PULLED new_local=%s",
+                local_hash[:12], dev_hash[:12], new_hash[:12],
             )
         else:
             log.error("pull failed (rc=%d): %s", rc, err)
@@ -285,8 +303,8 @@ def sync_cycle() -> None:
     else:
         # Diverged — do nothing, require manual reconcile
         log.warning(
-            "local=%s remote=%s action=DIVERGED (manual reconcile required)",
-            local_hash[:12], remote_hash[:12],
+            "local=%s dev=%s action=DIVERGED (manual reconcile required)",
+            local_hash[:12], dev_hash[:12],
         )
 
 

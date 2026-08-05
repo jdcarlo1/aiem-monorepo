@@ -3,16 +3,72 @@
 -- Run this after any dev DB reset / first-time setup:
 --   psql $DATABASE_URL -f artifacts/stock-scanner-api/migrations/dev_schema_bootstrap.sql
 --
--- All statements are idempotent (CREATE TABLE IF NOT EXISTS).
+-- All statements are idempotent (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
 -- This script exists because the codebase uses inline CREATE TABLE IF NOT EXISTS
 -- inside Python functions (lazy schema creation), not a tracked ORM migration
 -- system. Tables only appear in a database after the code path that creates them
 -- has been executed. Dev doesn't run all production code paths, so tables drift.
 -- Running this script syncs dev to prod schema before every deploy.
 --
--- Last updated: 2026-07-11
--- Tables covered: all 60 tables that were prod-only as of 2026-07-11 audit.
+-- Last updated: 2026-08-05
+-- Tables covered: all 60 tables that were prod-only as of 2026-07-11 audit,
+--   plus 6 prod-only items identified in 2026-08-05 publish-diff audit (see below).
 -- ─────────────────────────────────────────────────────────────────────────────
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 2026-08-05 PUBLISH-DIFF AUDIT — DO-NOT-DROP REGISTER
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Six items appeared in the Replit publish diff as proposed drops against prod.
+-- All six confirmed absent from dev (helium). Prod status established as follows:
+--
+-- ITEM 1  aiem_diagnostics                TABLE
+--   Prod status: CONFIRMED LIVE (Cursor query 2026-08-05, 13 rows,
+--                trace_id=347106b0-35a9-4d39-94b1-73c8cc6d385e, all PASS).
+--   DDL: FULL 8-column real Neon DDL applied 2026-08-05. Verified against
+--        information_schema — all cols, types, and nullability match prod.
+--        Note: created_at sits at ordinal_position=3 in dev (legacy stub
+--        position) vs position=8 on prod; Drizzle compares by name/type,
+--        not ordinal, so this does NOT produce any DROP/ALTER in the diff.
+--
+-- ITEM 2  aiem_pipeline                   TABLE
+--   Prod status: CONFIRMED LIVE (Cursor query 2026-08-05, 13 rows,
+--                trace_id=347106b0-35a9-4d39-94b1-73c8cc6d385e, all PASS).
+--   DDL: FULL 8-column real Neon DDL applied 2026-08-05. Verified against
+--        information_schema — all cols, types, and nullability match prod.
+--        Same ordinal_position caveat as aiem_diagnostics (created_at=pos 3
+--        in dev, pos 8 in prod); harmless for migration diff purposes.
+--
+-- ITEM 3  layer9_scores.xmom_zscore       COLUMN
+--   Prod status: UNVERIFIED — absent from dev and from all current Python code.
+--   This column has no CREATE or ALTER TABLE statement in the codebase; likely
+--   added by a Cursor session directly on Neon.  It was proposed for drop in
+--   the publish diff because dev schema lacks it.
+--   Action: ADD COLUMN IF NOT EXISTS stub added below (DOUBLE PRECISION, matches
+--           all other layer9_scores numeric columns).
+--   ⚠ Verify type on Neon before next publish:  \d layer9_scores
+--
+-- ITEM 4  ml_training_runs                TABLE
+--   Prod status: UNVERIFIED — absent from dev and all current Python code.
+--   One passing reference found in Jul 21 commit (now removed from code).
+--   Action: minimal stub added below to prevent DROP TABLE on next publish.
+--   ⚠ SCHEMA INCOMPLETE — run \d ml_training_runs on Neon and update this file.
+--
+-- ITEM 5  intraday_continuation_models    TABLE
+--   Prod status: UNVERIFIED — absent from dev and all current Python code.
+--   Action: minimal stub added below to prevent DROP TABLE on next publish.
+--   ⚠ SCHEMA INCOMPLETE — run \d intraday_continuation_models on Neon and
+--     update this file.
+--
+-- ITEM 6  reconciliation_log.mode         COLUMN
+--   Prod status: UNVERIFIED — reconciliation_log exists in dev with columns
+--   (id, checked_at, only_in_broker, only_in_db, mismatch_found, resolved)
+--   but the `mode` column is absent.  No ADD COLUMN statement exists anywhere
+--   in the codebase; likely added directly on Neon.
+--   Action: ADD COLUMN IF NOT EXISTS stub added below (TEXT, safe default).
+--   ⚠ Verify type+constraints on Neon before next publish.
+--
+-- NO MIGRATION MAY RUN until the ⚠ items above are resolved against Neon DDL.
+-- ══════════════════════════════════════════════════════════════════════════════
 
 -- ── Originally created in prod by aiem_morning_brief / prediction_logger ─────
 CREATE TABLE IF NOT EXISTS aiem_predictions (
@@ -593,3 +649,94 @@ CREATE INDEX IF NOT EXISTS aiem_candidate_queue_run_id_idx ON aiem_candidate_que
 -- This column is a documented placeholder pending a live-spread model.
 COMMENT ON COLUMN aiem_candidate_queue.execution_cost_est IS
   'Placeholder: _NANO_CAP_SPREAD_PCT constant (0.01). Not a live bid/ask computation — no quote feed at pick-candidate time.';
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 2026-08-05 — PROD-ONLY TABLES/COLUMNS (verified against Neon 2026-08-05)
+-- Sources: aiem_diagnostics/aiem_pipeline confirmed live by Cursor Neon query
+--          (13 rows, trace_id=347106b0-35a9-4d39-94b1-73c8cc6d385e, all PASS).
+--          Items 3-6 DDL from Cursor \d output against Neon prod.
+-- ══════════════════════════════════════════════════════════════════════════════
+
+-- ITEM 1 — aiem_diagnostics
+-- Real DDL from Neon prod via Cursor \d output (2026-08-05, 8 columns).
+-- Note: aiem_diagnostics and aiem_pipeline are NOT symmetric — different
+--       column order and nullability. Do not conflate the two definitions.
+-- payload confirmed JSONB (not json) from Neon column type.
+CREATE TABLE IF NOT EXISTS aiem_diagnostics (
+    id          BIGINT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
+    trace_id    TEXT,
+    ticker      TEXT,
+    stage_name  TEXT NOT NULL,
+    module_name TEXT NOT NULL,
+    status      TEXT,
+    payload     JSONB,
+    created_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS aiem_diagnostics_trace_idx ON aiem_diagnostics (trace_id);
+CREATE INDEX IF NOT EXISTS aiem_diagnostics_stage_idx ON aiem_diagnostics (stage_name);
+
+-- ITEM 2 — aiem_pipeline
+-- Real DDL from Neon prod via Cursor \d output (2026-08-05, 8 columns).
+-- Key difference from aiem_diagnostics: module_name is NOT NULL here,
+-- stage_name is nullable; column order differs (module_name before stage_name).
+-- payload confirmed JSONB (not json) from Neon column type.
+CREATE TABLE IF NOT EXISTS aiem_pipeline (
+    id          BIGINT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
+    trace_id    TEXT,
+    ticker      TEXT,
+    module_name TEXT NOT NULL,
+    stage_name  TEXT,
+    status      TEXT,
+    payload     JSONB,
+    created_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS aiem_pipeline_trace_idx ON aiem_pipeline (trace_id);
+CREATE INDEX IF NOT EXISTS aiem_pipeline_module_idx ON aiem_pipeline (module_name);
+
+-- ITEM 3 — layer9_scores.xmom_zscore
+-- Verified Neon: data_type=double precision, udt_name=float8,
+--   is_nullable=YES, column_default=null, ordinal_position=21.
+ALTER TABLE layer9_scores
+    ADD COLUMN IF NOT EXISTS xmom_zscore DOUBLE PRECISION NULL;
+
+-- ITEM 4 — ml_training_runs
+-- Verified Neon DDL (2026-08-05). BIGINT GENERATED BY DEFAULT AS IDENTITY.
+-- Note: index ml_training_runs_model_started_idx exists on prod — exact column
+-- list not confirmed from screenshot; DO NOT create index here until columns
+-- are verified from Neon (\d ml_training_runs).
+CREATE TABLE IF NOT EXISTS ml_training_runs (
+    id              BIGINT PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
+    model_name      TEXT        NOT NULL,
+    run_kind        TEXT        NOT NULL DEFAULT 'fit',
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at     TIMESTAMPTZ NULL,
+    n_train         INTEGER     NULL,
+    n_val           INTEGER     NULL,
+    train_loss      NUMERIC     NULL,
+    val_loss        NUMERIC     NULL,
+    val_auc         NUMERIC     NULL,
+    val_accuracy    NUMERIC     NULL,
+    metrics_json    JSONB       NULL,
+    status          TEXT        NOT NULL DEFAULT 'completed',
+    note            TEXT        NULL
+);
+
+-- ITEM 5 — intraday_continuation_models
+-- Verified Neon DDL (2026-08-05). INTEGER GENERATED BY DEFAULT AS IDENTITY.
+CREATE TABLE IF NOT EXISTS intraday_continuation_models (
+    id                  INTEGER     PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,
+    version             INTEGER     NOT NULL,
+    model_blob          BYTEA       NOT NULL,
+    feature_names       JSONB       NOT NULL,
+    held_out_precision  NUMERIC     NULL,
+    n_train             INTEGER     NULL,
+    is_live             BOOLEAN     NOT NULL DEFAULT false,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    note                TEXT        NULL
+);
+
+-- ITEM 6 — reconciliation_log.mode
+-- Verified Neon: ordinal_position=7, is_nullable=YES,
+--   column_default='paper'::text.
+ALTER TABLE reconciliation_log
+    ADD COLUMN IF NOT EXISTS mode TEXT NULL DEFAULT 'paper';
