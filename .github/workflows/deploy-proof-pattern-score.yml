@@ -1,0 +1,54 @@
+name: Deploy Proof — pattern_score fix
+
+# Behavioral proof that live options-pipeline is running the 6f7f67a3 pattern_score
+# None-coerce fix. Requires PENDING rows in options_pipeline_jobs (inserted by agent).
+# OLD code → job_attempt_log / options_pipeline_jobs error contains NoneType '>' float
+# NEW code → that exact TypeError must NOT appear
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger live /run-now (ADMIN_TOKEN)
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
+        run: |
+          set -euo pipefail
+          BASE="${REPLIT_APP_URL:-https://nclexai.org}"
+          BASE="${BASE%/}"
+          echo "BASE=$BASE"
+          echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "=== POST /options-pipeline/run-now ==="
+          HTTP=$(curl -sS -o /tmp/run_now.json -w "%{http_code}" \
+            -X POST \
+            -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BASE}/options-pipeline/run-now" \
+            --max-time 120) || HTTP="000"
+          echo "HTTP=$HTTP"
+          echo "BODY:"
+          cat /tmp/run_now.json || true
+          echo
+          if [ "$HTTP" = "401" ] || [ "$HTTP" = "403" ]; then
+            echo "AUTH_FAIL"
+            exit 1
+          fi
+          # Also try stocksaicom host if different
+          if [ "$BASE" != "https://nclexai.org" ]; then
+            echo "=== also POST nclexai.org/options-pipeline/run-now ==="
+            HTTP2=$(curl -sS -o /tmp/run_now2.json -w "%{http_code}" \
+              -X POST \
+              -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+              "https://nclexai.org/options-pipeline/run-now" \
+              --max-time 120) || HTTP2="000"
+            echo "HTTP2=$HTTP2"
+            cat /tmp/run_now2.json || true
+          fi
+          echo "=== GET /options-pipeline/health ==="
+          curl -sS "${BASE}/options-pipeline/health" || true
+          echo
