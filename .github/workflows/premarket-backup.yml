@@ -32,6 +32,10 @@ name: AIEM Premarket Backup
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
+  # push: invalid YAML previously caused 0s startup-failure checks on every
+  # push (workflow name shown as file path). Keep push so tip commits get a
+  # real green run; body exits immediately on push (schedule/dispatch do work).
+  push:
   schedule:
     # 6:55 AM ET (10:55 UTC) — warmup-only trigger
     - cron: '55 10 * * 1-5'
@@ -70,8 +74,16 @@ jobs:
           echo "=== AIEM Premarket Backup ==="
           echo "UTC time : $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           echo "Run ID   : ${{ github.run_id }}"
+          echo "Event    : ${{ github.event_name }}"
           echo "Dry run  : ${DRY_RUN}"
           echo "=============================="
+
+          # Push events only validate workflow YAML parses and the job starts.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Push event — YAML-valid smoke OK (no scan on push)"
+            echo "in_window=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           HOUR_UTC=$(date -u +%H)
           MIN_UTC=$(date -u +%M)
@@ -150,14 +162,16 @@ jobs:
               continue
             fi
 
+            # NOTE: python body MUST stay indented inside this run:| block scalar.
+            # Column-0 lines terminate the YAML scalar → GitHub startup-failure runs.
             RUN_ID=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('/tmp/scan_response.json'))
-    print(d.get('run_id') or 'unknown')
-except Exception as e:
-    print(f'parse_error:{e}')
-" 2>&1)
+            import json, sys
+            try:
+                d = json.load(open('/tmp/scan_response.json'))
+                print(d.get('run_id') or 'unknown')
+            except Exception as e:
+                print(f'parse_error:{e}')
+            " 2>&1)
             echo "run_id: ${RUN_ID}"
 
             echo "Waiting 90s for scan to complete..."
@@ -173,17 +187,17 @@ except Exception as e:
             echo "Status HTTP ${STATUS_CODE} — ${STATUS_BODY}"
 
             STATUS_WORD=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('/tmp/status.json'))
-    s = d.get('status','unknown')
-    n = d.get('candidate_count','?')
-    print(s)
-    import sys; sys.stderr.write(f'candidates={n} started={d.get(\"started_at\")} completed={d.get(\"completed_at\")}\n')
-except Exception as e:
-    print('parse_error')
-    import sys; sys.stderr.write(str(e)+'\n')
-" 2>/tmp/status_detail.txt)
+            import json, sys
+            try:
+                d = json.load(open('/tmp/status.json'))
+                s = d.get('status','unknown')
+                n = d.get('candidate_count','?')
+                print(s)
+                import sys; sys.stderr.write(f'candidates={n} started={d.get(\"started_at\")} completed={d.get(\"completed_at\")}\n')
+            except Exception as e:
+                print('parse_error')
+                import sys; sys.stderr.write(str(e)+'\n')
+            " 2>/tmp/status_detail.txt)
             cat /tmp/status_detail.txt || true
             echo "status_word=${STATUS_WORD}"
 
