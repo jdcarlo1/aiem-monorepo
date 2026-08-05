@@ -73,6 +73,10 @@ except Exception as _chkp_init_e:
         f"[scheduler] checkpoint module init failed: {_chkp_init_e}")
     _chkp = None
 _SCHEDULER_NAME      = "aiem_options_scheduler"
+# Bumped when liquidity path changes — appears in NO_LIQUID errors so Neon
+# proves which build Replit actually published (2026-08-05: live TB was still
+# on pre-walk code at line 1952; this tag must appear after Tradier publish).
+_OE_LIQ_BUILD        = "tradier-expiry-walk-v2"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -2003,33 +2007,83 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 _NO_CAND("NO_LIQUID_PUT_CONTRACT", ticker, used_exp)
             return best_call is not None or best_put is not None
 
-        def _tradier_chain_as_contracts(sym, scan_dt):
+        def _tradier_chain_as_contracts(sym, scan_dt, diag=None):
             """
             Fetch Tradier options chain(s) and normalize to Polygon-like contract
             dicts. Used when Polygon returns contracts but bid/ask/greeks are
             empty (common on plans without options quotes — 2026-08-05 BMY/NEE
             had 140–250 contracts, strategies_evaluated=0, then NO_LIQUID).
+
+            Walks *listed* expirations from Tradier /expirations (DTE 5–21),
+            not a guessed Friday calendar — weeklies and monthlies both qualify.
             """
             tok = "".join(os.environ.get("TRADIER_API_TOKEN_2",
                            os.environ.get("TRADIER_API_TOKEN", "")).split())
+            if diag is not None:
+                diag["tradier_token_present"] = bool(tok)
             if not tok:
+                log.warning(
+                    f"[exec] Tradier fallback skipped for {sym}: "
+                    f"TRADIER_API_TOKEN(_2) not set in process env"
+                )
+                if diag is not None:
+                    diag["tradier_skip"] = "NO_TOKEN"
                 return []
-            # Prefer Fridays in the same 5–21 DTE window as Polygon fetch.
+
+            headers = {"Authorization": f"Bearer {tok}",
+                       "Accept": "application/json"}
+            # 1) Listed expirations (authoritative), fall back to Friday guess.
+            exp_dates = []
+            try:
+                exp_url = (
+                    f"https://api.tradier.com/v1/markets/options/expirations"
+                    f"?symbol={sym}&includeAllRoots=true"
+                )
+                req = urllib.request.Request(exp_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    raw = json.loads(resp.read())
+                dates = (raw.get("expirations") or {}).get("date") or []
+                if isinstance(dates, str):
+                    dates = [dates]
+                for ds in dates:
+                    try:
+                        ed = datetime.strptime(ds, "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                    dte = (ed - scan_dt).days
+                    if 5 <= dte <= 21:
+                        exp_dates.append((dte, ed))
+                exp_dates.sort()
+                if diag is not None:
+                    diag["tradier_expirations_api"] = len(dates)
+                    diag["tradier_expiries_in_window"] = [
+                        ed.isoformat() for (_d, ed) in exp_dates
+                    ]
+            except Exception as _tex:
+                log.warning(f"[exec] Tradier expirations {sym}: {_tex}")
+                if diag is not None:
+                    diag["tradier_expirations_error"] = str(_tex)[:120]
+
+            if not exp_dates:
+                # Friday fallback if expirations endpoint fails/empty.
+                for dte in range(5, 22):
+                    ed = scan_dt + timedelta(days=dte)
+                    if ed.weekday() == 4:
+                        exp_dates.append((dte, ed))
+                if diag is not None:
+                    diag["tradier_expiries_source"] = "friday_guess"
+            else:
+                if diag is not None:
+                    diag["tradier_expiries_source"] = "expirations_api"
+
             out = []
-            for dte in range(5, 22):
-                exp = scan_dt + timedelta(days=dte)
-                if exp.weekday() != 4:
-                    continue
+            for dte, exp in exp_dates:
                 url = (
                     f"https://api.tradier.com/v1/markets/options/chains"
                     f"?symbol={sym}&expiration={exp.strftime('%Y-%m-%d')}&greeks=true"
                 )
                 try:
-                    req = urllib.request.Request(
-                        url,
-                        headers={"Authorization": f"Bearer {tok}",
-                                 "Accept": "application/json"},
-                    )
+                    req = urllib.request.Request(url, headers=headers)
                     with urllib.request.urlopen(req, timeout=8) as resp:
                         raw = json.loads(resp.read())
                     opts = (raw.get("options") or {}).get("option") or []
@@ -2063,7 +2117,11 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                             "volume":          int(o.get("volume") or 0),
                         })
                 except Exception as _td_e:
-                    log.debug(f"[exec] Tradier chain fallback {sym} {exp}: {_td_e}")
+                    log.warning(
+                        f"[exec] Tradier chain fallback {sym} {exp}: {_td_e}"
+                    )
+            if diag is not None:
+                diag["tradier_quoted_contracts"] = len(out)
             return out
 
         # ── Strike selection: real chain, nearest-to-target delta ─────────────
@@ -2075,6 +2133,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                           + options_chain.get("puts", []))
         _poly_exp = _pick_expiry(_all_contracts)
         _expiries = _all_expiries(_all_contracts)
+        _liq_diag = {
+            "oe_liq_build": _OE_LIQ_BUILD,
+            "poly_contracts": len(_all_contracts),
+            "poly_expiries": list(_expiries or []),
+            "poly_nearest_exp": _poly_exp,
+        }
 
         # Initialize leg locals before helpers mutate them via nonlocal.
         call_strike = put_strike = None
@@ -2087,21 +2151,36 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         if not _expiries:
             _NO_CAND("NO_EXPIRY_WITH_MIN_DTE", ticker, None)
+            _liq_diag["poly_select"] = "NO_EXPIRY"
         else:
-            _select_legs(_all_contracts, _expiries)
+            _poly_ok = _select_legs(_all_contracts, _expiries)
+            _liq_diag["poly_liquid_leg"] = bool(_poly_ok)
+            _liq_diag["poly_call"] = call_strike
+            _liq_diag["poly_put"] = put_strike
 
         # Tradier quote fallback when Polygon chain had rows but zero liquid legs.
         if call_strike is None and put_strike is None:
-            _td_contracts = _tradier_chain_as_contracts(ticker, scan_date)
+            _td_contracts = _tradier_chain_as_contracts(
+                ticker, scan_date, diag=_liq_diag
+            )
             if _td_contracts:
                 log.info(
                     f"[exec] [{trace_id}] Polygon liquid_chain empty — "
-                    f"Tradier fallback returned {len(_td_contracts)} quoted contracts"
+                    f"Tradier fallback returned {len(_td_contracts)} quoted contracts "
+                    f"build={_OE_LIQ_BUILD}"
                 )
                 _td_exps = _all_expiries(_td_contracts)
+                _liq_diag["tradier_expiries_used"] = list(_td_exps or [])
                 _select_legs(_td_contracts, _td_exps)
+                _liq_diag["tradier_call"] = call_strike
+                _liq_diag["tradier_put"] = put_strike
                 if call_strike is not None or put_strike is not None:
                     _NO_CAND("POLY_QUOTE_FALLBACK_TRADIER", ticker, _poly_exp)
+            else:
+                log.warning(
+                    f"[exec] [{trace_id}] Tradier fallback returned 0 contracts "
+                    f"for {ticker} diag={_liq_diag}"
+                )
 
         # ── C5/FIX-1: No-liquid early exit ────────────────────────────────────
         # When both legs fail the liquidity gate (bid=0/ask=0 during market
@@ -2117,7 +2196,8 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 "not ready_for_decision: NO_LIQUID_CONTRACTS — "
                 "liquidity gate rejected all contracts on both legs "
                 f"(bid=0/ask=0 or no contracts passed predicate; "
-                f"expiry={_poly_exp}; ticker={ticker})"
+                f"expiry={_poly_exp}; ticker={ticker}; "
+                f"diag={json.dumps(_liq_diag, default=str)[:400]})"
             )
 
         # Black-Scholes greeks — computed live from spot + front_iv (vary per ticker/date)
@@ -4271,6 +4351,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
             "scheduler": "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped",
             "service":   _SCHEDULER_NAME,
             "ts":        datetime.utcnow().isoformat() + "Z",
+            "oe_liq_build": _OE_LIQ_BUILD,
             "oe_scheduler_enabled": os.environ.get("OE_SCHEDULER_ENABLED", "unset"),
             "replit_deployment":    os.environ.get("REPLIT_DEPLOYMENT", "unset"),
         }
