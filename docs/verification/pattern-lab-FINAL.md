@@ -84,6 +84,7 @@ $ curl -sS http://127.0.0.1:5063/pattern-lab/snapshot
 Artifacts:
 - `/opt/cursor/artifacts/pattern-lab-snapshot.json`
 - `/opt/cursor/artifacts/pattern-lab-live-cards.html` (both cards rendered from live JSON)
+- `/opt/cursor/artifacts/pattern-lab-cards-screenshot.png` (browser screenshot of both cards)
 
 ---
 
