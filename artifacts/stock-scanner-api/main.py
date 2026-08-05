@@ -20418,7 +20418,19 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
 
         rows_inserted = 0
-        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+        # Hold a DB connection for the insert loop, but RECONNECT on
+        # InterfaceError ("connection already closed") — Neon/pooler will drop
+        # idle sockets during long debate+sizing runs (Aug 5 2026 FAILED).
+        def _open_paper_conn():
+            _nc = _psycopg2.connect(_DB_URL, connect_timeout=8,
+                                    keepalives=1, keepalives_idle=30,
+                                    keepalives_interval=10, keepalives_count=3)
+            _nc.autocommit = False
+            return _nc
+
+        _c = _open_paper_conn()
+        _cu = _c.cursor()
+        try:
             # ── Bulk prefetch conviction stack scores for position sizing ─────
             # conviction_stack_watchlist.total_pts is the raw 0–10 layer score
             # from _run_conviction_scanner (FLOOR=5.0, CEILING=9.0).
@@ -20448,8 +20460,35 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
             except Exception as _csw_exc:
                 print(f"[aiem_paper] conviction stack prefetch failed (non-fatal, "
                       f"fallback to capped pick score): {_csw_exc}")
+                try:
+                    _c.rollback()
+                except Exception:
+                    pass
+                # reconnect if the prefetch killed the socket
+                try:
+                    _cu.close(); _c.close()
+                except Exception:
+                    pass
+                _c = _open_paper_conn()
+                _cu = _c.cursor()
+
+            def _ensure_paper_conn():
+                nonlocal _c, _cu
+                try:
+                    _cu.execute("SELECT 1")
+                    _cu.fetchone()
+                    return
+                except Exception:
+                    try:
+                        _cu.close(); _c.close()
+                    except Exception:
+                        pass
+                    _c = _open_paper_conn()
+                    _cu = _c.cursor()
+                    print("[aiem_paper] reconnected DB after closed connection")
 
             for pick in picks:
+                _ensure_paper_conn()
                 _t    = pick["ticker"]
                 _audit_trace_id = None
                 # REMEDIATION S2 ("AUTHORITATIVE MASTER REMEDIATION" directive
@@ -21669,6 +21708,15 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                              "no debate ran, so nothing to persist"
                                          )})
             _c.commit()
+        finally:
+            try:
+                _cu.close()
+            except Exception:
+                pass
+            try:
+                _c.close()
+            except Exception:
+                pass
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
         # Runs inside _aiem_paper_execute_today(), not deferred to EOD batch.
@@ -51235,9 +51283,11 @@ def _aiem_paper_mark_to_market():
 @app.route("/stock-api/paper-trades", methods=["GET"])
 @app.route("/stock-api/aiem-paper-portfolio", methods=["GET"])
 def aiem_paper_portfolio():
-    """AIEM autonomous paper trading — full portfolio state."""
-    if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 401
+    """AIEM autonomous paper trading — full portfolio state.
+
+    Public READ endpoint — Paper Money / Portfolio tabs need this without an
+    admin token. Force-execute / force-mtm remain admin-gated.
+    """
     import datetime as _apvdt
     _days = int(request.args.get("days", 30))
     try:
@@ -53251,7 +53301,66 @@ def bull_flow_persistence():
             })
 
         signals.sort(key=lambda x: (-x["days_count"], -(x["max_premium_m"] or 0)))
-        return jsonify({"signals": signals, "count": len(signals)})
+        if signals:
+            return jsonify({"signals": signals, "count": len(signals)})
+
+        # Fallback: multi-day unusual_calls_log when signal_outcomes is sparse/empty
+        cur2 = None
+        try:
+            conn2 = psycopg2.connect(_DB_URL)
+            cur2 = conn2.cursor()
+            cur2.execute("""
+                SELECT ticker,
+                       (last_seen AT TIME ZONE 'America/New_York')::date AS d,
+                       MAX(price)::float, MAX(vol_oi)::float, MAX(prem)::float,
+                       MAX(strike)::float, MAX(expiry::text)
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '60 days'
+                  AND vol_oi >= 2
+                  AND prem >= 100000
+                GROUP BY ticker, (last_seen AT TIME ZONE 'America/New_York')::date
+                ORDER BY ticker, d DESC
+            """)
+            rows2 = cur2.fetchall()
+            cur2.close(); conn2.close()
+            ticker_days2 = defaultdict(list)
+            for ticker, sig_date, price, voi, prem, strike, expiry in rows2:
+                ticker_days2[ticker].append({
+                    "date": sig_date.isoformat() if hasattr(sig_date, "isoformat") else str(sig_date),
+                    "price_at_signal": round(float(price), 2) if price else None,
+                    "call_put_ratio": round(float(voi), 2) if voi else None,
+                    "premium_m": round(float(prem) / 1e6, 2) if prem else None,
+                    "strike": float(strike) if strike else None,
+                    "expiry": expiry,
+                })
+            for ticker, day_rows in ticker_days2.items():
+                unique_dates = sorted(set(d["date"] for d in day_rows), reverse=True)
+                if len(unique_dates) < 2:
+                    continue
+                day_records = {}
+                for d in day_rows:
+                    dt = d["date"]
+                    if dt not in day_records or (d["call_put_ratio"] or 0) > (day_records[dt]["call_put_ratio"] or 0):
+                        day_records[dt] = d
+                day_list = [day_records[dt] for dt in unique_dates]
+                cprs = [d["call_put_ratio"] for d in day_list if d["call_put_ratio"]]
+                prems = [d["premium_m"] for d in day_list if d["premium_m"]]
+                signals.append({
+                    "ticker": ticker,
+                    "days_count": len(unique_dates),
+                    "first_seen": unique_dates[-1],
+                    "last_seen": unique_dates[0],
+                    "days": day_list,
+                    "max_call_put_ratio": round(max(cprs), 2) if cprs else None,
+                    "max_premium_m": round(max(prems), 2) if prems else None,
+                    "source": "unusual_calls_log",
+                })
+            signals.sort(key=lambda x: (-x["days_count"], -(x["max_premium_m"] or 0)))
+            return jsonify({"signals": signals, "count": len(signals),
+                            "note": "Derived from unusual_calls_log multi-day persistence"})
+        except Exception as _pfb:
+            print(f"[bull_flow_persistence] calls fallback: {_pfb}")
+            return jsonify({"signals": [], "count": 0})
     except Exception as e:
         print(f"[bull_flow_persistence] error: {e}")
         return jsonify({"signals": [], "count": 0})
@@ -54426,6 +54535,56 @@ def market_overview():
     _mo_db2 = _load_scan_cache("market-overview")
     if _mo_db2:
         return jsonify({**_mo_db2, "stale": True, "generating": True})
+
+    # Cold start with no cache: build a fast Tradier-only snapshot synchronously
+    # so Overview is never a blank generating spinner when Yahoo is tripped.
+    try:
+        SECTORS = [
+            ("XLK",  "Technology"),    ("XLF",  "Financials"),
+            ("XLE",  "Energy"),        ("XLV",  "Healthcare"),
+            ("XLY",  "Cons. Disc."),   ("XLP",  "Cons. Staples"),
+            ("XLI",  "Industrials"),   ("XLB",  "Materials"),
+            ("XLRE", "Real Estate"),   ("XLU",  "Utilities"),
+            ("XLC",  "Comm. Services"),
+        ]
+        INDICES = [
+            ("SPY", "S&P 500"), ("QQQ", "Nasdaq 100"),
+            ("DIA", "Dow Jones"), ("IWM", "Russell 2000"),
+        ]
+        _syms = [s for s, _ in SECTORS + INDICES]
+        _batch = _td_quotes(_syms) if _syms else {}
+        sectors, indices = [], []
+        for sym, name in SECTORS:
+            q = _batch.get(sym) or {}
+            last = float(q.get("last") or 0); prev = float(q.get("prevclose") or 0)
+            if last > 0 and prev > 0:
+                sectors.append({"ticker": sym, "name": name, "price": round(last, 2),
+                                "change_pct": round((last - prev) / prev * 100, 2)})
+        sectors.sort(key=lambda x: x["change_pct"], reverse=True)
+        for sym, label in INDICES:
+            q = _batch.get(sym) or {}
+            last = float(q.get("last") or 0); prev = float(q.get("prevclose") or 0)
+            if last > 0 and prev > 0:
+                indices.append({"ticker": sym, "label": label, "price": round(last, 2),
+                                "change_pct": round((last - prev) / prev * 100, 2)})
+        if sectors or indices:
+            out = {
+                "sectors": sectors, "indices": indices,
+                "advance_decline": {"up": 0, "down": 0, "unchanged": 0},
+                "as_of": _et_today().isoformat(),
+                "stale": True,
+                "note": "Tradier snapshot — full AD scan warming in background",
+            }
+            app._mo_cache = out
+            app._mo_cache_ts = _et_today().isoformat()
+            try:
+                _save_scan_cache("market-overview", out)
+            except Exception:
+                pass
+            return jsonify(out)
+    except Exception as _mo_sync_e:
+        print(f"[market_overview] sync Tradier fallback: {_mo_sync_e}")
+
     return jsonify({
         "sectors": [], "indices": [],
         "advance_decline": {"up": 0, "down": 0, "unchanged": 0},
@@ -58186,6 +58345,73 @@ def conviction_stack_endpoint():
                                      "stale": True, "source": "db_inline"}
                 app._cs_stk_ts    = _stk_dt.now()
                 _cs_stk_cache     = app._cs_stk_cache
+                # If snapshots are older than 7 days, overlay a live approx from
+                # unusual_calls + layer9 so Top Score / Conviction aren't stuck on June/July.
+                try:
+                    _snap_ages = [r.get("snap_date") for r in _db_imm if r.get("snap_date")]
+                    _newest = max(_snap_ages) if _snap_ages else None
+                    _need_live = True
+                    if _newest:
+                        from datetime import date as _d_age, datetime as _dt_age
+                        _nd = _d_age.fromisoformat(str(_newest)[:10])
+                        _need_live = (_stk_dt.now().date() - _nd).days > 7
+                    if _need_live:
+                        with _pg_imm.connect(_DB_URL, connect_timeout=4,
+                                             options="-c statement_timeout=4000") as _c_lv, \
+                             _c_lv.cursor() as _cu_lv:
+                            _cu_lv.execute("""
+                                WITH calls AS (
+                                  SELECT DISTINCT ON (ticker)
+                                    ticker, price::float, unusual_score::float,
+                                    vol_oi::float, prem::bigint
+                                  FROM unusual_calls_log
+                                  WHERE last_seen >= NOW() - INTERVAL '3 days'
+                                    AND prem >= 75000 AND vol_oi >= 1.5
+                                  ORDER BY ticker, prem DESC
+                                ),
+                                l9 AS (
+                                  SELECT DISTINCT ON (ticker)
+                                    ticker, COALESCE(statistical_score,50)::float AS l9
+                                  FROM layer9_scores
+                                  WHERE computed_at >= NOW() - INTERVAL '2 days'
+                                  ORDER BY ticker, computed_at DESC
+                                )
+                                SELECT c.ticker, c.price, c.unusual_score, c.vol_oi, c.prem,
+                                       COALESCE(l.l9, 50) AS l9
+                                FROM calls c
+                                LEFT JOIN l9 l ON l.ticker = c.ticker
+                                ORDER BY (c.unusual_score * LEAST(c.vol_oi, 20)) DESC
+                                LIMIT 40
+                            """)
+                            _live = []
+                            for i, r in enumerate(_cu_lv.fetchall(), 1):
+                                tkr, px, us, voi, prem, l9 = r
+                                pts = min(10.0, round(
+                                    (float(us or 0) / 20.0) * 4
+                                    + min(float(voi or 0), 10) / 10 * 3
+                                    + max(0, (float(l9) - 50) / 50) * 3, 1))
+                                if pts < 5.0:
+                                    continue
+                                pct = int(min(95, pts / 10.5 * 100))
+                                label = "🔴 EXTREME" if pts >= 8 else ("🟠 HIGH" if pts >= 6.5 else "🟡 ELEVATED")
+                                _live.append({
+                                    "ticker": tkr, "total_pts": pts, "conviction_pct": pct,
+                                    "label": label, "price": float(px or 0),
+                                    "layers": {"unusual_calls": round(min(2.0, float(voi or 0) / 5), 1),
+                                               "layer9": round(max(0, (float(l9) - 50) / 25), 1)},
+                                    "meta": {"prem": int(prem or 0), "vol_oi": float(voi or 0),
+                                             "l9": float(l9), "source": "live_approx"},
+                                    "rank": i, "source": "live_approx",
+                                    "snap_date": _stk_dt.now().date().isoformat(),
+                                })
+                            if _live:
+                                app._cs_stk_cache = {"results": _live, "count": len(_live),
+                                                     "stale": False, "source": "live_approx",
+                                                     "note": "Live approx — conviction_stack_watchlist stale"}
+                                app._cs_stk_ts = _stk_dt.now()
+                                _cs_stk_cache = app._cs_stk_cache
+                except Exception as _lv_e:
+                    print(f"[conviction-stack] live approx: {_lv_e}")
         except Exception as _exc:
             print(f"[silent_except:L37743] {type(_exc).__name__}: {_exc}")
     # ── end inline fallback ──────────────────────────────────────────────────
@@ -64412,7 +64638,9 @@ def morning_inflows():
     # ── DB fallback - survive API restarts all day ──────────────────────────
     # If in-memory cache is cold (restart), load today's best scan from DB.
     # This means the morning results stay visible all day even after a restart.
-    if not bust and _DB_URL:
+    def _mi_load_db_payload(days_back: int = 60):
+        if not _DB_URL:
+            return None
         try:
             _today_mi = _et_today_iso()
             with _psycopg2.connect(_DB_URL) as _c_mi, _c_mi.cursor() as _cu_mi:
@@ -64422,11 +64650,11 @@ def morning_inflows():
                 )
                 _db_mi_row = _cu_mi.fetchone()
                 if not (_db_mi_row and _db_mi_row[0].get("standouts")):
-                    # No row for ET-today yet (pre-market, or weekend/holiday).
-                    # Serve the most recent scan from the last 5 days so the tab
-                    # never goes blank while genuinely fresh data still exists.
+                    # No row for ET-today — serve most recent snapshot (up to 60d).
+                    # Last-good standouts were often >5 days old when Yahoo throttle
+                    # blocked morning rescans.
                     _cutoff_mi = (_dt_mi.date.fromisoformat(_today_mi)
-                                  - _dt_mi.timedelta(days=5)).isoformat()
+                                  - _dt_mi.timedelta(days=days_back)).isoformat()
                     _cu_mi.execute(
                         "SELECT payload FROM morning_inflows_cache "
                         "WHERE scan_date >= %s ORDER BY scan_date DESC LIMIT 1",
@@ -64434,13 +64662,18 @@ def morning_inflows():
                     )
                     _db_mi_row = _cu_mi.fetchone()
             if _db_mi_row and _db_mi_row[0].get("standouts"):
-                _db_mi_payload = _db_mi_row[0]
-                app._mi_cache    = _db_mi_payload
-                app._mi_cache_ts = _dt_mi.datetime.now()
-                print(f"[morning_inflows] loaded {len(_db_mi_payload['standouts'])} standouts from DB (restart recovery)")
-                return jsonify(_db_mi_payload)
+                return _db_mi_row[0]
         except Exception as _dbe_mi:
             print(f"[morning_inflows] db load error: {_dbe_mi}")
+        return None
+
+    if not bust:
+        _db_mi_payload = _mi_load_db_payload(60)
+        if _db_mi_payload:
+            app._mi_cache    = _db_mi_payload
+            app._mi_cache_ts = _dt_mi.datetime.now()
+            print(f"[morning_inflows] loaded {len(_db_mi_payload['standouts'])} standouts from DB (restart recovery)")
+            return jsonify({**_db_mi_payload, "stale": True})
 
     # T003: fail-fast when Yahoo circuit breaker is tripped — return stale cache
     # immediately rather than hanging 18s+ on throttled yfinance calls.
@@ -64451,6 +64684,9 @@ def morning_inflows():
             _mi_out = dict(_mi_stale)
             _mi_out['stale'] = True
             return jsonify(_mi_out)
+        _mi_db2 = _mi_load_db_payload(60)
+        if _mi_db2:
+            return jsonify({**_mi_db2, "stale": True, "reason": "Yahoo throttled — DB snapshot"})
         return jsonify({"standouts": [], "stale": True, "reason": "Yahoo throttled"})
 
     import pytz as _pytz_mi2
@@ -65237,15 +65473,63 @@ def eod_accumulation():
     Pump groups blast socials after hours → retail FOMO creates the morning gap.
     You're positioned BEFORE retail sees it at 9:31 AM.
     """
-    # Yahoo throttled - serve DB cache rather than hanging 18s+
+    # Yahoo throttled - serve DB cache / eod_accum_picks rather than hanging 18s+
     if _yf_breaker_open():
         _ea_db = _load_scan_cache("eod-accumulation")
         if _ea_db:
             return jsonify({**_ea_db, "stale": True, "note": "cached - Yahoo rate limited"})
-        _ea_mem = getattr(app, "_ea_cache", None)
+        _ea_mem = getattr(app, "_ea_cache", None) or getattr(app, "_eod_accum_cache", None)
         if _ea_mem:
             return jsonify({**_ea_mem, "stale": True, "note": "cached - Yahoo rate limited"})
-        return jsonify({"hits": [], "count": 0, "scanned": 0, "stale": True,
+        # Direct table fallback — scan_result_cache often never wrote this endpoint
+        try:
+            import psycopg2 as _pg_ea_brk
+            with _pg_ea_brk.connect(_DB_URL, connect_timeout=3,
+                                    options="-c statement_timeout=3000") as _c_brk, \
+                 _c_brk.cursor() as _cu_brk:
+                _cu_brk.execute("""
+                    SELECT ticker, close_price, accum_score, eod_rel_vol, late_flow,
+                           closing_range, price_chg_pct, mkt_cap_m, news_type, news_headline,
+                           COALESCE(signal_type, 'accum') AS signal_type, scanned_at
+                    FROM eod_accum_picks
+                    WHERE scan_date >= (now() AT TIME ZONE 'America/New_York')::date - INTERVAL '90 days'
+                    ORDER BY scan_date DESC, accum_score DESC
+                    LIMIT 30
+                """)
+                _brk_rows = _cu_brk.fetchall()
+                _brk_cols = [d[0] for d in _cu_brk.description]
+            if _brk_rows:
+                _hits = []
+                for _row in _brk_rows:
+                    _d = dict(zip(_brk_cols, _row))
+                    _hits.append({
+                        "ticker": _d["ticker"],
+                        "close": float(_d["close_price"] or 0),
+                        "accum_score": float(_d["accum_score"] or 0),
+                        "eod_rel_vol": float(_d["eod_rel_vol"] or 0),
+                        "late_flow": float(_d["late_flow"] or 0),
+                        "closing_range": float(_d["closing_range"] or 0),
+                        "price_chg_pct": float(_d["price_chg_pct"] or 0),
+                        "mkt_cap_m": float(_d.get("mkt_cap_m") or 0),
+                        "news_type": _d.get("news_type", "none"),
+                        "news_headline": _d.get("news_headline"),
+                        "signal_type": _d.get("signal_type", "accum"),
+                    })
+                _accum = [r for r in _hits if r["signal_type"] != "squeeze"]
+                _sq = [r for r in _hits if r["signal_type"] == "squeeze"]
+                return jsonify({
+                    "hits": _accum[:15],
+                    "candidates": _accum[:15],
+                    "squeeze_setups": _sq[:10],
+                    "count": len(_accum),
+                    "total_found": len(_hits),
+                    "scanned": len(_hits),
+                    "stale": True,
+                    "note": "DB eod_accum_picks — Yahoo paused",
+                })
+        except Exception as _ea_brk_e:
+            print(f"[eod_accum] breaker table fallback: {_ea_brk_e}")
+        return jsonify({"hits": [], "candidates": [], "count": 0, "scanned": 0, "stale": True,
                         "note": "Yahoo rate limited - try again shortly"})
     import datetime as _dt_ea
     import yfinance as _yf_ea
@@ -66036,11 +66320,61 @@ def short_squeeze_radar():
             _tickers_sq = [r[0] for r in _cu_sq.fetchall()]
 
         if not _tickers_sq:
+            # Fall back to aiem_squeeze_signals before empty
+            try:
+                with _pg_sq.connect(_DB_URL, connect_timeout=3,
+                                    options="-c statement_timeout=3000") as _c_sq0, _c_sq0.cursor() as _cu_sq0:
+                    _cu_sq0.execute("""
+                        SELECT ticker, signal_date::text,
+                               si_pct::float AS short_float,
+                               conviction_score::float AS squeeze_score,
+                               rvol::float, volume
+                        FROM aiem_squeeze_signals
+                        WHERE signal_date >= CURRENT_DATE - INTERVAL '30 days'
+                        ORDER BY conviction_score DESC NULLS LAST
+                        LIMIT 40
+                    """)
+                    _sq0_cols = [d[0] for d in _cu_sq0.description]
+                    _sq0 = [dict(zip(_sq0_cols, r)) for r in _cu_sq0.fetchall()]
+                if _sq0:
+                    return jsonify({
+                        "candidates": _sq0, "total_found": len(_sq0), "scanned": len(_sq0),
+                        "as_of": _sq0[0].get("signal_date"), "stale": True,
+                        "note": "DB squeeze signals — seed universe empty",
+                    })
+            except Exception as _sq0e:
+                print(f"[short-squeeze] empty-universe fallback: {_sq0e}")
             return jsonify({"candidates": [], "total_found": 0, "scanned": 0,
                             "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET")})
 
         # Fail-fast when Yahoo throttled - don't hang 15 threads for 15s each
         if _yf_breaker_open():
+            _sq_rad_db2 = _load_scan_cache("squeeze-radar", days_back=60) or _load_scan_cache("squeeze-setup", days_back=60)
+            if _sq_rad_db2:
+                return jsonify({**_sq_rad_db2, "stale": True, "note": "Yahoo throttled — cached radar"})
+            try:
+                with _pg_sq.connect(_DB_URL, connect_timeout=3,
+                                    options="-c statement_timeout=3000") as _c_sqb, _c_sqb.cursor() as _cu_sqb:
+                    _cu_sqb.execute("""
+                        SELECT ticker, signal_date::text,
+                               si_pct::float AS short_float,
+                               conviction_score::float AS squeeze_score,
+                               rvol::float, volume
+                        FROM aiem_squeeze_signals
+                        WHERE signal_date >= CURRENT_DATE - INTERVAL '30 days'
+                        ORDER BY conviction_score DESC NULLS LAST
+                        LIMIT 40
+                    """)
+                    _sqb_cols = [d[0] for d in _cu_sqb.description]
+                    _sqb = [dict(zip(_sqb_cols, r)) for r in _cu_sqb.fetchall()]
+                if _sqb:
+                    return jsonify({
+                        "candidates": _sqb, "total_found": len(_sqb), "scanned": len(_tickers_sq),
+                        "stale": True, "as_of": _sqb[0].get("signal_date"),
+                        "note": "DB squeeze signals — Yahoo throttled",
+                    })
+            except Exception as _sqbe:
+                print(f"[short-squeeze] breaker fallback: {_sqbe}")
             _stale_sq = _sq_rad_cache or {
                 "candidates": [], "total_found": 0, "scanned": len(_tickers_sq),
                 "stale": True, "as_of": _dt_sq.datetime.now().strftime("%I:%M %p ET"),
@@ -66590,9 +66924,65 @@ def insider_outcomes_route():
                 for k in ("checked_at", "detected_at"):
                     if r.get(k): r[k] = r[k].isoformat()
                 if r.get("earnings_date"): r["earnings_date"] = r["earnings_date"].isoformat()
+
+            # Provisional outcomes from alerts when the grader table is empty:
+            # compare price_at_detection vs latest polygon close ≥3 trading days later.
+            if not rows:
+                cur.execute("""
+                    SELECT ia.id AS alert_id, ia.ticker, ia.earnings_date,
+                           ia.price_at_detection::float, ia.suspicion_score,
+                           ia.prem::float, ia.verdict AS alert_verdict,
+                           ia.detected_at AT TIME ZONE 'UTC' AS detected_at
+                    FROM insider_alerts ia
+                    WHERE ia.price_at_detection IS NOT NULL
+                      AND ia.detected_at >= NOW() - INTERVAL '90 days'
+                    ORDER BY ia.detected_at DESC
+                    LIMIT 200
+                """)
+                acols = [d[0] for d in cur.description]
+                alerts = [dict(zip(acols, r)) for r in cur.fetchall()]
+                for a in alerts:
+                    try:
+                        cur.execute("""
+                            SELECT close_price::float FROM polygon_market_daily
+                            WHERE ticker = %s
+                              AND scan_date >= (%s::timestamptz AT TIME ZONE 'America/New_York')::date
+                                               + INTERVAL '3 days'
+                            ORDER BY scan_date ASC LIMIT 1
+                        """, (a["ticker"], a["detected_at"]))
+                        px = cur.fetchone()
+                        if not px or not a.get("price_at_detection"):
+                            continue
+                        entry = float(a["price_at_detection"])
+                        later = float(px[0])
+                        if entry <= 0:
+                            continue
+                        pct = round((later - entry) / entry * 100, 2)
+                        called = pct >= 2.0
+                        rows.append({
+                            "id": None,
+                            "alert_id": a["alert_id"],
+                            "ticker": a["ticker"],
+                            "earnings_date": str(a["earnings_date"]) if a.get("earnings_date") else None,
+                            "price_at_detection": entry,
+                            "price_at_earnings": later,
+                            "pct_move": pct,
+                            "called_it": called,
+                            "outcome_verdict": "WIN" if called else "LOSS",
+                            "checked_at": None,
+                            "suspicion_score": a.get("suspicion_score"),
+                            "prem": a.get("prem"),
+                            "alert_verdict": a.get("alert_verdict"),
+                            "detected_at": a["detected_at"].isoformat() if hasattr(a.get("detected_at"), "isoformat") else a.get("detected_at"),
+                            "provisional": True,
+                        })
+                    except Exception:
+                        conn.rollback()
+                        continue
+
         called = [r for r in rows if r.get("called_it") is True]
         misses = [r for r in rows if r.get("called_it") is False]
-        avg_gain = (sum(r["pct_move"] for r in called) / len(called)) if called else 0
+        avg_gain = (sum(r["pct_move"] for r in called if r.get("pct_move") is not None) / len(called)) if called else 0
         return jsonify({
             "outcomes":      rows,
             "total":         len(rows),
@@ -66600,6 +66990,7 @@ def insider_outcomes_route():
             "misses":        len(misses),
             "accuracy_pct":  round(len(called) / len(rows) * 100, 1) if rows else 0,
             "avg_gain_pct":  round(avg_gain, 1),
+            "note":          "Provisional alert→price outcomes" if rows and rows[0].get("provisional") else None,
         })
     except Exception as e:
         return jsonify({"error": str(e), "outcomes": [], "total": 0}), 500
@@ -74594,7 +74985,8 @@ def unusual_puts():
     if _uc and _ut and (now_utc - _ut).total_seconds() < 720:
         return jsonify(_uc)
 
-    # Off-hours: serve DB snapshot
+    # Off-hours: serve DB snapshot; if log is empty, run a thin Tradier scan of
+    # core names (prior-session volume/OI still available) so the tab is not blank.
     if not _intraday_scan_allowed():
         try:
             with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
@@ -74606,7 +74998,7 @@ def unusual_puts():
                            first_seen AT TIME ZONE 'UTC',
                            last_seen  AT TIME ZONE 'UTC'
                     FROM unusual_puts_log
-                    WHERE last_seen >= NOW() - INTERVAL '7 days'
+                    WHERE last_seen >= NOW() - INTERVAL '14 days'
                       AND closing_flag = FALSE
                       AND vol_oi >= 1.5
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
@@ -74615,23 +75007,26 @@ def unusual_puts():
                         "oi_direction","vol_oi","prem","otm_pct","iv","urgency","spread_flag",
                         "fill_side","unusual_score","first_seen","last_seen"]
                 rows = cur.fetchall()
-            hits = []
-            for row in rows:
-                d = dict(zip(cols, row))
-                for k in ("first_seen","last_seen"):
-                    v = d.get(k)
-                    d[k] = v.isoformat() if hasattr(v, "isoformat") else str(v or "")
-                d["closing_flag"]    = False
-                d["data_age_min"]    = None
-                d["score_breakdown"] = None
-                hits.append(d)
-            out = {"hits": hits, "total": len(hits), "scanned": 0,
-                   "stale": True, "note": "Market closed — showing last logged put activity"}
-            app._unusual_puts_cache    = out
-            app._unusual_puts_cache_ts = now_utc
-            return jsonify(out)
+            if rows:
+                hits = []
+                for row in rows:
+                    d = dict(zip(cols, row))
+                    for k in ("first_seen","last_seen"):
+                        v = d.get(k)
+                        d[k] = v.isoformat() if hasattr(v, "isoformat") else str(v or "")
+                    d["closing_flag"]    = False
+                    d["data_age_min"]    = None
+                    d["score_breakdown"] = None
+                    hits.append(d)
+                out = {"hits": hits, "total": len(hits), "scanned": 0,
+                       "stale": True, "note": "Market closed — showing last logged put activity"}
+                app._unusual_puts_cache    = out
+                app._unusual_puts_cache_ts = now_utc
+                return jsonify(out)
         except Exception as _oe:
-            return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True, "error": str(_oe)})
+            print(f"[unusual_puts] off-hours DB read: {_oe}")
+        # Empty log — fall through to limited Tradier scan below (CORE only)
+        print("[unusual_puts] off-hours log empty — running thin Tradier backfill")
 
     # Scan lock — never block user > 2s
     if not hasattr(app, "_up_scan_lock"):
@@ -74650,22 +75045,26 @@ def unusual_puts():
             return jsonify(_uc2)
 
         # Universe: polygon high-rvol tickers + core optionable names
+        # Off-hours backfill: CORE only (faster, still fills the empty log).
         universe = []
-        try:
-            with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
-                cur.execute("""
-                    SELECT DISTINCT ticker FROM polygon_rvol_scan
-                    WHERE scan_date >= NOW() - INTERVAL '3 days' AND rvol >= 1.3
-                    ORDER BY ticker LIMIT 200
-                """)
-                universe = [r[0] for r in cur.fetchall()]
-        except Exception:
-            pass
         _CORE_UP = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AMD","SPY","QQQ",
                     "NFLX","AVGO","ORCL","CRM","BAC","JPM","GS","XOM","CVX","V","MA",
                     "WMT","UNH","ABBV","LLY","PFE","MRNA","HD","MCD","DIS","COIN","PLTR",
                     "SOFI","MARA","RIOT","GME","AMC","HOOD","SQ","PYPL","INTC","MU","ARM","SMCI"]
-        universe = list(set(universe + _CORE_UP))[:200]
+        if not _intraday_scan_allowed():
+            universe = list(_CORE_UP)
+        else:
+            try:
+                with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT DISTINCT ticker FROM polygon_rvol_scan
+                        WHERE scan_date >= NOW() - INTERVAL '3 days' AND rvol >= 1.3
+                        ORDER BY ticker LIMIT 200
+                    """)
+                    universe = [r[0] for r in cur.fetchall()]
+            except Exception:
+                pass
+            universe = list(set(universe + _CORE_UP))[:200]
 
         # Previous-day OI for R2 (closing-trade detection)
         oi_prev = {}
@@ -74792,27 +75191,37 @@ def unusual_puts():
         # R5: rank by Vol/OI only (Bear Flow uses composite — they must differ)
         hits.sort(key=lambda x: x["vol_oi"], reverse=True)
 
-        # Persist to DB for off-hours serving
+        # Persist to DB for off-hours serving.
+        # No unique constraint on (ticker,strike,expiry) — do NOT use ON CONFLICT
+        # DO NOTHING (that only fires on PK and silently no-ops nothing useful).
+        # Upsert by deleting today's matching keys then inserting.
         if hits:
             try:
                 with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
                     for h in hits[:80]:
+                        cur.execute("""
+                            DELETE FROM unusual_puts_log
+                            WHERE ticker = %s AND strike = %s AND expiry = %s::date
+                              AND first_seen::date >= (now() AT TIME ZONE 'America/New_York')::date - 1
+                        """, (h["ticker"], h["strike"], h["expiry"]))
                         cur.execute("""
                             INSERT INTO unusual_puts_log
                                 (ticker,price,strike,expiry,days_out,volume,oi,oi_direction,
                                  vol_oi,prem,otm_pct,iv,urgency,spread_flag,closing_flag,
                                  fill_side,unusual_score,data_fetched_at,first_seen,last_seen)
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s,%s,NOW(),NOW(),NOW())
-                            ON CONFLICT DO NOTHING
                         """, (h["ticker"],h["price"],h["strike"],h["expiry"],h["days_out"],
                               h["volume"],h["oi"],h["oi_direction"],h["vol_oi"],h["prem"],
                               h["otm_pct"],h["iv"],h["urgency"],h["spread_flag"],
                               h["fill_side"],h["unusual_score"]))
                     conn.commit()
+                    print(f"[unusual_puts] persisted {min(len(hits),80)} rows")
             except Exception as _pe2:
                 print(f"[unusual_puts] persist error: {_pe2}")
 
-        out = {"hits": hits[:80], "total": len(hits), "scanned": len(universe), "stale": False, "note": None}
+        out = {"hits": hits[:80], "total": len(hits), "scanned": len(universe),
+               "stale": not _intraday_scan_allowed(),
+               "note": ("Off-hours Tradier backfill" if not _intraday_scan_allowed() else None)}
         app._unusual_puts_cache    = out
         app._unusual_puts_cache_ts = now_utc
         return jsonify(out)
