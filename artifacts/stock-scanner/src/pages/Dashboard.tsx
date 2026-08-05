@@ -28,7 +28,7 @@ import {
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
-  fetchUnusualPuts, UnusualPut, UnusualPutsResult,
+  fetchUnusualPuts, fetchUnusualPutsLog, UnusualPut, UnusualPutsResult,
   fetchBearFlow, BearFlowRow, BearFlowResult,
   fetchEtfCalls, EtfCallsResult,
   fetchGammaPressure, GammaPressureRow, GammaPressureResult, triggerGammaScan,
@@ -16563,7 +16563,36 @@ function UnusualPutsTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
 
   useEffect(() => {
     setLoading(true);
-    fetchUnusualPuts().then(d => setData(d)).catch(() => {}).finally(() => setLoading(false));
+    fetchUnusualPuts()
+      .then(async (d) => {
+        if (d && (d.hits?.length ?? 0) > 0) {
+          setData(d);
+          return;
+        }
+        // Off-hours / empty live scan: fall back to persisted puts log
+        try {
+          const log = await fetchUnusualPutsLog();
+          const hits = (log.signals || []).map((s) => ({
+            ...s,
+            closing_flag: false,
+            data_age_min: null as number | null,
+            score_breakdown: null as any,
+          }));
+          setData({
+            hits,
+            total: hits.length,
+            scanned: 0,
+            stale: true,
+            note: hits.length
+              ? "Showing persisted unusual-puts history (live scan empty / market closed)"
+              : (d?.note || "No unusual put history logged yet"),
+          });
+        } catch {
+          setData(d);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const handleSave = async (e: React.MouseEvent, h: UnusualPut) => {

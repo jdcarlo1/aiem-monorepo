@@ -54880,25 +54880,155 @@ def darkpool():
     return jsonify({"results": [], "date": None, "total_in_db": 0, "generating": True})
 
 
+# ── Morning Brief (StockScanner) ─────────────────────────────────────────────
+# FE previously called /api/morning-brief on the Node api-server. That path 404s
+# when the scanner is served without that router mounted. Serve the same shape
+# from Flask under /stock-api so the dashboard tab works wherever stock-api does.
+_MORNING_BRIEF_CACHE: dict = {"date": "", "brief": "", "tickers": [], "generated_at": ""}
+
+
+def _build_morning_brief(force: bool = False) -> dict:
+    from datetime import datetime as _dt_mb, timezone as _tz_mb
+    try:
+        from zoneinfo import ZoneInfo as _ZI_mb
+        _today = _dt_mb.now(_ZI_mb("America/New_York")).strftime("%Y-%m-%d")
+    except Exception:
+        _today = _dt_mb.utcnow().strftime("%Y-%m-%d")
+
+    if (not force) and _MORNING_BRIEF_CACHE.get("date") == _today and _MORNING_BRIEF_CACHE.get("brief"):
+        return {**_MORNING_BRIEF_CACHE, "cached": True}
+
+    top_flow: list = []
+    # Prefer in-memory / cached bull-flow style rows from call_sweep_log
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=3,
+                               options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker,
+                       ROUND(SUM(prem)::numeric / 1000000, 2)::float AS premium_m,
+                       COUNT(*)::int AS n_sweeps,
+                       MAX(price)::float AS price,
+                       MIN(expiry::text) AS expiry
+                FROM call_sweep_log
+                WHERE last_seen >= NOW() - INTERVAL '2 days'
+                GROUP BY ticker
+                ORDER BY SUM(prem) DESC
+                LIMIT 8
+            """)
+            for row in cur.fetchall():
+                top_flow.append({
+                    "ticker": row[0],
+                    "premium_m": float(row[1] or 0),
+                    "call_put_ratio": 3.0,  # sweeps are call-side by definition
+                    "price": float(row[3] or 0),
+                    "expiry": row[4] or "near-term",
+                })
+    except Exception as _mb_sw_e:
+        print(f"[morning-brief] sweep query: {_mb_sw_e}")
+
+    if not top_flow:
+        out = {
+            "brief": "Pre-market data is loading. Check back after market open for today's top setups.",
+            "date": _today,
+            "tickers": [],
+            "generated_at": _dt_mb.now(_tz_mb.utc).isoformat(),
+            "cached": False,
+        }
+        _MORNING_BRIEF_CACHE.update({k: out[k] for k in ("date", "brief", "tickers", "generated_at")})
+        return out
+
+    flow_lines = "\n".join(
+        f"{i+1}. {r.get('ticker')} — ${float(r.get('premium_m') or 0):.1f}M call premium, "
+        f"{float(r.get('call_put_ratio') or 0):.1f}× C/P ratio, price ${float(r.get('price') or 0):.2f}, "
+        f"expiry {r.get('expiry') or 'near-term'}"
+        for i, r in enumerate(top_flow[:5])
+    )
+    tickers = [str(r.get("ticker") or "") for r in top_flow[:5] if r.get("ticker")]
+    date_str = _dt_mb.now().strftime("%A, %B %d, %Y")
+    prompt = (
+        "You are a veteran Wall Street analyst writing the morning flow brief for a premium "
+        "trading desk. Your readers are experienced active traders who want sharp, actionable "
+        "intelligence — not generic advice.\n\n"
+        f"{date_str} — Today's Unusual Options Flow:\n{flow_lines}\n\n"
+        "Write a morning brief in 3 parts (no headers, no bullet points, flowing paragraphs):\n\n"
+        "First paragraph: Set the macro tone in 1-2 sentences — what does today's options flow "
+        "collectively signal about market sentiment?\n\n"
+        "Second paragraph: Deep-dive on the top 1-2 names. What catalyst is most likely driving "
+        "each? What does the size of the bet imply about the conviction of the buyer? What price "
+        "target does the options positioning imply?\n\n"
+        "Third paragraph: What is the single most important trade setup from today's flow, and "
+        "what level should traders watch? Close with a one-line market gut-check.\n\n"
+        "Style: Write like a Bloomberg Intelligence note crossed with a hedge fund morning call. "
+        "Sharp, specific, professional. No platitudes. Under 220 words."
+    )
+
+    brief_text = ""
+    try:
+        import anthropic as _anthropic_mb
+        base_url = os.getenv("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+        api_key = os.getenv("AI_INTEGRATIONS_ANTHROPIC_API_KEY", "")
+        if api_key:
+            client = _anthropic_mb.Anthropic(base_url=base_url, api_key=api_key)
+            msg = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=550,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            brief_text = (msg.content[0].text if msg.content else "") or ""
+    except Exception as _mb_ai_e:
+        print(f"[morning-brief] anthropic: {_mb_ai_e}")
+
+    if not brief_text:
+        names = ", ".join(tickers) if tickers else "no names"
+        brief_text = (
+            f"Options flow is concentrated in {names}. "
+            f"Top premium names: {flow_lines.replace(chr(10), ' | ')}. "
+            "Treat this as a data snapshot — AI narrative unavailable until Anthropic keys are configured."
+        )
+
+    out = {
+        "brief": brief_text,
+        "date": _today,
+        "tickers": tickers,
+        "generated_at": _dt_mb.now(_tz_mb.utc).isoformat(),
+        "cached": False,
+    }
+    _MORNING_BRIEF_CACHE.update({k: out[k] for k in ("date", "brief", "tickers", "generated_at")})
+    return out
+
+
+@app.route("/stock-api/morning-brief", methods=["GET"])
+def morning_brief_get():
+    try:
+        return jsonify(_build_morning_brief(force=False))
+    except Exception as e:
+        return jsonify({"error": str(e), "brief": "", "date": "", "tickers": [],
+                        "generated_at": "", "cached": False}), 500
+
+
+@app.route("/stock-api/morning-brief/refresh", methods=["POST"])
+def morning_brief_refresh():
+    _MORNING_BRIEF_CACHE.update({"date": "", "brief": "", "tickers": [], "generated_at": ""})
+    try:
+        return jsonify(_build_morning_brief(force=True))
+    except Exception as e:
+        return jsonify({"ok": True, "message": "Cache cleared", "error": str(e)})
 
 
 @app.route("/stock-api/gamma-wall", methods=["GET"])
 def gamma_wall():
-    """OI by strike for major tickers - shows dealer gamma concentration and flip points."""
-    if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 401
-    import yfinance as yf
+    """OI by strike for major tickers - shows dealer gamma concentration and flip points.
+
+    Public read endpoint (Tradier-backed via _TdTicker). Admin gate removed —
+    this is market structure data shown on the StockScanner dashboard, not an
+    owner-only side-effect route.
+    """
     from datetime import datetime as _dt
 
     _cache = getattr(app, "_gw_cache", None)
     _ts    = getattr(app, "_gw_cache_ts", None)
     if _cache and _ts and (_dt.now() - _ts).total_seconds() < 43200:
         return jsonify(_cache)
-
-    if _yf_breaker_open():
-        if _cache:
-            return jsonify({**_cache, "stale": True})
-        return jsonify({"results": [], "stale": True})
 
     TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "NVDA", "TSLA", "META", "AMZN", "MSFT", "GOOGL"]
 
@@ -57899,6 +58029,55 @@ def unusual_calls_log():
             for r in rows:
                 if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
                 if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+        return jsonify({"signals": rows, "total": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e), "signals": [], "total": 0}), 500
+
+
+@app.route("/stock-api/unusual-puts-log", methods=["GET"])
+def unusual_puts_log():
+    """Return unusual puts history from DB, newest first. Mirror of /unusual-calls-log."""
+    ticker = request.args.get("ticker", "").upper().strip()
+    try:
+        limit = min(int(request.args.get("limit", 500)), 1000)
+    except (TypeError, ValueError):
+        limit = 500
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            if ticker:
+                cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry::text, days_out,
+                           volume, oi, oi_direction, vol_oi::float, prem::bigint,
+                           otm_pct::float, iv::float, urgency, spread_flag,
+                           fill_side, unusual_score,
+                           first_seen AT TIME ZONE 'UTC' AS first_seen,
+                           last_seen  AT TIME ZONE 'UTC' AS last_seen
+                    FROM unusual_puts_log
+                    WHERE ticker = %s
+                      AND closing_flag = FALSE
+                    ORDER BY last_seen DESC
+                    LIMIT %s
+                """, (ticker, limit))
+            else:
+                cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry::text, days_out,
+                           volume, oi, oi_direction, vol_oi::float, prem::bigint,
+                           otm_pct::float, iv::float, urgency, spread_flag,
+                           fill_side, unusual_score,
+                           first_seen AT TIME ZONE 'UTC' AS first_seen,
+                           last_seen  AT TIME ZONE 'UTC' AS last_seen
+                    FROM unusual_puts_log
+                    WHERE closing_flag = FALSE
+                      AND vol_oi >= 1.5
+                    ORDER BY last_seen DESC
+                    LIMIT %s
+                """, (limit,))
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                if r.get("first_seen"): r["first_seen"] = r["first_seen"].isoformat()
+                if r.get("last_seen"):  r["last_seen"]  = r["last_seen"].isoformat()
+                if r.get("expiry") is not None: r["expiry"] = str(r["expiry"])
         return jsonify({"signals": rows, "total": len(rows)})
     except Exception as e:
         return jsonify({"error": str(e), "signals": [], "total": 0}), 500
@@ -71923,7 +72102,7 @@ def user_score_signals():
     })
 
 
-@app.route("/stock-api/user/gas-board", methods=["POST"])
+@app.route("/stock-api/user/gas-board", methods=["GET", "POST"])
 def user_gas_board():
     """
     Gas Board — score a set of tickers against a subscriber's live profile.
@@ -71934,6 +72113,13 @@ def user_gas_board():
     Body: { subscriber_token, tickers?: [...], risk_override?, style_override?, min_score_override? }
     If tickers is omitted, the subscriber's saved watchlist is used.
     """
+    if request.method == "GET":
+        return jsonify({
+            "error": "POST required",
+            "note": "Gas Board needs subscriber_token in JSON body. Open the tab and enter tickers after setting API Keys.",
+            "signals": [],
+            "method": "POST",
+        }), 405
     import psycopg2 as _bpg
     body  = request.get_json(silent=True) or {}
     token = (body.get("subscriber_token") or "").strip()
@@ -74309,11 +74495,10 @@ def unusual_puts():
                            first_seen AT TIME ZONE 'UTC',
                            last_seen  AT TIME ZONE 'UTC'
                     FROM unusual_puts_log
-                    WHERE last_seen >= NOW() - INTERVAL '5 days'
-                      AND expiry::date > (NOW() AT TIME ZONE 'America/New_York')::date
+                    WHERE last_seen >= NOW() - INTERVAL '7 days'
                       AND closing_flag = FALSE
                       AND vol_oi >= 1.5
-                    ORDER BY vol_oi DESC LIMIT 80
+                    ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 cols = ["ticker","price","strike","expiry","days_out","volume","oi",
                         "oi_direction","vol_oi","prem","otm_pct","iv","urgency","spread_flag",
