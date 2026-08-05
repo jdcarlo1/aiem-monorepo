@@ -1,0 +1,223 @@
+{
+  "period": {
+    "start": "2026-02-05",
+    "end": "2026-08-05",
+    "symbol": "SPY",
+    "sessions": 124,
+    "bars": 113812
+  },
+  "risk_usd": 100,
+  "baseline": [
+    {
+      "pattern": "GAP_FILL",
+      "trades": 39,
+      "win_pct": 23.1,
+      "net_pnl": 357.21,
+      "avg_trade": 9.16
+    },
+    {
+      "pattern": "ORB",
+      "trades": 431,
+      "win_pct": 46.9,
+      "net_pnl": 1392.59,
+      "avg_trade": 3.23
+    },
+    {
+      "pattern": "WEEKLY_MACRO_ORB",
+      "trades": 390,
+      "win_pct": 48.5,
+      "net_pnl": 1309.19,
+      "avg_trade": 3.36
+    },
+    {
+      "pattern": "HIGH_BETA_ORB",
+      "trades": 384,
+      "win_pct": 46.4,
+      "net_pnl": 956.5,
+      "avg_trade": 2.49
+    },
+    {
+      "pattern": "VWAP_REVERSION",
+      "trades": 587,
+      "win_pct": 49.2,
+      "net_pnl": 18918.87,
+      "avg_trade": 32.23
+    },
+    {
+      "pattern": "LIQUIDITY_SWEEP",
+      "trades": 367,
+      "win_pct": 46.6,
+      "net_pnl": 624.03,
+      "avg_trade": 1.7
+    }
+  ],
+  "orb_target_r_sweep": [
+    {
+      "pattern": "ORB_r1.0",
+      "trades": 482,
+      "win_pct": 49.8,
+      "net_pnl": 473.31,
+      "avg_trade": 0.98
+    },
+    {
+      "pattern": "ORB_r1.5",
+      "trades": 444,
+      "win_pct": 48.6,
+      "net_pnl": 970.95,
+      "avg_trade": 2.19
+    },
+    {
+      "pattern": "ORB_r2.0",
+      "trades": 431,
+      "win_pct": 46.9,
+      "net_pnl": 1392.59,
+      "avg_trade": 3.23
+    },
+    {
+      "pattern": "ORB_r2.5",
+      "trades": 416,
+      "win_pct": 47.1,
+      "net_pnl": 1703.3,
+      "avg_trade": 4.09
+    },
+    {
+      "pattern": "ORB_r3.0",
+      "trades": 409,
+      "win_pct": 46.9,
+      "net_pnl": 1811.1,
+      "avg_trade": 4.43
+    }
+  ],
+  "weekly_macro_orb_sweep": [
+    {
+      "pattern": "WM_r1.0",
+      "trades": 411,
+      "win_pct": 49.6,
+      "net_pnl": 591.22,
+      "avg_trade": 1.44
+    },
+    {
+      "pattern": "WM_r1.5",
+      "trades": 390,
+      "win_pct": 48.5,
+      "net_pnl": 1309.19,
+      "avg_trade": 3.36
+    },
+    {
+      "pattern": "WM_r2.0",
+      "trades": 375,
+      "win_pct": 48.0,
+      "net_pnl": 1674.95,
+      "avg_trade": 4.47
+    },
+    {
+      "pattern": "WM_r2.5",
+      "trades": 364,
+      "win_pct": 47.5,
+      "net_pnl": 1803.25,
+      "avg_trade": 4.95
+    },
+    {
+      "pattern": "WM_r3.0",
+      "trades": 362,
+      "win_pct": 47.8,
+      "net_pnl": 1783.9,
+      "avg_trade": 4.93
+    }
+  ],
+  "liquidity_sweep_r": [
+    {
+      "pattern": "LS_r1.0",
+      "trades": 416,
+      "win_pct": 55.5,
+      "net_pnl": -1405.55,
+      "avg_trade": -3.38
+    },
+    {
+      "pattern": "LS_r1.5",
+      "trades": 367,
+      "win_pct": 46.6,
+      "net_pnl": 624.03,
+      "avg_trade": 1.7
+    },
+    {
+      "pattern": "LS_r2.0",
+      "trades": 327,
+      "win_pct": 37.3,
+      "net_pnl": -726.95,
+      "avg_trade": -2.22
+    },
+    {
+      "pattern": "LS_r2.5",
+      "trades": 306,
+      "win_pct": 32.0,
+      "net_pnl": -602.24,
+      "avg_trade": -1.97
+    },
+    {
+      "pattern": "LS_r3.0",
+      "trades": 293,
+      "win_pct": 28.0,
+      "net_pnl": -455.93,
+      "avg_trade": -1.56
+    }
+  ],
+  "vwap_sweep": [
+    {
+      "pattern": "VWAP_e1.5_s2.5",
+      "trades": 1115,
+      "win_pct": 58.5,
+      "net_pnl": 46298.76,
+      "avg_trade": 41.52
+    },
+    {
+      "pattern": "VWAP_e1.5_s3.0",
+      "trades": 697,
+      "win_pct": 51.9,
+      "net_pnl": 20040.42,
+      "avg_trade": 28.75
+    },
+    {
+      "pattern": "VWAP_e1.5_s3.5",
+      "trades": 488,
+      "win_pct": 48.4,
+      "net_pnl": 8020.14,
+      "avg_trade": 16.43
+    },
+    {
+      "pattern": "VWAP_e2.0_s2.5",
+      "trades": 960,
+      "win_pct": 60.1,
+      "net_pnl": 44947.56,
+      "avg_trade": 46.82
+    },
+    {
+      "pattern": "VWAP_e2.0_s3.0",
+      "trades": 587,
+      "win_pct": 49.2,
+      "net_pnl": 18918.87,
+      "avg_trade": 32.23
+    },
+    {
+      "pattern": "VWAP_e2.0_s3.5",
+      "trades": 388,
+      "win_pct": 43.6,
+      "net_pnl": 8544.37,
+      "avg_trade": 22.02
+    },
+    {
+      "pattern": "VWAP_e2.5_s3.0",
+      "trades": 449,
+      "win_pct": 55.2,
+      "net_pnl": 23497.28,
+      "avg_trade": 52.33
+    },
+    {
+      "pattern": "VWAP_e2.5_s3.5",
+      "trades": 278,
+      "win_pct": 46.4,
+      "net_pnl": 12177.92,
+      "avg_trade": 43.81
+    }
+  ]
+}
