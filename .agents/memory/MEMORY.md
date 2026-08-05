@@ -155,3 +155,4 @@
 - [Paper trade close → learning loop funnel](paper-trade-close-loop-funnel.md) — every aiem_paper_trades close (MTM/admin/backfill) must route through `_aiem_close_paper_trade_and_run_loop`, never raw SQL, or stages 20-23 silently never fire
 - [Options pipeline capital_efficiency + mid-price status](options-capital-eff-midprice.md) — capital_efficiency=profit_target/premium_at_risk in oe_trade_records (IMPLEMENTED); real Polygon bid/ask available in options_chain but not wired to selected strike (OPT-007 still PARTIAL)
 - [aiem_options_phase2 sys.path rule](phase2-syspath-rule.md) — capture_trade_record() must insert __file__'s dir into sys.path before importing aiem_strat_engine.greeks; scheduler CWD ≠ stock-scanner-api/
+- [TLA SHA is base-commit-sensitive](tla-base-sensitivity.md) — cherry-picking a TLA-gated commit onto a different base produces a different diff SHA → DIFF_MISMATCH; new TLA must be issued via TTY on the new base
