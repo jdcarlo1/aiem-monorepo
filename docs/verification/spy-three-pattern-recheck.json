@@ -1,0 +1,70 @@
+{
+  "symbol": "SPY",
+  "start": "2026-02-05",
+  "end": "2026-08-05",
+  "daily_lookback_start": "2025-08-01",
+  "fixed_risk_usd": 100.0,
+  "minute_bars": 113812,
+  "minute_sessions": 124,
+  "daily_bars": 253,
+  "summaries": [
+    {
+      "pattern": "VWAP_REVERSION_FIXED",
+      "trades": 364,
+      "wins": 73,
+      "win_rate_pct": 20.05,
+      "net_pnl_usd": 389.8,
+      "avg_pnl_usd": 1.07,
+      "exit_reasons": {
+        "STOP": 284,
+        "EOD_FLATTEN": 23,
+        "TARGET": 57
+      },
+      "rejected_beyond_stop_band": 28
+    },
+    {
+      "pattern": "MACD_HIST_DIVERGENCE",
+      "trades": 1,
+      "wins": 0,
+      "win_rate_pct": 0.0,
+      "net_pnl_usd": -27.44,
+      "avg_pnl_usd": -27.44,
+      "exit_reasons": {
+        "MAX_HOLD": 1
+      }
+    },
+    {
+      "pattern": "BB_EXHAUSTION",
+      "trades": 8,
+      "wins": 3,
+      "win_rate_pct": 37.5,
+      "net_pnl_usd": -292.32,
+      "avg_pnl_usd": -36.54,
+      "exit_reasons": {
+        "MAX_HOLD": 1,
+        "STOP": 4,
+        "TARGET": 3
+      }
+    },
+    {
+      "pattern": "VWAP_REVERSION_BUGGY_REF",
+      "trades": 587,
+      "wins": 289,
+      "win_rate_pct": 49.23,
+      "net_pnl_usd": 18918.87,
+      "avg_pnl_usd": 32.23,
+      "exit_reasons": {
+        "STOP": 507,
+        "EOD_FLATTEN": 23,
+        "TARGET": 57
+      }
+    }
+  ],
+  "vwap_fixed_inverted_stops": 0,
+  "vwap_buggy_inverted_stops": 216,
+  "notes": [
+    "VWAP_REVERSION_FIXED requires entry_sd <= |dev| < stop_sd (geometry gate).",
+    "VWAP_REVERSION_BUGGY_REF is the prior Pattern Lab rule for comparison.",
+    "MACD_HIST_DIVERGENCE and BB_EXHAUSTION run on daily SPY bars."
+  ]
+}
