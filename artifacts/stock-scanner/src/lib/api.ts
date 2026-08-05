@@ -613,13 +613,11 @@ export interface MorningBrief {
 }
 
 export async function fetchMorningBrief(): Promise<MorningBrief> {
-  const res = await fetch("/api/morning-brief");
-  if (!res.ok) throw new Error("Morning brief fetch failed");
-  return res.json();
+  return fetchJson<MorningBrief>("/morning-brief");
 }
 
 export async function refreshMorningBrief(): Promise<void> {
-  await fetch("/api/morning-brief/refresh", { method: "POST" });
+  await fetchJson<{ ok?: boolean; brief?: string }>("/morning-brief/refresh", { method: "POST" });
 }
 
 export interface DarkPoolRow {
@@ -2665,6 +2663,21 @@ export interface UnusualPutsResult {
 
 export function fetchUnusualPuts() {
   return fetchJson<UnusualPutsResult>("/unusual-puts");
+}
+
+export interface UnusualPutsLogEntry extends UnusualPut {
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface UnusualPutsLogResult {
+  signals: UnusualPutsLogEntry[];
+  total: number;
+}
+
+export function fetchUnusualPutsLog(ticker?: string) {
+  const q = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  return fetchJson<UnusualPutsLogResult>(`/unusual-puts-log${q}`);
 }
 
 export interface BearFlowRow {

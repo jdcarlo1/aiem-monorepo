@@ -54,6 +54,7 @@ export default defineConfig({
       "/api/stock": { target: "http://localhost:5050", changeOrigin: true },
       "/api/portfolio": { target: "http://localhost:5050", changeOrigin: true },
       "/api/healthz": { target: "http://localhost:5050", changeOrigin: true },
+      "/api/morning-brief": { target: "http://localhost:5050", changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, "/stock-api") },
     },
   },
   preview: {
