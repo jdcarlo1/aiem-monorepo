@@ -3321,8 +3321,11 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
             "run_discovery_cycle_subprocess.py",
         )
         print(f"[discovery_cycle] spawning subprocess run_id={run_id}")
+        # main.py imports `sys as _sys` at module top — bare `sys` NameErrors here
+        # and silently aborts every discovery cycle (stage-9 freshness then FAILs
+        # all paper INSERTs). Use the aliased import.
         _dc_proc = _dc_sp.Popen(
-            [sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
+            [_sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
             stdout=_dc_sp.PIPE,
             stderr=_dc_sp.STDOUT,
         )
@@ -20267,7 +20270,43 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
 
         rows_inserted = 0
-        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+        # Long-lived `with connect()` across the full per-ticker loop (~10–15 min)
+        # lets Neon idle-close the socket; the final `_c.commit()` then raises
+        # "connection already closed" and marks the whole run FAILED even when
+        # per-ticker INSERTs already committed. Manage the conn explicitly and
+        # ping/reconnect at the top of each pick.
+        _c = _psycopg2.connect(_DB_URL, connect_timeout=4)
+        _cu = _c.cursor()
+
+        def _paper_ensure_conn(reason: str = "tick") -> None:
+            nonlocal _c, _cu
+            try:
+                if getattr(_c, "closed", 1):
+                    raise _psycopg2.InterfaceError("connection closed")
+                _cu.execute("SELECT 1")
+                _cu.fetchone()
+                return
+            except Exception as _alive_e:
+                print(f"[aiem_paper] reconnecting DB ({reason}): {_alive_e}")
+            try:
+                try:
+                    _cu.close()
+                except Exception:
+                    pass
+                try:
+                    _c.close()
+                except Exception:
+                    pass
+                _c = _psycopg2.connect(_DB_URL, connect_timeout=4)
+                _cu = _c.cursor()
+                _cu.execute("SELECT 1")
+                _cu.fetchone()
+                print(f"[aiem_paper] DB reconnect OK ({reason})")
+            except Exception as _reconn_e:
+                print(f"[aiem_paper] DB reconnect FAILED ({reason}): {_reconn_e}")
+                raise
+
+        try:
             # ── Bulk prefetch conviction stack scores for position sizing ─────
             # conviction_stack_watchlist.total_pts is the raw 0–10 layer score
             # from _run_conviction_scanner (FLOOR=5.0, CEILING=9.0).
@@ -20299,6 +20338,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                       f"fallback to capped pick score): {_csw_exc}")
 
             for pick in picks:
+                try:
+                    _paper_ensure_conn(f"pre-pick:{pick.get('ticker')}")
+                except Exception as _pre_e:
+                    print(f"[aiem_paper] skip {pick.get('ticker')}: dead DB — {_pre_e}")
+                    continue
                 _t    = pick["ticker"]
                 _audit_trace_id = None
                 # REMEDIATION S2 ("AUTHORITATIVE MASTER REMEDIATION" directive
@@ -21453,7 +21497,22 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                              f"{_t} not in top-ranked debate batch — "
                                              "no debate ran, so nothing to persist"
                                          )})
-            _c.commit()
+            try:
+                _paper_ensure_conn("final-commit")
+                _c.commit()
+            except Exception as _fc_e:
+                # Per-ticker INSERTs already commit individually; a dead socket
+                # here must not flip the whole run to FAILED.
+                print(f"[aiem_paper] final commit skipped (non-fatal): {_fc_e}")
+        finally:
+            try:
+                _cu.close()
+            except Exception:
+                pass
+            try:
+                _c.close()
+            except Exception:
+                pass
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
         # Runs inside _aiem_paper_execute_today(), not deferred to EOD batch.

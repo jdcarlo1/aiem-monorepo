@@ -615,11 +615,42 @@ TG_CHAT_ID    = os.environ.get("TELEGRAM_CHAT_ID", "8609255707").strip()
 # Funnel thresholds
 MIN_PRICE         = 1.0
 MAX_PRICE         = 20.0
-MIN_PM_VOLUME     = 50_000
+MIN_PM_VOLUME     = 50_000      # post-open / late-window floor (see _pm_volume_threshold)
 MIN_GAP_PCT       = 2.0
 MAX_FLOAT_SHARES  = 20_000_000
 CONFIDENCE_THRESH = 50          # S1b/S1c/S1d score 54-61%; gap_large (non-validated) tops out at ~48%
 CANDIDATE_LIMIT   = 50          # max after float filter before scoring
+
+
+def _pm_scan_count(result) -> int:
+    """Normalize aiem_premarket_scan() return (dict or legacy int/None) to a count."""
+    if isinstance(result, dict):
+        return int(result.get("candidate_count") or 0)
+    if result is None:
+        return 0
+    try:
+        return int(result)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _pm_volume_threshold(now_et=None) -> int:
+    """
+    Premarket volume gate must scale with clock time.
+
+    Empirically (2026-08-03..05): every GHA/manual premarket_scan_runs row logged
+    candidate_count=0 while in-process scans only wrote predictions at 9:32/9:47 ET
+    — i.e. after the open when session volume easily clears 50k. A flat 50k floor
+    makes the entire 7:00–9:15 ET backup window a no-op on real gap days (e.g.
+    GTE +62% on 2026-08-05 appeared only after open).
+    """
+    now_et = now_et or datetime.now(ET)
+    mins = now_et.hour * 60 + now_et.minute
+    if mins < 8 * 60:          # before 8:00 ET — thin true premarket
+        return 5_000
+    if mins < 9 * 60 + 15:     # 8:00–9:14 ET — building toward open
+        return 20_000
+    return MIN_PM_VOLUME       # 9:15+ ET — near/after open
 
 # ─────────────────────────────────────────────────────────────
 # LOGGING
@@ -1297,28 +1328,75 @@ def aiem_premarket_scan():
     Score cached universe with trust-weighted AIEM engine.
     Write top 10 to aiem_process_predictions (replaces today's each run).
     Refreshes live prices via Tradier on each pass (no Polygon snapshot needed).
+
+    Returns dict:
+      {candidate_count, outcome, universe_size, tradier_hits, vol_threshold,
+       funnel: {price, vol, gap}}
+    outcome ∈ {
+      not_market_day, empty_universe, no_live_quotes, empty_funnel, success, db_error
+    }
+    Callers that only need a count may use `(result or {}).get("candidate_count") or 0`
+    or the legacy `aiem_premarket_scan() or 0` pattern via __int__-compatible
+    shim: we also accept `result.get("candidate_count")` in _run_manual_scan.
     """
+    _empty = lambda **kw: {
+        "candidate_count": 0, "universe_size": 0, "tradier_hits": 0,
+        "vol_threshold": MIN_PM_VOLUME, "funnel": {}, **kw,
+    }
     if not _market_day():
-        return
+        return _empty(outcome="not_market_day")
     now_et = datetime.now(ET)
-    log.info(f"premarket_scan at {now_et.strftime('%H:%M ET')}")
+    vol_thresh = _pm_volume_threshold(now_et)
+    log.info(f"premarket_scan at {now_et.strftime('%H:%M ET')} vol_thresh={vol_thresh:,}")
 
     with _STATE_LOCK:
         base_universe = list(_STATE["universe"])
 
     if not base_universe:
-        log.info("premarket_scan: warmup universe empty — skipping")
-        return
+        log.warning("premarket_scan: warmup universe empty — skipping")
+        return _empty(outcome="empty_universe", vol_threshold=vol_thresh)
 
     # Refresh all candidates with live Tradier prices → computes gap_pct + rvol
     log.info(f"premarket_scan: refreshing {len(base_universe):,} candidates via Tradier…")
     enriched = _tradier_live_update(base_universe)
 
-    # Apply the same funnel with live data
+    # Count tickers that actually received a live quote (gap/volume refreshed).
+    # Warmup seeds gap_pct=0 / volume=0; without Tradier hits the funnel is always empty.
+    tradier_hits = sum(
+        1 for t in enriched
+        if (t.get("gap_pct") or 0) != 0 or (t.get("volume") or 0) > 0
+    )
+    if TRADIER_TOKEN and tradier_hits == 0 and len(enriched) > 0:
+        log.error(
+            f"premarket_scan: Tradier returned 0 live quotes for "
+            f"{len(enriched):,} tickers — funnel will be empty"
+        )
+        with _STATE_LOCK:
+            _STATE["universe"] = enriched
+        return _empty(
+            outcome="no_live_quotes",
+            universe_size=len(enriched),
+            tradier_hits=0,
+            vol_threshold=vol_thresh,
+        )
+    if not TRADIER_TOKEN:
+        log.error("premarket_scan: TRADIER_TOKEN unset — cannot compute live gaps")
+        return _empty(
+            outcome="no_live_quotes",
+            universe_size=len(base_universe),
+            vol_threshold=vol_thresh,
+        )
+
+    # Apply the same funnel with live data (time-aware volume floor)
     s1 = [t for t in enriched if MIN_PRICE    <= (t.get("price") or 0) <= MAX_PRICE]
-    s2 = [t for t in s1       if (t.get("volume") or 0) >= MIN_PM_VOLUME]
+    s2 = [t for t in s1       if (t.get("volume") or 0) >= vol_thresh]
     s3 = [t for t in s2       if (t.get("gap_pct") or 0) >= MIN_GAP_PCT]
-    log.info(f"funnel: {len(enriched):,} → price {len(s1):,} → vol {len(s2):,} → gap {len(s3):,}")
+    funnel = {"price": len(s1), "vol": len(s2), "gap": len(s3)}
+    log.info(
+        f"funnel: {len(enriched):,} → price {len(s1):,} → "
+        f"vol>={vol_thresh:,} {len(s2):,} → gap {len(s3):,} "
+        f"(tradier_hits={tradier_hits:,})"
+    )
 
     universe = s3   # float filter skipped (no reliable live float source; scoring handles it)
 
@@ -1327,7 +1405,14 @@ def aiem_premarket_scan():
 
     if not universe:
         log.info("premarket_scan: no candidates after funnel")
-        return 0
+        return {
+            "candidate_count": 0,
+            "outcome": "empty_funnel",
+            "universe_size": len(enriched),
+            "tradier_hits": tradier_hits,
+            "vol_threshold": vol_thresh,
+            "funnel": funnel,
+        }
 
     log.info(f"premarket_scan: scoring {len(universe)} candidates")
 
@@ -1387,11 +1472,27 @@ def aiem_premarket_scan():
         if conn:
             try: conn.rollback()
             except: pass
+        return {
+            "candidate_count": 0,
+            "outcome": "db_error",
+            "universe_size": len(enriched),
+            "tradier_hits": tradier_hits,
+            "vol_threshold": vol_thresh,
+            "funnel": funnel,
+            "error": str(e)[:300],
+        }
     finally:
         if conn:
             try: conn.close()
             except: pass
-    return _n_written
+    return {
+        "candidate_count": _n_written,
+        "outcome": "success",
+        "universe_size": len(enriched),
+        "tradier_hits": tradier_hits,
+        "vol_threshold": vol_thresh,
+        "funnel": funnel,
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -2513,7 +2614,17 @@ def main():
         except Exception as _we:
             log.error(f"[catchup] warmup: {_we}"); _scan_err = str(_we)
         try:
-            _result_n = aiem_premarket_scan() or 0
+            _scan_result = aiem_premarket_scan()
+            _result_n = _pm_scan_count(_scan_result)
+            if isinstance(_scan_result, dict) and _scan_result.get("outcome") in (
+                "empty_universe", "no_live_quotes", "db_error",
+            ):
+                _scan_err = (
+                    f"{_scan_result.get('outcome')}: "
+                    f"universe={_scan_result.get('universe_size')} "
+                    f"tradier_hits={_scan_result.get('tradier_hits')} "
+                    f"vol_thresh={_scan_result.get('vol_threshold')}"
+                )
         except Exception as _se:
             log.error(f"[catchup] premarket_scan: {_se}"); _scan_err = str(_se)
 
@@ -2706,23 +2817,44 @@ def main():
             wu = aiem_warmup()
             if wu:
                 freshness_date, universe_size = wu
-            candidate_count = aiem_premarket_scan() or 0
+            scan_result = aiem_premarket_scan()
+            candidate_count = _pm_scan_count(scan_result)
+            outcome = (scan_result.get("outcome") if isinstance(scan_result, dict)
+                       else ("success" if candidate_count > 0 else "empty_funnel"))
+            if isinstance(scan_result, dict):
+                universe_size = scan_result.get("universe_size") or universe_size
+            # Infra failures must not look like healthy empty sessions.
+            # empty_funnel with live quotes can be a quiet tape → success.
+            _fail_outcomes = {"empty_universe", "no_live_quotes", "db_error"}
+            status = "error" if outcome in _fail_outcomes else "success"
+            detail = None
+            if isinstance(scan_result, dict):
+                detail = (
+                    f"outcome={outcome} tradier_hits={scan_result.get('tradier_hits')} "
+                    f"vol_thresh={scan_result.get('vol_threshold')} "
+                    f"funnel={scan_result.get('funnel')}"
+                )
             completed_at = datetime.now(ET)
-            log.info(f"[run_id={run_id}] scan complete — candidates={candidate_count} "
-                     f"freshness={freshness_date} universe={universe_size}")
+            log.info(f"[run_id={run_id}] scan complete — status={status} "
+                     f"candidates={candidate_count} outcome={outcome} "
+                     f"freshness={freshness_date} universe={universe_size} {detail or ''}")
             with _STATE_LOCK:
                 _LAST_SCAN.update({
                     "run_id":                run_id,
-                    "status":               "success",
+                    "status":               status,
+                    "outcome":              outcome,
                     "trigger_source":       trigger_source,
                     "started_at":           started_at.isoformat(),
                     "completed_at":         completed_at.isoformat(),
                     "source_freshness_date": str(freshness_date) if freshness_date else None,
                     "universe_size":         universe_size,
                     "candidate_count":       candidate_count,
+                    "detail":               detail,
                 })
-            _db_log_scan(run_id, trigger_source, "success",
-                          started_at, completed_at, freshness_date, candidate_count)
+            _db_log_scan(run_id, trigger_source, status,
+                          started_at, completed_at, freshness_date, candidate_count,
+                          error_message=detail if status != "success" or outcome == "empty_funnel"
+                          else None)
         except Exception as _e:
             _err = str(_e)[:500]
             log.error(f"[run_id={run_id}] scan error: {_err}")
