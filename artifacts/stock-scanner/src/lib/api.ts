@@ -2682,7 +2682,7 @@ export interface BearFlowRow {
   hurst:              number;
   regime:             string;
   rvol:               number;
-  pct_change:         number;
+  close_strength:     number;
   signal_count:       number;
   session_days:       number;
   spread_flag:        boolean;
@@ -2695,7 +2695,7 @@ export interface BearFlowRow {
     composite:   number;
     put_flow_detail:    { vol_oi_pts: number; prem_pts: number; multi_pts: number; spread_penalty: number };
     regime_detail:      { vpin: number; hurst: number; l9_score: number; regime: string };
-    tech_detail:        { pct_change: number; rvol: number; max_iv: number };
+    tech_detail:        { close_strength: number; rvol: number; max_iv: number };
     smart_money_detail: { session_days: number; cumul_prem_m: number };
   };
 }
