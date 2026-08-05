@@ -146,7 +146,7 @@ export default function PatternLab() {
             Pattern Lab
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            Independent Gap Fill &amp; ORB paper ledgers — $10k each, 1.5% risk
+            Independent Gap Fill &amp; ORB paper ledgers — $10k each, 1.5% risk; ORB target 3.0R
           </p>
         </div>
         <div className="font-mono text-xs text-muted-foreground text-right">

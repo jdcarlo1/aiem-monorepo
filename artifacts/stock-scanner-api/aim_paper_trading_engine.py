@@ -197,9 +197,10 @@ class AIMPaperTradingEngine:
             if not post_range_session.empty:
                 if latest_bar['close'] > range_high:
                     orb_stop = range_low * (1 - self.buffer_pct)
-                    orb_target = latest_bar['close'] + (abs(latest_bar['close'] - range_low) * 2.0)
+                    # 3.0R take-profit (same OR stop) — Pattern Lab backtest IS/OOS edge vs 2.0R
+                    orb_target = latest_bar['close'] + (abs(latest_bar['close'] - range_low) * 3.0)
                     self.orb.enter(self.symbol, latest_bar['close'], orb_stop, orb_target, "LONG")
                 elif latest_bar['close'] < range_low:
                     orb_stop = range_high * (1 + self.buffer_pct)
-                    orb_target = latest_bar['close'] - (abs(range_high - latest_bar['close']) * 2.0)
+                    orb_target = latest_bar['close'] - (abs(range_high - latest_bar['close']) * 3.0)
                     self.orb.enter(self.symbol, latest_bar['close'], orb_stop, orb_target, "SHORT")
