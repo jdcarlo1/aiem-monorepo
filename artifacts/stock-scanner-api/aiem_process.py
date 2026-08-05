@@ -1280,7 +1280,7 @@ def aiem_score_ticker(ticker: str, data: dict, trust_weights: dict):
     move = (
         "Strong breakout likely — high conviction long" if conf >= 80
         else "Moderate breakout — watch open" if conf >= 65
-        else "Possible setup — needs open confirmation" if conf >= 50
+        else "Possible setup — needs open confirmation" if conf >= CONFIDENCE_THRESH
         else "Low conviction — monitor only"
     )
     return conf, ", ".join(signals), " | ".join(reasoning) or "No strong signals", move
