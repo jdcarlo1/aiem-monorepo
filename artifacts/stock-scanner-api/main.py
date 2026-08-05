@@ -15879,24 +15879,27 @@ def _aiem_daily_price_options_alert() -> None:
 
 
 def _joel_morning_alerts() -> None:
-    """Joel's Morning Alerts — daily PLTR-style unusual-call setups.
+    """Joel's Morning Alerts — aggressive EARLY bullish CALL flow (PLTR 8/4 style).
 
-    Timing: 9:50 AM ET Mon-Fri (after the 9:36 market-open unusual-calls scan).
-    Why not 9:30: need ~10–20 minutes of tape so we only alert names that are
-    still holding (price not fading), same lesson as yesterday's PLTR flow.
+    Target fingerprint (2026-08-04 PLTR):
+      - By ~9:38 ET: heavy CALL buying already printing
+        ($26M+ prem, vol/OI up to 46×, multiple OTM contracts)
+      - THEN the stock ran another ~10%+ from the open into the close
+      - Goal: surface that aggression early, before the next leg
 
-    Filter (calibrated to 2026-08-04 PLTR fingerprint):
-      - Today's unusual_calls_log only (ET calendar day)
-      - Non-ETF underlyings
-      - Aggregate call premium >= $2M OR any single hit >= $1M
-      - Max vol/OI >= 5.0
-      - At least 2 distinct contracts
-      - Hold check: latest logged stock price >= first logged price * 0.995
+    Timing: 9:50 AM ET Mon-Fri (after 9:36 unusual-calls scan finishes).
+    Early window only: first_seen must be before 10:00 ET.
 
-    Each alert explicitly lists morning unusual CALL activity (first-seen time,
-    top contracts, premium, vol/OI) so Joel can see the flow, not just the ticker.
+    Aggressive bar (calibrated to PLTR morning, not afternoon leftovers):
+      - Non-ETF
+      - first_seen < 10:00 ET
+      - max vol/OI >= 8.0  OR  single hit prem >= $2M
+      - total prem >= $3M  OR  single hit >= $1.5M
+      - >= 2 contracts
+      - At least one bullish/OTM-leaning call (strike >= 0.97 * stock price)
+      - Hold: latest price >= first price * 0.995
 
-    Delivery: Telegram + owner email + ntfy. Deduped once/day via owner_email_log.
+    Delivery: Telegram + owner email + ntfy. Deduped via owner_email_log.
     """
     import psycopg2 as _pg_jma
     from email_alerts import send_email_raw, smtp_configured
@@ -15915,13 +15918,15 @@ def _joel_morning_alerts() -> None:
     try:
         with _pg_jma.connect(os.environ["DATABASE_URL"], connect_timeout=8) as _c, \
                 _c.cursor() as _cu:
+            # Early-morning aggressive CALL window only (before 10:00 ET)
             _cu.execute("""
-                WITH today AS (
+                WITH early AS (
                     SELECT ticker, price, strike, expiry, days_out, volume, oi,
                            vol_oi, prem, otm_pct, urgency, first_seen, last_seen
                     FROM unusual_calls_log
-                    WHERE (last_seen AT TIME ZONE 'America/New_York')::date
+                    WHERE (first_seen AT TIME ZONE 'America/New_York')::date
                         = (NOW() AT TIME ZONE 'America/New_York')::date
+                      AND (first_seen AT TIME ZONE 'America/New_York')::time < TIME '10:00'
                       AND prem >= 100000
                 ),
                 agg AS (
@@ -15933,16 +15938,20 @@ def _joel_morning_alerts() -> None:
                            MIN(price)::float AS price_first,
                            MAX(price)::float AS price_latest,
                            MIN(first_seen AT TIME ZONE 'America/New_York') AS first_seen_et,
-                           MAX(last_seen AT TIME ZONE 'America/New_York') AS last_seen_et
-                    FROM today
+                           MAX(last_seen AT TIME ZONE 'America/New_York') AS last_seen_et,
+                           BOOL_OR(strike >= price * 0.97) AS has_otm_leaning_call,
+                           MAX(otm_pct)::float AS max_otm_pct
+                    FROM early
                     GROUP BY ticker
                 )
                 SELECT ticker, n_contracts, total_prem, max_voi, max_hit_prem,
-                       price_first, price_latest, first_seen_et, last_seen_et
+                       price_first, price_latest, first_seen_et, last_seen_et,
+                       max_otm_pct
                 FROM agg
                 WHERE ticker <> ALL(%s)
-                  AND max_voi >= 5.0
-                  AND (total_prem >= 2000000 OR max_hit_prem >= 1000000)
+                  AND has_otm_leaning_call IS TRUE
+                  AND (max_voi >= 8.0 OR max_hit_prem >= 2000000)
+                  AND (total_prem >= 3000000 OR max_hit_prem >= 1500000)
                   AND n_contracts >= 2
                   AND price_latest >= price_first * 0.995
                 ORDER BY total_prem DESC
@@ -15950,16 +15959,17 @@ def _joel_morning_alerts() -> None:
             """, (list(_ETF),))
             _rows = _cu.fetchall()
 
-            # Per-ticker top morning call contracts (for the "unusual activity" detail)
             _contracts_by_ticker: dict = {}
             if _rows:
                 _tickers = [r[0] for r in _rows]
                 _cu.execute("""
                     SELECT ticker, strike, expiry, days_out, volume, oi, vol_oi, prem,
+                           otm_pct,
                            (first_seen AT TIME ZONE 'America/New_York') AS first_et
                     FROM unusual_calls_log
-                    WHERE (last_seen AT TIME ZONE 'America/New_York')::date
+                    WHERE (first_seen AT TIME ZONE 'America/New_York')::date
                         = (NOW() AT TIME ZONE 'America/New_York')::date
+                      AND (first_seen AT TIME ZONE 'America/New_York')::time < TIME '10:00'
                       AND ticker = ANY(%s)
                       AND prem >= 100000
                     ORDER BY ticker, prem DESC
@@ -15974,16 +15984,16 @@ def _joel_morning_alerts() -> None:
         if not _rows:
             _empty = (
                 f"☀️ Joel's Morning Alerts · {_time_str} · {_date_str}\n\n"
-                f"No PLTR-style setups holding yet.\n"
-                f"Checked morning unusual CALL activity: none met the bar "
-                f"(≥$2M call prem or ≥$1M single hit, vol/OI ≥5×, 2+ contracts, "
-                f"price still holding).\n\n"
+                f"No PLTR-style AGGRESSIVE early bullish CALL flow yet.\n"
+                f"Looking for (before 10:00 ET): heavy CALL prem, vol/OI ≥8× "
+                f"or $2M+ single hit, OTM-leaning strikes, still holding — "
+                f"same setup as PLTR 8/4 before it ran another ~10%+.\n\n"
                 f"Next look: same-day windows at 10:30 / 12:30 / 2:00."
             )
             _tg_send(_empty, signal_source="joel_morning_alerts", alert_class="INFO")
             _send_ntfy(
                 "Joel's Morning Alerts — none yet",
-                f"No morning unusual-call holds at {_time_str}",
+                f"No aggressive early CALL flow at {_time_str}",
                 priority="default",
                 tags="sunny",
             )
@@ -15993,11 +16003,12 @@ def _joel_morning_alerts() -> None:
         _lines = [
             f"☀️ Joel's Morning Alerts · {_time_str} · {_date_str}",
             "",
-            f"{len(_rows)} name(s) with morning UNUSUAL CALL activity + still holding:",
+            "AGGRESSIVE early bullish CALL buying (PLTR 8/4 style) — "
+            "still holding into the open:",
             "",
         ]
         _html_cards = ""
-        for _i, (_tkr, _n, _prem, _voi, _maxhit, _p0, _p1, _first_et, _last_et) in enumerate(_rows, 1):
+        for _i, (_tkr, _n, _prem, _voi, _maxhit, _p0, _p1, _first_et, _last_et, _max_otm) in enumerate(_rows, 1):
             _prem_m = float(_prem or 0) / 1_000_000.0
             _chg = 0.0
             if _p0 and float(_p0) > 0:
@@ -16006,14 +16017,14 @@ def _joel_morning_alerts() -> None:
             _first_s = _first_et.strftime("%-I:%M %p") if _first_et else "?"
             _last_s = _last_et.strftime("%-I:%M %p") if _last_et else "?"
 
-            _lines.append(f"{_i}. {_tkr}  ${_p1:.2f} ({_sign}{_chg:.1f}% hold)")
+            _lines.append(f"{_i}. {_tkr}  ${_p1:.2f} ({_sign}{_chg:.1f}% since first print)")
             _lines.append(
-                f"   ✅ Morning unusual CALLS: YES — first seen {_first_s} ET, "
-                f"last {_last_s} ET"
+                f"   ✅ AGGRESSIVE early CALLS: YES — first hit {_first_s} ET "
+                f"(before the next leg)"
             )
             _lines.append(
-                f"   Flow: ${_prem_m:.1f}M total prem · {_n} contracts · "
-                f"max vol/OI {_voi:.1f}×"
+                f"   Flow: ${_prem_m:.1f}M prem · {_n} contracts · "
+                f"max vol/OI {_voi:.1f}× · max OTM {float(_max_otm or 0):+.1f}%"
             )
 
             _tops = (_contracts_by_ticker.get(_tkr) or [])[:3]
@@ -16021,15 +16032,18 @@ def _joel_morning_alerts() -> None:
             for _cr in _tops:
                 _c_stk, _c_exp, _c_dte = _cr[1], _cr[2], _cr[3]
                 _c_vol, _c_oi, _c_voi, _c_prem = _cr[4], _cr[5], _cr[6], _cr[7]
-                _c_first = _cr[8].strftime("%-I:%M") if _cr[8] else "?"
+                _c_otm = float(_cr[8] or 0)
+                _c_first = _cr[9].strftime("%-I:%M") if _cr[9] else "?"
+                _otm_s = f"{_c_otm:+.1f}%OTM" if _c_otm else "ATM/ITM"
                 _lines.append(
-                    f"   • ${_c_stk:.0f}c {_c_exp} ({_c_dte}d) · "
-                    f"vol {_c_vol:,} / OI {_c_oi:,} · vol/OI {float(_c_voi or 0):.1f}× · "
-                    f"${float(_c_prem or 0):,.0f} prem · seen {_c_first}"
+                    f"   • ${_c_stk:.0f}c {_c_exp} ({_c_dte}d, {_otm_s}) · "
+                    f"vol/OI {float(_c_voi or 0):.1f}× · "
+                    f"${float(_c_prem or 0):,.0f} · {_c_first} ET"
                 )
                 _contract_html += (
                     f"<div style='font-size:11px;color:#94a3b8;padding:2px 0;'>"
-                    f"${float(_c_stk or 0):.0f}c {_c_exp} · vol/OI {float(_c_voi or 0):.1f}× · "
+                    f"${float(_c_stk or 0):.0f}c {_c_exp} · {_otm_s} · "
+                    f"vol/OI {float(_c_voi or 0):.1f}× · "
                     f"${float(_c_prem or 0):,.0f} · {_c_first} ET</div>"
                 )
 
@@ -16041,15 +16055,15 @@ def _joel_morning_alerts() -> None:
                 </span>
               </div>
               <div style="margin-top:6px;font-size:12px;color:#22c55e;font-weight:700;">
-                ✅ Morning unusual CALL activity: YES
+                ✅ Aggressive early bullish CALL activity (PLTR-style)
               </div>
               <div style="margin-top:4px;font-size:12px;color:#cbd5e1;">
-                First seen {_first_s} ET · last {_last_s} ET ·
-                ${_prem_m:.1f}M prem · {_n} contracts · max vol/OI {float(_voi or 0):.1f}×
+                First hit {_first_s} ET · ${_prem_m:.1f}M prem · {_n} contracts ·
+                max vol/OI {float(_voi or 0):.1f}× · max OTM {float(_max_otm or 0):+.1f}%
               </div>
               <div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e293b;">
                 <div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-bottom:4px;">
-                  Top morning call contracts
+                  Top early CALL contracts (before 10:00 ET)
                 </div>
                 {_contract_html}
               </div>
@@ -16057,7 +16071,8 @@ def _joel_morning_alerts() -> None:
 
         _lines += [
             "",
-            "Every name above had unusual CALL buying this morning AND is still holding.",
+            "Same setup as PLTR 8/4: aggressive CALL buying early, "
+            "still holding — watch for continuation.",
             "Not financial advice · StockScanner AI",
         ]
         _body = "\n".join(_lines)
@@ -16074,7 +16089,7 @@ def _joel_morning_alerts() -> None:
             _trace = f"joel_morning_{_uuid_jma.uuid4().hex[:12]}"
             for _r in _rows:
                 _ag_jma.log_alert(
-                    f"{_r[0]} Joel morning ${_r[2]/1_000_000:.1f}M prem vol/OI {_r[3]}",
+                    f"{_r[0]} Joel morning aggressive CALL ${_r[2]/1_000_000:.1f}M vol/OI {_r[3]}",
                     signal_source="joel_morning_alerts",
                     ticker=_r[0],
                     alert_class="SIGNAL",
@@ -16087,10 +16102,10 @@ def _joel_morning_alerts() -> None:
 
         _top = ", ".join(r[0] for r in _rows[:4])
         _send_ntfy(
-            f"Joel's Morning Alerts · {len(_rows)} with unusual calls",
-            f"{_top}\nMorning CALL flow + still holding · {_time_str}",
-            priority="high",
-            tags="sunny,chart_with_upwards_trend",
+            f"Joel's Morning Alerts · {len(_rows)} aggressive CALL(s)",
+            f"{_top}\nEarly bullish CALL flow (PLTR-style) · {_time_str}",
+            priority="urgent",
+            tags="sunny,chart_with_upwards_trend,rocket",
         )
 
         if smtp_configured():
@@ -16099,22 +16114,22 @@ def _joel_morning_alerts() -> None:
               <div style="margin-bottom:16px;">
                 <span style="font-size:22px;font-weight:800;color:#f1f5f9;">☀️ Joel's Morning Alerts</span>
                 <span style="display:block;font-size:12px;color:#64748b;margin-top:4px;">
-                  Morning unusual CALL activity + still holding · {_time_str} · {_date_str}
+                  Aggressive early bullish CALL flow · {_time_str} · {_date_str}
                 </span>
               </div>
+              <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#94a3b8;">
+                Same fingerprint as <b style="color:#f1f5f9;">PLTR on 8/4</b>: heavy CALL buying
+                printed early (~9:38), stock still holding — then it ran another ~10%+ from the open.
+                These names are in that early window.
+              </div>
               {_html_cards}
-              <p style="font-size:11px;color:#94a3b8;margin:0 0 12px;">
-                Same fingerprint as 2026-08-04 PLTR: heavy call premium, elevated vol/OI,
-                multiple contracts, price still holding ~20 minutes after the open.
-                Every card above includes the morning call contracts that fired.
-              </p>
               <p style="font-size:10px;color:#334155;text-align:center;margin:0;">
                 StockScanner AI · Not financial advice
               </p>
             </div>"""
             send_email_raw(
                 _OWNER_EMAIL,
-                f"☀️ Joel's Morning Alerts · {len(_rows)} with unusual calls · {_date_str}",
+                f"☀️ Joel's Morning Alerts · {len(_rows)} aggressive early CALL(s) · {_date_str}",
                 _html,
             )
 
