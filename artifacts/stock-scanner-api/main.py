@@ -4216,6 +4216,16 @@ def _run_td_intraday_capture():
         print(f"[pattern_lab] feed error (non-fatal): {_pl_feed_e}")
 
 
+    # Pattern Lab — feed SPY 1-min bars into Gap Fill / ORB paper ledgers.
+    # Isolated from D1/D2/D3; failures here must not break intraday capture.
+    try:
+        _spy_df_pl = ticker_dfs.get("SPY")
+        if _spy_df_pl is not None and not getattr(_spy_df_pl, "empty", True):
+            _pattern_lab_feed_from_spy_df(_spy_df_pl)
+    except Exception as _pl_feed_e:
+        print(f"[pattern_lab] feed error (non-fatal): {_pl_feed_e}")
+
+
 def _init_conviction_snapshot_table():
     import psycopg2 as _pg2
     with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
@@ -32431,6 +32441,8 @@ def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
         train_dates = all_dates[:split]
         test_dates  = all_dates[split:]
 
+        _h_days = _MKT_HORIZON_DAYS.get(str(horizon).lower(), 1)
+
         def run_period(dates):
             ph = ",".join(["%s"] * len(dates))
             w = f"{sig_where} AND t.scan_date::text IN ({ph})"
@@ -32438,7 +32450,8 @@ def _mkt_tool_validate_oos(conditions=None, train_pct=0.6, horizon="next_day"):
             bw = f"t.scan_date::text IN ({ph})"
             bp = dates
             with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
-                return _mkt_run_two_group(conn, w, p, bw, bp, limit=50000)
+                return _mkt_run_two_group(conn, w, p, bw, bp,
+                                          horizon_days=_h_days, limit=50000)
 
         train_res = run_period(train_dates)
         test_res  = run_period(test_dates)
@@ -32747,6 +32760,164 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Indicator-grid findings promoter
+# Reads indicator_grid_finding entries stored in aiem_research_insights.findings
+# (newline-delimited JSON) and runs them through the same 4-gate promotion path
+# that loop_a_research uses for its market-battery findings.
+# Called from:
+#   - loop_a_research (forward path — picks up any unprocessed indicator findings)
+#   - _DEFERRED_INITS (one-time Aug 1 backfill on first startup after this deploy)
+# ──────────────────────────────────────────────────────────────────────────
+def _mkt_promote_indicator_grid_findings(research_date=None):
+    """Promote indicator_grid_finding entries from aiem_research_insights through
+    the same 4-gate OOS path (validate_oos → oos_edge>0 → save_discovery) that
+    loop_a_research uses for its market-battery findings.
+
+    research_date: optional 'YYYY-MM-DD' string — if given, only process that row.
+                   If None, scans all rows (dedup gate prevents double-saves).
+    Returns summary dict."""
+    import psycopg2, json as _igj
+    promoted = skipped_gate = skipped_dup = failed_oos = errors = 0
+
+    # ── 1. Load findings text from aiem_research_insights ────────────────────
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            if research_date:
+                _cur.execute(
+                    "SELECT findings FROM aiem_research_insights WHERE research_date=%s",
+                    (research_date,)
+                )
+            else:
+                _cur.execute(
+                    "SELECT findings FROM aiem_research_insights ORDER BY research_date"
+                )
+            rows = _cur.fetchall()
+    except Exception as _e:
+        print(f"[indicator_promote] DB read error: {_e}")
+        return {"status": "error", "error": str(_e)}
+
+    # ── 2. Parse newline-delimited JSON, filter for indicator_grid_finding ───
+    candidates = []
+    for (findings_text,) in rows:
+        if not findings_text:
+            continue
+        for line in findings_text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = _igj.loads(line)
+            except Exception:
+                continue
+            if obj.get("type") != "indicator_grid_finding":
+                continue
+            conds = obj.get("conditions") or {}
+            if not isinstance(conds, dict) or not conds:
+                continue
+            wr  = float(obj.get("win_rate_pct") or 0)
+            n   = int(obj.get("n") or 0)
+            if wr < 54.0 or n < 200:
+                skipped_gate += 1
+                continue
+            candidates.append({
+                "conditions":      conds,
+                "horizon":         obj.get("horizon", "next_day"),
+                "win_rate_pct":    wr,
+                "n":               n,
+                "p_value":         float(obj.get("p_value") or 1.0),
+                "edge_winrate_pp": float(obj.get("edge_winrate_pp") or 0),
+                "description":     obj.get("description", "indicator_grid_finding"),
+            })
+
+    if not candidates:
+        return {"status": "ok", "promoted": 0, "skipped_gate": skipped_gate,
+                "message": "No qualifying indicator_grid_findings to promote"}
+
+    # ── 3. Build dedup set from existing discoveries ──────────────────────────
+    existing_sigs = set()
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute(
+                "SELECT conditions_json::text, COALESCE(horizon,'next_day') "
+                "FROM aiem_signal_discoveries"
+            )
+            for (cj, hz) in _cur.fetchall():
+                try:
+                    existing_sigs.add((_igj.dumps(_igj.loads(cj), sort_keys=True), hz))
+                except Exception:
+                    pass
+    except Exception as _de:
+        print(f"[indicator_promote] dedup load warning: {_de}")
+
+    # ── 4. Validate OOS + save each candidate ────────────────────────────────
+    for cand in candidates:
+        conds   = cand["conditions"]
+        horizon = cand["horizon"]
+        cond_key = _igj.dumps(conds, sort_keys=True)
+        hz_norm  = horizon or "next_day"
+
+        if (cond_key, hz_norm) in existing_sigs:
+            skipped_dup += 1
+            print(f"[indicator_promote] skip dup {cand['description']!r} "
+                  f"h={hz_norm} — already in aiem_signal_discoveries")
+            continue
+
+        try:
+            oos = _mkt_tool_validate_oos(conditions=conds, horizon=horizon)
+            if not (oos.get("status") == "ok" and oos.get("oos_validated")):
+                failed_oos += 1
+                print(f"[indicator_promote] OOS FAIL {cand['description']!r}: "
+                      f"{oos.get('verdict', 'no verdict')}")
+                continue
+            oos_edge = float((oos.get("test_period") or {}).get("edge_winrate") or 0)
+            if oos_edge <= 0:
+                failed_oos += 1
+                print(f"[indicator_promote] oos_edge={oos_edge:.4f}≤0 — skip "
+                      f"{cand['description']!r}")
+                continue
+            sv = _mkt_tool_save_discovery(
+                conditions        = conds,
+                hypothesis_text   = cand["description"],
+                signal_n          = cand["n"],
+                signal_win_rate   = cand["win_rate_pct"],
+                baseline_win_rate = round(cand["win_rate_pct"] - cand["edge_winrate_pp"], 2),
+                p_value           = cand["p_value"],
+                oos_edge          = oos_edge,
+                edge_broad        = cand["edge_winrate_pp"],
+                edge_tight        = round(oos_edge, 4),
+                horizon           = horizon,
+                notes             = (
+                    f"[INDICATOR-GRID] Promoted via _mkt_promote_indicator_grid_findings. "
+                    f"OOS range: {(oos.get('test_period') or {}).get('range', '?')}"
+                ),
+            )
+            if sv.get("status") == "ok":
+                promoted += 1
+                existing_sigs.add((cond_key, hz_norm))   # prevent re-save in same run
+                print(f"[indicator_promote] DISCOVERY SAVED id={sv.get('discovery_id')} "
+                      f"{cand['description']!r} oos_edge={oos_edge:+.3f}pp h={hz_norm}")
+            else:
+                errors += 1
+                print(f"[indicator_promote] save blocked {cand['description']!r}: "
+                      f"gate={sv.get('gate','?')} — {str(sv.get('error','?'))[:120]}")
+        except Exception as _pe:
+            errors += 1
+            print(f"[indicator_promote] error {cand.get('description','?')!r}: {_pe}")
+
+    print(f"[indicator_promote] done — promoted={promoted} "
+          f"skipped_gate={skipped_gate} skipped_dup={skipped_dup} "
+          f"failed_oos={failed_oos} errors={errors}")
+    return {
+        "status": "ok",
+        "promoted": promoted,
+        "skipped_gate": skipped_gate,
+        "skipped_dup": skipped_dup,
+        "failed_oos": failed_oos,
+        "errors": errors,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -49218,6 +49389,88 @@ def _run_aiem_research_agent(max_iterations=None):
         except Exception as _se:
             print(f"[aiem_research] insights save error: {_se}")
 
+    # ── Promote qualifying market findings to aiem_signal_discoveries ─────────
+    # Options findings use raw SQL-string conditions incompatible with
+    # _mkt_tool_validate_oos.  Market findings use polygon_market_daily column-based
+    # condition dicts that _mkt_parse_conditions handles natively.
+    # Pipeline: significant → OOS validation → 4-gate save (oos_edge/WR/n/Bonferroni).
+    _ra_discovery_count = 0
+    for _mf in [f for f in sig_findings if f.get("source") == "market"]:
+        try:
+            _mf_conds = _mf.get("conditions") or {}
+            _mf_wr    = float(_mf.get("win_rate_pct") or 0)
+            _mf_n     = int(_mf.get("n") or 0)
+            _mf_edge  = float(_mf.get("edge_pct") or 0)
+            _mf_p     = float(_mf.get("p_value") or 1.0)
+            _mf_horiz = _mf.get("horizon", "next_day")
+            # Pre-filter: skip OOS query when basic gates can't pass anyway
+            if not isinstance(_mf_conds, dict) or not _mf_conds:
+                continue
+            if _mf_wr < 54.0 or _mf_n < 200:
+                print(f"[aiem_research] skip OOS {_mf['description']!r}: "
+                      f"WR={_mf_wr:.1f}% n={_mf_n} — below save-discovery gates")
+                continue
+            _ra_audit_seq += 1
+            _oos = _mkt_tool_validate_oos(conditions=_mf_conds, horizon=_mf_horiz)
+            _aiem_log_tool_call(_ra_audit_id, _ra_audit_seq, "mkt_validate_oos",
+                                {"conditions": _mf_conds, "horizon": _mf_horiz}, _oos)
+            if not (_oos.get("status") == "ok" and _oos.get("oos_validated")):
+                print(f"[aiem_research] OOS FAIL {_mf['description']!r}: "
+                      f"{_oos.get('verdict', 'no verdict')}")
+                continue
+            _oos_edge = float((_oos.get("test_period") or {}).get("edge_winrate") or 0)
+            if _oos_edge <= 0:
+                print(f"[aiem_research] oos_edge={_oos_edge:.4f}≤0 — not saving "
+                      f"{_mf['description']!r}")
+                continue
+            _ra_audit_seq += 1
+            _sv = _mkt_tool_save_discovery(
+                conditions        = _mf_conds,
+                hypothesis_text   = _mf["description"],
+                signal_n          = _mf_n,
+                signal_win_rate   = _mf_wr,
+                baseline_win_rate = round(_mf_wr - _mf_edge, 2),
+                p_value           = _mf_p,
+                oos_edge          = _oos_edge,
+                edge_broad        = _mf_edge,
+                edge_tight        = round(_oos_edge, 4),
+                horizon           = _mf_horiz,
+                notes             = (f"[AUTO-DISCOVERY] loop_a_research market battery. "
+                                     f"OOS range: {_oos['test_period']['range']}"),
+            )
+            _aiem_log_tool_call(_ra_audit_id, _ra_audit_seq, "mkt_save_discovery",
+                                {"conditions": _mf_conds, "horizon": _mf_horiz}, _sv)
+            if _sv.get("status") == "ok":
+                _ra_discovery_count += 1
+                print(f"[aiem_research] DISCOVERY SAVED id={_sv.get('discovery_id')} "
+                      f"{_mf['description']!r} oos_edge={_oos_edge:+.3f}pp")
+            else:
+                print(f"[aiem_research] save blocked {_mf['description']!r}: "
+                      f"gate={_sv.get('gate','?')} — {str(_sv.get('error','?'))[:100]}")
+        except Exception as _de:
+            print(f"[aiem_research] discovery promote error "
+                  f"{_mf.get('description','?')!r}: {_de}")
+    if _ra_discovery_count:
+        print(f"[aiem_research] {_ra_discovery_count} new discovery(ies) → "
+              f"aiem_signal_discoveries")
+
+    # ── Promote any unprocessed indicator_grid_finding entries ────────────────
+    # The market battery above only promotes its own in-memory findings.
+    # This picks up indicator-grid findings stored by aiem_stat_research_runner
+    # in aiem_research_insights and routes them through the same 4-gate path.
+    # The dedup gate inside _mkt_promote_indicator_grid_findings prevents
+    # re-processing already-promoted patterns on repeated runs.
+    try:
+        _ig_result = _mkt_promote_indicator_grid_findings()
+        if _ig_result.get("promoted", 0):
+            _ra_discovery_count += _ig_result["promoted"]
+            print(f"[aiem_research] +{_ig_result['promoted']} indicator-grid "
+                  f"discovery(ies) promoted → aiem_signal_discoveries")
+        elif _ig_result.get("status") == "error":
+            print(f"[aiem_research] indicator_promote error: {_ig_result.get('error')}")
+    except Exception as _ig_e:
+        print(f"[aiem_research] indicator_promote non-fatal error: {_ig_e}")
+
     # ── Save scoring model weights ────────────────────────────────────────────
     findings_summary = chr(10).join(
         f"{f['description']}: WR={f['win_rate_pct']:.1f}% n={f['n']} p={f['p_value']:.4f}"
@@ -49240,7 +49493,7 @@ def _run_aiem_research_agent(max_iterations=None):
     _ra_audit_result = _aiem_close_audit_session(
         _ra_audit_id,
         model_saved=_ra_model_saved,
-        discovery_saved=False,
+        discovery_saved=(_ra_discovery_count > 0),
     )
     _ra_perf_result = _aiem_daily_performance_audit()
 
@@ -62831,6 +63084,10 @@ def _init_paper_recovery_schema():
     except Exception as _e:
         print(f"[paper_recovery] schema init error: {_e}")
 _DEFERRED_INITS.append(_init_paper_recovery_schema)
+# One-time backfill: promote the 8 indicator-grid findings stored on Aug 1 that were
+# stranded before the _mkt_promote_indicator_grid_findings path existed.
+# The dedup gate prevents double-saves if this runs more than once.
+_DEFERRED_INITS.append(lambda: _mkt_promote_indicator_grid_findings(research_date="2026-08-01"))
 
 
 def _run_layer9_bg_scan():

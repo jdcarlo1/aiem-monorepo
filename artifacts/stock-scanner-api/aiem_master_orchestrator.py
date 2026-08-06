@@ -2401,6 +2401,29 @@ class AEIMMasterOrchestrator:
 
         # Final verification snapshot after all modules including verification itself
         packet.verification = self._h_verification(packet)
+
+        # Close the master_orchestrator audit session opened in _h_performance_auditor.
+        # total_tool_calls is set to the number of pipeline stages executed so the
+        # session is no longer stuck at 0 tool calls.
+        try:
+            _orch_sid = (packet.performance.get("auditor") or {}).get("audit_session_id")
+            if _orch_sid and _orch_sid != "NO-AUDIT":
+                _orch_steps = len(packet.audit)
+                with psycopg2.connect(DATABASE_URL, connect_timeout=5) as _ac, \
+                        _ac.cursor() as _acu:
+                    _acu.execute("""
+                        UPDATE aiem_research_audit_sessions
+                        SET ended_at         = NOW(),
+                            total_tool_calls = %s,
+                            verdict          = 'Orchestrator pipeline complete — '
+                                               || %s::text || ' stages executed.',
+                            strict_pass      = TRUE
+                        WHERE session_id = %s
+                          AND ended_at IS NULL
+                    """, (_orch_steps, _orch_steps, _orch_sid))
+        except Exception:
+            pass  # audit closure is non-fatal — never let it crash a live trade cycle
+
         return packet
 
 

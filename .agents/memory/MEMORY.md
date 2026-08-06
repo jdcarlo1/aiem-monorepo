@@ -4,7 +4,6 @@
 - [OE Dashboard Phase B normalisers](oe-dashboard-phase-b-normalisers.md) — all 6 pages + actual response shapes; /candidates route is plain array; job_heartbeats has NO status/recorded_at cols; grade_outcomes not wired to record_job_success
 - [Options scheduler hot-reload gap](options-scheduler-hot-reload.md) — scheduler never reloads code; must restart workflow after any aiem_options_scheduler.py change; _BOOT_COMMIT+/health drift fields+check_scheduler_drift.sh now detect stale processes in one query
 - [post_seal_verify PSV8 allowlist](post-seal-psv8-allowlist.md) — PSV8 SKIP for non-test-suite CMDs; WARN when non-allowlist CMD still produces SUMMARY: line; 4-counter summary (PASS/FAIL/SKIPPED/WARN); sha256=35e2aae1
-- [Git dev-branch autosync](git-dev-autosync.md) — push `git add -u && commit && push origin dev` at end of every session; all 10 workflow slots full so no persistent daemon possible
 - [Ledger bypass protocol](ledger-bypass-protocol.md) — any pre-push block on trading_logic_approvals.jsonl means STOP and ask; never --no-verify; never write approved_by="Joel" on self-issued records
 - [Git dev-branch autosync](git-dev-autosync.md) — push `git add -u && commit && push origin dev` at end of every session; workflow slots are NOT hard-capped (stat-research-runner added as 13th workflow 2026-08-04)
 - [Stat research runner workflow wiring](stat-research-runner.md) — was never persistent (Jul 25 data = one-time e2e test); now has workflow + health server on port 5057; writes aiem_historical_pattern_grid
