@@ -2,7 +2,7 @@
 """
 SPY Premarket Range Breakout (PMRB) vs Opening Range Breakout (ORB)
 ===================================================================
-One-year comparison, $1000 notional per trade.
+One-year comparison, $1000 RISK per trade (position sized to stop distance).
 
 PMRB (= Premarket Breakout / Premarket High-Low strategy):
   • Premarket range: 04:00–09:29 ET → PMH / PML
@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-NOTIONAL = 1000.0
+RISK_PER_TRADE = 1000.0  # dollars risked to the stop on each entry
 WINDOW_START = "2025-08-01"
 WINDOW_END = "2026-08-05"
 PM_START = time(4, 0)
@@ -101,6 +101,23 @@ class Trade:
     exit_reason: str
     level_high: float
     level_low: float
+    risk_per_share: float = 0.0
+    shares: float = 0.0
+    risk_budget: float = RISK_PER_TRADE
+
+
+def _size_pnl(entry: float, exit_px: float, side: str, risk_per_share: float) -> Tuple[float, float, float, float]:
+    """Return pnl_pct, pnl_usd, shares, risk_per_share given $RISK_PER_TRADE to stop."""
+    if risk_per_share <= 1e-9:
+        return 0.0, 0.0, 0.0, risk_per_share
+    shares = RISK_PER_TRADE / risk_per_share
+    if side == "long":
+        pnl_usd = shares * (exit_px - entry)
+        pnl_pct = (exit_px - entry) / entry * 100.0
+    else:
+        pnl_usd = shares * (entry - exit_px)
+        pnl_pct = (entry - exit_px) / entry * 100.0
+    return pnl_pct, pnl_usd, shares, risk_per_share
 
 
 def _summarize(trades: List[Trade]) -> dict:
@@ -192,10 +209,10 @@ def simulate_pmrb(df: pd.DataFrame) -> List[Trade]:
         if exit_px is None:
             exit_px, reason = float(bars[-1].c), "eod"
 
-        if side == "long":
-            pnl_pct = (exit_px - entry) / entry * 100.0
-        else:
-            pnl_pct = (entry - exit_px) / entry * 100.0
+        risk_ps = abs(entry - stop)
+        pnl_pct, pnl_usd, shares, risk_ps = _size_pnl(entry, exit_px, side, risk_ps)
+        if shares <= 0:
+            continue
         trades.append(
             Trade(
                 strategy="PMRB",
@@ -206,10 +223,12 @@ def simulate_pmrb(df: pd.DataFrame) -> List[Trade]:
                 stop=round(stop, 4),
                 target=round(target, 4) if target else None,
                 pnl_pct=round(pnl_pct, 4),
-                pnl_usd=round(NOTIONAL * pnl_pct / 100.0, 2),
+                pnl_usd=round(pnl_usd, 2),
                 exit_reason=reason or "eod",
                 level_high=round(pmh, 4),
                 level_low=round(pml, 4),
+                risk_per_share=round(risk_ps, 4),
+                shares=round(shares, 4),
             )
         )
     return trades
@@ -285,7 +304,11 @@ def simulate_orb(df: pd.DataFrame, mode: str = "terminal") -> List[Trade]:
                 exit_px, reason = float(bars[-1].c), "eod"
             trail_note = max(hard, trail)
 
-        pnl_pct = (exit_px - entry) / entry * 100.0
+        # Size to $RISK_PER_TRADE at the *initial* stop (5% hard for terminal, ORB low for 2R)
+        risk_ps = entry * 0.05 if mode == "terminal" else abs(entry - orb_low)
+        pnl_pct, pnl_usd, shares, risk_ps = _size_pnl(entry, exit_px, "long", risk_ps)
+        if shares <= 0:
+            continue
         label = "ORB" if mode == "terminal" else "ORB_range_2R"
         trades.append(
             Trade(
@@ -297,10 +320,12 @@ def simulate_orb(df: pd.DataFrame, mode: str = "terminal") -> List[Trade]:
                 stop=round(trail_note, 4),
                 target=round(target, 4) if target else None,
                 pnl_pct=round(pnl_pct, 4),
-                pnl_usd=round(NOTIONAL * pnl_pct / 100.0, 2),
+                pnl_usd=round(pnl_usd, 2),
                 exit_reason=reason or "eod",
                 level_high=round(orb_high, 4),
                 level_low=round(orb_low, 4),
+                risk_per_share=round(risk_ps, 4),
+                shares=round(shares, 4),
             )
         )
     return trades
@@ -339,7 +364,7 @@ def run_pair(label: str, interval: str, start: str, end: str) -> dict:
         "label": label,
         "interval": interval,
         "window": {"start": start, "end": end, "days": int(days)},
-        "notional_usd": NOTIONAL,
+        "risk_per_trade_usd": RISK_PER_TRADE,
         "pmrb": s_pm,
         "pmrb_long_only": s_pm_long,
         "orb": s_orb,
@@ -375,10 +400,12 @@ def load_prior_orb_json_spy(start: str, end: str) -> Optional[dict]:
                 stop=0.0,
                 target=None,
                 pnl_pct=pnl_pct,
-                pnl_usd=round(NOTIONAL * pnl_pct / 100.0, 2),
+                pnl_usd=round(_size_pnl(float(t["entry_price"]), float(t["exit_price"]), "long", float(t["entry_price"]) * 0.05)[1], 2),
                 exit_reason=t.get("exit_reason", ""),
                 level_high=float(t.get("orb_high") or 0),
                 level_low=float(t.get("orb_low") or 0),
+                risk_per_share=round(float(t["entry_price"]) * 0.05, 4),
+                shares=round(RISK_PER_TRADE / (float(t["entry_price"]) * 0.05), 4),
             )
         )
     s = _summarize(trades)
@@ -403,14 +430,14 @@ def main():
     payload = {
         "as_of": datetime.now().isoformat() + "Z",
         "underlying": "SPY",
-        "notional_per_trade_usd": NOTIONAL,
+        "risk_per_trade_usd": RISK_PER_TRADE,
         "data_notes": [
             "Live POLYGON_API_KEY returns 401 Unauthorized — bars from Yahoo Finance prepost.",
             "Primary 1y comparison uses 60-minute bars (Yahoo 5m history capped ~60 days).",
             "PMRB: premarket 04:00–09:29 ET, break PMH/PML, stop opposite side, target 2R, EOD flatten.",
             "ORB terminal: 09:30–10:00 range, long-only close>high after 10:00, 5% hard + 10% trail, EOD.",
             "ORB_range_2R: same ORB entry, stop at ORB low, target 2R (matched risk model to PMRB).",
-            "$1000 = notional dollars per trade (shares = 1000/entry), not max-loss risk budget.",
+            "$1000 = RISK to the stop per trade (shares = 1000 / stop_distance), NOT $1000 notional.",
         ],
         "primary": {k: v for k, v in primary.items() if k not in strip},
         "hires_crosscheck": {k: v for k, v in hires.items() if k not in strip},
@@ -424,7 +451,7 @@ def main():
 
     p, pl, o, o2 = primary["pmrb"], primary["pmrb_long_only"], primary["orb"], primary["orb_range_2r"]
     verdict = (
-        f"SPY {WINDOW_START}→{WINDOW_END} @ ${NOTIONAL:.0f}/trade (Yahoo 60m prepost): "
+        f"SPY {WINDOW_START}→{WINDOW_END} @ ${RISK_PER_TRADE:.0f} RISK/trade (Yahoo 60m prepost): "
         f"PMRB {p['n']} trades / ${p['total_pnl_usd']} · "
         f"ORB {o['n']} trades / ${o['total_pnl_usd']} · "
         f"ORB_range_2R {o2['n']} trades / ${o2['total_pnl_usd']}. "
@@ -438,7 +465,8 @@ def main():
     lines = [
         "# SPY Premarket Range Breakout (PMRB) vs ORB — 1 Year @ $1000/trade",
         "",
-        f"Window: **{WINDOW_START} → {WINDOW_END}** (253 sessions). Notional: **${NOTIONAL:.0f}/trade**.",
+        f"Window: **{WINDOW_START} → {WINDOW_END}** (253 sessions). "
+        f"**${RISK_PER_TRADE:.0f} risk per trade** (sized to stop distance).",
         "",
         f"**Verdict:** {verdict}",
         "",
@@ -478,8 +506,8 @@ def main():
         "",
         "- Polygon key **401** here → Yahoo Finance extended hours.",
         "- Full year on **60-minute** bars; 5m only covers ~60 days.",
-        "- $1000 = notional per entry, not stop-distance risk.",
-        "- On SPY, terminal ORB’s 5%/10% stops rarely trigger → mostly EOD exits.",
+        "- $1000 = **risk to the stop** per entry (shares = 1000 / |entry−stop|), not $1000 of stock.",
+        "- On SPY, terminal ORB’s 5%/10% stops rarely trigger → mostly EOD exits; 5% risk sizing makes dollar P&L small vs range stops.",
         "",
     ]
     if prior:
