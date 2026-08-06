@@ -3389,8 +3389,11 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
             "run_discovery_cycle_subprocess.py",
         )
         print(f"[discovery_cycle] spawning subprocess run_id={run_id}")
+        # main.py imports `sys as _sys` at module top — bare `sys` NameErrors here
+        # and silently aborts every discovery cycle (stage-9 freshness then FAILs
+        # all paper INSERTs). Use the aliased import.
         _dc_proc = _dc_sp.Popen(
-            [sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
+            [_sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
             stdout=_dc_sp.PIPE,
             stderr=_dc_sp.STDOUT,
         )
@@ -8733,23 +8736,26 @@ try:
         replace_existing=True,
     )
 
-    _scheduler.start()
-    # ── Protection #4: internal paper trade watchdog ────────────────────────
-    try:
-        import aiem_paper_recovery as _pr_wd_mod
-        _pr_wd_mod.start_internal_watchdog(
-            execute_fn=lambda: _aiem_paper_execute_today(
-                trigger_source="internal_watchdog"),
-            is_trading_day_fn=lambda d: globals().get("_is_trading_day",
-                                                       lambda x: True)(d),
-            et_tz=_ET,
-            # D14 proof verification fires within 5 min of any successful run.
-            # globals() lookup defers until call time so forward-ref is safe.
-            d14_verify_fn=lambda: globals().get(
-                "_aiem_d14_run_verification_async", lambda: None)(),
-        )
-    except Exception as _pr_wd_e:
-        print(f"[paper_recovery] internal watchdog start error (non-fatal): {_pr_wd_e}")
+    if os.environ.get("AIEM_PAPER_ONESHOT"):
+        print("[scheduler] AIEM_PAPER_ONESHOT=1 — skipping APScheduler + internal watchdog start")
+    else:
+        _scheduler.start()
+        # ── Protection #4: internal paper trade watchdog ────────────────────────
+        try:
+            import aiem_paper_recovery as _pr_wd_mod
+            _pr_wd_mod.start_internal_watchdog(
+                execute_fn=lambda: _aiem_paper_execute_today(
+                    trigger_source="internal_watchdog"),
+                is_trading_day_fn=lambda d: globals().get("_is_trading_day",
+                                                           lambda x: True)(d),
+                et_tz=_ET,
+                # D14 proof verification fires within 5 min of any successful run.
+                # globals() lookup defers until call time so forward-ref is safe.
+                d14_verify_fn=lambda: globals().get(
+                    "_aiem_d14_run_verification_async", lambda: None)(),
+            )
+        except Exception as _pr_wd_e:
+            print(f"[paper_recovery] internal watchdog start error (non-fatal): {_pr_wd_e}")
     # reconcile_orphaned_sessions is defined later in the file; defer so the
     # full module finishes loading before the function is looked up.
     import threading as _rt_sched
@@ -8778,6 +8784,39 @@ try:
             _dow      = _now_et.weekday()          # 0=Mon … 4=Fri
             _hour_et  = _now_et.hour
             _today_et = _now_et.strftime("%Y-%m-%d")
+
+            # ── Discovery cycle catch-up (Diagram2 stage 9) ─────────────────
+            # Stage 9 requires a successful discovery_cycle_log row in 7 days.
+            # Cron is 17:30 ET only; Publish after that (or NameError crashes)
+            # leaves stage 9 FAIL → all paper INSERTs skipped next morning.
+            # No prior startup path cleared this — add one on every weekday boot.
+            if _dow < 5:
+                _need_dc = True
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_dc, \
+                            _c_dc.cursor() as _cur_dc:
+                        _cur_dc.execute("""
+                            SELECT 1 FROM discovery_cycle_log
+                            WHERE error_msg IS NULL
+                              AND completed_at >= NOW() - INTERVAL '7 days'
+                            LIMIT 1
+                        """)
+                        if _cur_dc.fetchone():
+                            _need_dc = False
+                except Exception as _dc_ck_e:
+                    print(f"[startup_catchup] discovery freshness check error: {_dc_ck_e}")
+                if _need_dc:
+                    print(f"[startup_catchup] discovery_cycle_log stale (>7d or none) "
+                          f"— launching discovery catch-up (stage-9 unblock)")
+                    try:
+                        import threading as _dc_su_thr
+                        _dc_su_thr.Thread(
+                            target=_discovery_cycle_job,
+                            kwargs={"triggered_by": "startup_catchup"},
+                            daemon=True,
+                        ).start()
+                    except Exception as _dc_su_e:
+                        print(f"[startup_catchup] discovery catch-up launch error: {_dc_su_e}")
 
             # ── Unusual calls (Polygon) - run any time on weekdays ──────────
             # Polygon uses an API key (not Yahoo IP) so there's no throttle risk
@@ -13646,7 +13685,7 @@ def _run_sc_morning_ranking():
                     conviction += _SC_DOUBLE_BONUS
                 conviction = int(round(max(0.0, min(100.0, conviction))))
 
-                # ============ PRECOIL SCORE (same-day predictor) ============
+                # ---- PRECOIL SCORE (same-day predictor) ----
                 # PreCoil predicts the probability of a SAME-DAY intraday move
                 # by recombining the existing signals into a new formula.
                 #
@@ -19636,6 +19675,30 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
             except Exception:
                 pass
 
+    # ── In-process lock BEFORE DB claim (Bug fix 2026-08-06) ─────────────────
+    # Root cause Aug 5 FAILED lock_contention_after_claim:
+    #   scheduled_942 held _AIEM_PAPER_LOCK for a long run; after 5 min the
+    #   watchdog stole EXECUTING via try_claim Step 2b, then failed
+    #   acquire(blocking=False) and marked the day FAILED.
+    # Fix: take the in-process lock first. If another thread already owns
+    # execution, exit WITHOUT claiming the ledger (no false FAILED).
+    if not _AIEM_PAPER_LOCK.acquire(blocking=False):
+        print("[aiem_paper] already executing — concurrent call rejected "
+              "(pre-claim; ledger untouched)")
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _llc, _llc.cursor() as _llcu:
+                _llcu.execute(
+                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                    "VALUES ('SKIPPED_LOCK_HELD', %s, %s)",
+                    (trigger_source,
+                     "concurrent call rejected pre-claim — _AIEM_PAPER_LOCK already held"),
+                )
+                _llc.commit()
+        except Exception as _lle:
+            print(f"[aiem_paper] lock-contention log error: {_lle}")
+        _release_gate()
+        return
+
     # ── Protection #9: DB ledger atomic claim (cross-process exactly-once) ──
     # Exactly one row per business date (UNIQUE constraint). The INSERT …
     # ON CONFLICT DO NOTHING ensures only ONE caller among scheduler /
@@ -19649,6 +19712,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         import aiem_paper_recovery as _pr_recovery
         _pr_recovery.mark_readiness(_today, trigger_source)   # Protection #7
         if not _pr_recovery.try_claim(_today, _ledger_exec_id, trigger_source):
+            _AIEM_PAPER_LOCK.release()
             _release_gate()   # release serialization gate before exit
             return  # another caller already owns today's execution (dedup)
         _pr_recovery.mark_started(_today, _ledger_exec_id)
@@ -19656,31 +19720,9 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         print(f"[aiem_paper] ledger claim error (non-fatal, in-process lock fallback): {_pr_claim_e}")
         _ledger_exec_id = None
 
-    if not _AIEM_PAPER_LOCK.acquire(blocking=False):
-        print("[aiem_paper] already executing — concurrent call rejected")
-        if _ledger_exec_id and _pr_recovery:
-            try:
-                _pr_recovery.mark_failed(_today, _ledger_exec_id,
-                                         "lock_contention_after_claim")
-            except Exception:
-                pass
-        # Previously a fully silent no-op (print only, no DB trace). Now writes
-        # an honest SKIPPED_LOCK_HELD row so "did it run, fail, or never fire"
-        # is never ambiguous again — this is the exact gap that made the
-        # 9:42 AM 2026-07-09 run unverifiable after the fact.
-        try:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _llc, _llc.cursor() as _llcu:
-                _llcu.execute(
-                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
-                    "VALUES ('SKIPPED_LOCK_HELD', %s, %s)",
-                    (trigger_source, "concurrent call rejected — _AIEM_PAPER_LOCK already held"),
-                )
-                _llc.commit()
-        except Exception as _lle:
-            print(f"[aiem_paper] lock-contention log error: {_lle}")
-        _release_gate()   # release serialization gate before exit
-        return
-
+    # NOTE: _AIEM_PAPER_LOCK already held (acquired pre-claim above).
+    # The old post-claim acquire(blocking=False) path that wrote
+    # lock_contention_after_claim is removed.
     # ── G0 boot-authorization checkpoint (Path B P3) ─────────────────────────
     # Real DB-backed governance check, once per invocation, BEFORE any
     # trade-executing work begins. While the G0 checkpoint is in SHADOW mode
@@ -20344,7 +20386,43 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
 
         rows_inserted = 0
-        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+        # Long-lived `with connect()` across the full per-ticker loop (~10–15 min)
+        # lets Neon idle-close the socket; the final `_c.commit()` then raises
+        # "connection already closed" and marks the whole run FAILED even when
+        # per-ticker INSERTs already committed. Manage the conn explicitly and
+        # ping/reconnect at the top of each pick.
+        _c = _psycopg2.connect(_DB_URL, connect_timeout=4)
+        _cu = _c.cursor()
+
+        def _paper_ensure_conn(reason: str = "tick") -> None:
+            nonlocal _c, _cu
+            try:
+                if getattr(_c, "closed", 1):
+                    raise _psycopg2.InterfaceError("connection closed")
+                _cu.execute("SELECT 1")
+                _cu.fetchone()
+                return
+            except Exception as _alive_e:
+                print(f"[aiem_paper] reconnecting DB ({reason}): {_alive_e}")
+            try:
+                try:
+                    _cu.close()
+                except Exception:
+                    pass
+                try:
+                    _c.close()
+                except Exception:
+                    pass
+                _c = _psycopg2.connect(_DB_URL, connect_timeout=4)
+                _cu = _c.cursor()
+                _cu.execute("SELECT 1")
+                _cu.fetchone()
+                print(f"[aiem_paper] DB reconnect OK ({reason})")
+            except Exception as _reconn_e:
+                print(f"[aiem_paper] DB reconnect FAILED ({reason}): {_reconn_e}")
+                raise
+
+        try:
             # ── Bulk prefetch conviction stack scores for position sizing ─────
             # conviction_stack_watchlist.total_pts is the raw 0–10 layer score
             # from _run_conviction_scanner (FLOOR=5.0, CEILING=9.0).
@@ -20376,6 +20454,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                       f"fallback to capped pick score): {_csw_exc}")
 
             for pick in picks:
+                try:
+                    _paper_ensure_conn(f"pre-pick:{pick.get('ticker')}")
+                except Exception as _pre_e:
+                    print(f"[aiem_paper] skip {pick.get('ticker')}: dead DB — {_pre_e}")
+                    continue
                 _t    = pick["ticker"]
                 _audit_trace_id = None
                 # REMEDIATION S2 ("AUTHORITATIVE MASTER REMEDIATION" directive
@@ -20389,6 +20472,36 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 # or ...` for candidates that pass every gate).
                 import uuid as _d2_uuid_early
                 _d2_trace_id_early = str(_d2_uuid_early.uuid4())
+
+                # Soft debate gate: BEAR_WINS / high-risk NO_TRADE on top-3 debate
+                # batch → skip insert (debate was previously audit-only).
+                _dv_pre = _debate_verdicts.get(_t)
+                if isinstance(_dv_pre, dict):
+                    _verd_pre = str((_dv_pre.get("verdict") or "")).upper()
+                    _risk_pre = str((((_dv_pre.get("debate") or {}).get("risk_review") or {})
+                                     .get("risk_level") or "")).upper()
+                    if _verd_pre in ("BEAR_WINS", "BEAR_WIN", "AVOID", "NO_TRADE") or (
+                            _verd_pre in ("CONFLICTED",) and _risk_pre in ("HIGH", "CRITICAL", "SEVERE")):
+                        print(f"[aiem_paper] debate soft-gate SKIP {_t}: "
+                              f"verdict={_verd_pre} risk={_risk_pre}")
+                        try:
+                            import aiem_diagram2_trace_audit as _ad2_deb
+                            _ad2_deb.record_terminal(
+                                trace_id=_d2_trace_id_early,
+                                ticker=_t,
+                                terminal_status="REJECTED",
+                                rejected_at_stage_order=15,
+                                rejected_at_stage_name="specialist_council",
+                                rejecting_component="bull_bear_debate_soft_gate",
+                                human_readable_reason=(
+                                    f"Debate soft-gate: verdict={_verd_pre} risk={_risk_pre}"
+                                ),
+                                reason_codes=[f"DEBATE_{_verd_pre}"],
+                                last_successful_stage=None,
+                            )
+                        except Exception:
+                            pass
+                        continue
                 _q    = quotes.get(_t) or {}
                 _price = float(_q.get("last") or _q.get("bid") or 0)
                 _price_source = "live_quote" if _price > 0 else None
@@ -21001,9 +21114,43 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     _d2_run(12, "quant_stat_edge", "Quant / Statistical Edge",
                             "layer9_scores (global scanner freshness)",
                             _d2_help.check_layer9_freshness, _t)
+                    # Capture PE/TreeSHAP result for soft sizing (SKIP = no gate).
+                    _pe_result_for_gate: dict = {"status": "SKIP"}
+                    def _pe_stage_fn(_tk=_t, _store=[_pe_result_for_gate]):
+                        _res = _d2_help.run_probability_engine_for_ticker(_tk)
+                        if isinstance(_res, dict):
+                            _store[0].clear()
+                            _store[0].update(_res)
+                        return _res
                     _d2_run(13, "probability_engine", "Probability Engine",
                             "aiem_probability_engine.live_query.run_live_query(mode='ticker')",
-                            _d2_help.run_probability_engine_for_ticker, _t)
+                            _pe_stage_fn)
+                    # Soft TreeSHAP/PE size gate — never hard-block on SKIP/fallback.
+                    try:
+                        if (_pe_result_for_gate.get("status") != "SKIP"
+                                and not _pe_result_for_gate.get("polygon_fallback")
+                                and _pe_result_for_gate.get("numeric_score_emitted", True)):
+                            _pe_pay = ((_pe_result_for_gate.get("envelope") or {}).get("payload")
+                                       or _pe_result_for_gate)
+                            _pe_sc = (_pe_pay.get("score") if isinstance(_pe_pay, dict) else None)
+                            if _pe_sc is None and isinstance(_pe_pay, dict):
+                                _pe_sc = _pe_pay.get("p_up") or _pe_pay.get("probability")
+                            if _pe_sc is not None:
+                                _pe_sc_f = float(_pe_sc)
+                                # Scores may be 0-1 or 0-100
+                                if _pe_sc_f > 1.5:
+                                    _pe_sc_f = _pe_sc_f / 100.0
+                                if _pe_sc_f < 0.45:
+                                    _notional = round(_notional * 0.5, 2)
+                                    if _trade_type == "CALL_OPTION":
+                                        pass  # keep 1 contract, reduced notional tracked
+                                    else:
+                                        _qty = round(_notional / _fill_price, 4)
+                                    print(f"[pe_treeshap_soft_gate] {_t} PE={_pe_sc_f:.3f} "
+                                          f"→ notional×0.5 (${_notional})")
+                                pick["pe_score"] = _pe_sc_f
+                    except Exception as _pe_gate_e:
+                        print(f"[pe_treeshap_soft_gate] skipped (non-fatal): {_pe_gate_e}")
                     _d2_run(14, "scoring_synthesis", "Scoring / Synthesis",
                             "candidate_ranking_created + trust_weights_applied + drift_gate_checked",
                             lambda: {"raw_score": _raw_sc, "trust_mult": _tw_lbl,
@@ -21530,7 +21677,22 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                              f"{_t} not in top-ranked debate batch — "
                                              "no debate ran, so nothing to persist"
                                          )})
-            _c.commit()
+            try:
+                _paper_ensure_conn("final-commit")
+                _c.commit()
+            except Exception as _fc_e:
+                # Per-ticker INSERTs already commit individually; a dead socket
+                # here must not flip the whole run to FAILED.
+                print(f"[aiem_paper] final commit skipped (non-fatal): {_fc_e}")
+        finally:
+            try:
+                _cu.close()
+            except Exception:
+                pass
+            try:
+                _c.close()
+            except Exception:
+                pass
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
         # Runs inside _aiem_paper_execute_today(), not deferred to EOD batch.
@@ -24919,6 +25081,56 @@ def _run_conviction_scanner(max_tickers: int = 15, force_tickers=None) -> list:
                     total_pts_before=total_pts_before,
                 )
 
+    # ── Layer 9: Statistical Edge pts (fills shadow-learning key layer9_edge) ─
+    # Prefetch today's/recent layer9_scores for tickers already in the stack.
+    # Design-choice thresholds (audit-flagged same as L10):
+    #   statistical_score ≥ 70 → 2.0 pts
+    #   statistical_score ≥ 55 → 1.0 pts
+    #   statistical_score < 40 or jump_detected → 0 pts (no boost; meta flagged)
+    # Does NOT invent a new pipeline — reuses layer9_scores written by
+    # _run_layer9_bg_scan every 2h.
+    try:
+        import psycopg2 as _pg_l9e
+        _l9_tickers = list(scores.keys())
+        _l9_map: dict = {}
+        if _l9_tickers:
+            with _pg_l9e.connect(os.environ["DATABASE_URL"]) as _l9c, _l9c.cursor() as _l9cu:
+                _l9cu.execute("""
+                    SELECT DISTINCT ON (ticker)
+                           ticker,
+                           COALESCE(statistical_score, 50)::float,
+                           COALESCE(regime, 'unknown'),
+                           COALESCE(vpin_raw, 0.5)::float,
+                           COALESCE(jump_detected, FALSE)
+                    FROM layer9_scores
+                    WHERE ticker = ANY(%s)
+                      AND computed_at >= NOW() - INTERVAL '2 days'
+                    ORDER BY ticker, computed_at DESC
+                """, (_l9_tickers,))
+                for _r in _l9cu.fetchall():
+                    _l9_map[_r[0]] = _r
+        for _tk, _row in _l9_map.items():
+            if _tk not in scores:
+                continue
+            _ss = float(_row[1])
+            _jmp = bool(_row[4])
+            if _jmp or _ss < 40:
+                _l9_pts = 0.0
+            elif _ss >= 70:
+                _l9_pts = 2.0
+            elif _ss >= 55:
+                _l9_pts = 1.0
+            else:
+                _l9_pts = 0.5
+            scores[_tk]["pts"]["layer9_edge"] = _l9_pts
+            scores[_tk]["meta"]["layer9_score"] = round(_ss, 1)
+            scores[_tk]["meta"]["layer9_regime"] = str(_row[2])
+            scores[_tk]["meta"]["layer9_vpin"] = round(float(_row[3]), 3)
+            scores[_tk]["meta"]["layer9_jump"] = _jmp
+        print(f"[L9-edge] applied layer9_edge pts to {len(_l9_map)}/{len(scores)} tickers")
+    except Exception as _l9e_exc:
+        print(f"[L9-edge] layer9_edge inject skipped (non-fatal): {_l9e_exc}")
+
     # ── Build ranked results ───────────────────────────────────────────────────
     results = []
     for ticker, data in scores.items():
@@ -27556,7 +27768,9 @@ def _aiem_tool_save_daily_predictions(predictions):
 # picks and reasoning, saved to aiem_independent_picks, then compared later
 # against website-sourced performance.
 
-def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, max_rvol=40.0):
+def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=None, limit=200,
+                                     max_rvol=15.0, min_gap=5.0, max_gap=25.0,
+                                     min_price=1.0):
     """
     INDEPENDENT stock candidate pool - raw Polygon technical facts ONLY.
     Source: polygon_market_daily (raw daily bars ingested straight from
@@ -27564,18 +27778,13 @@ def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, ma
     conviction_stack_watchlist, unusual_calls_log, or any other
     website-computed composite/conviction score.
 
-    Quality/sanity gates (added after 2026-07-09 review - extreme RVOL
-    names like 500x were dominating the candidate pool and were almost
-    certainly data artifacts, not genuine conviction):
-      - max_rvol ceiling: rvol is volume / historical-average-volume, and
-        polygon_market_daily has no independent liquidity baseline column
-        to cross-check it against. In practice a real breakout/gap rarely
-        prints >40x; beyond that it is overwhelmingly a thin/halted/
-        reverse-split ticker where the denominator (avg volume) is
-        near-zero, not real institutional flow.
-      - raised dollar-volume floor ($1M -> $3M) and an absolute share-volume
-        floor so a name can't qualify purely because its price is high on
-        tiny share counts.
+    Tuned for FLZH-style gap+volume setups (2026-08-05 post-mortem):
+      - Price ≥ $1; no upper price ceiling (user: range may exceed $20)
+      - Gap 5–25% (sweet spot is 15–25%; >25% is chase/blow-off)
+      - RVOL 2–15× ( >15× historically avg −7.6% on graded independent picks)
+      - Dollar-volume ≥ $500k and shares ≥ 200k (liquid enough, not micro-dust)
+    Prior pool (no gap cap, RVOL to 40×) saturated every high-RVOL name at
+    10/10 and surfaced AMIX-class 100%+ gap junk.
     """
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
@@ -27584,19 +27793,29 @@ def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, ma
             latest = _row[0] if _row else None
             if not latest:
                 return {"error": "polygon_market_daily has no data yet"}
-            _cu.execute("""
+            _price_clause = "AND close_price >= %s"
+            _params = [latest, min_price]
+            if max_price is not None:
+                _price_clause = "AND close_price BETWEEN %s AND %s"
+                _params = [latest, min_price, max_price]
+            _params.extend([min_rvol, max_rvol, min_gap, max_gap, limit])
+            _cu.execute(f"""
                 SELECT ticker, close_price, open_price, volume, gap_pct, rvol,
                        close_strength, range_pct
                 FROM polygon_market_daily
                 WHERE scan_date = %s
-                  AND close_price BETWEEN 1.0 AND %s
+                  {_price_clause}
                   AND rvol >= %s
                   AND rvol <= %s
-                  AND volume * close_price >= 3000000
-                  AND volume >= 300000
-                ORDER BY rvol DESC NULLS LAST
+                  AND gap_pct IS NOT NULL
+                  AND gap_pct >= %s
+                  AND gap_pct < %s
+                  AND range_pct IS NOT NULL AND range_pct < 80
+                  AND volume * close_price >= 500000
+                  AND volume >= 200000
+                ORDER BY gap_pct DESC NULLS LAST, rvol DESC NULLS LAST
                 LIMIT %s
-            """, (latest, max_price, min_rvol, max_rvol, limit))
+            """, tuple(_params))
             rows = _cu.fetchall()
             tickers = [r[0] for r in rows]
             hist = {}
@@ -27624,9 +27843,15 @@ def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, ma
                     "range_pct": float(rng) if rng is not None else None,
                     "momentum_5d_pct": mom5, "momentum_20d_pct": mom20,
                 })
+        _price_gate = f">={min_price}" if max_price is None else f"{min_price}-{max_price}"
         return {
             "scan_date": str(latest), "candidate_count": len(candidates),
             "source": "polygon_market_daily raw bars only - NO website conviction/composite scores",
+            "profile": "flzh_style_gap_volume",
+            "gates": {
+                "price": _price_gate, "gap_pct": f"{min_gap}-{max_gap}",
+                "rvol": f"{min_rvol}-{max_rvol}", "max_range_pct": 80,
+            },
             "candidates": candidates,
         }
     except Exception as e:
@@ -39101,6 +39326,10 @@ try:
             reason="Startup integrity wiring — close D2/D3 fail-open gap on G0/G2/G3",
         )
         print(f"[aiem_integrity] D3 ENFORCE bootstrap: {_d3res.get('status')}")
+        # G3 ENFORCE + empty d3_strategy_registry = every paper INSERT BLOCKED.
+        # Seed known pick sources as approved/active (idempotent upsert).
+        _reg = _awi_d3.ensure_paper_strategy_registry()
+        print(f"[aiem_integrity] paper strategy registry seed: {_reg}")
     except Exception as _d3boot_e:
         print(f"[aiem_integrity] D3 ENFORCE bootstrap skipped: {_d3boot_e}")
     try:
@@ -45196,7 +45425,7 @@ _AIEM_INDEPENDENT_STOCK_TOOLS = [
         ),
         "parameters": {"type": "object", "properties": {
             "min_rvol": {"type": "number", "description": "Min relative volume (default 2.0)"},
-            "max_price": {"type": "number", "description": "Max stock price (default 150)"}
+            "max_price": {"type": "number", "description": "Optional max stock price; omit for no ceiling"}
         }, "required": []}
     }},
     {"type": "function", "function": {
@@ -45365,7 +45594,11 @@ def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_u
                     print(f"[aiem_independent_stock] DRY_RUN — using "
                           f"{len(universe['candidates'])} stub candidates")
                 else:
-                    universe = _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150)
+                    # FLZH-style gates: gap 5–25%, RVOL 2–15×, $1+ (no price ceiling)
+                    universe = _aiem_indep_tool_stock_universe(
+                        min_rvol=2.0, max_price=None, limit=200,
+                        max_rvol=15.0, min_gap=5.0, max_gap=25.0,
+                    )
                 candidates = universe.get("candidates", [])
                 picks = []
                 for c in candidates:
@@ -45374,27 +45607,34 @@ def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_u
                     gap        = float(c.get("gap_pct") or 0.0)
                     mom5       = float(c.get("momentum_5d_pct") or 0.0)
                     rng        = float(c.get("range_pct") or 0.0)
-                    # RVOL weight capped at 6x (was 10x*1.5=15, which alone
-                    # saturated the min(10.0, ...) clip below for anything
-                    # >=6.67x RVOL). That let raw volume-ratio outliers
-                    # (often thin/halted/reverse-split data artifacts, now
-                    # additionally filtered upstream by max_rvol) dominate
-                    # and made every high-RVOL name score an identical
-                    # 10.0/10 with zero real differentiation. Capping lower
-                    # and leaving weight on close_strength/gap/momentum/range
-                    # means a pick only reaches the top score by genuinely
-                    # combining volume conviction with real technical quality.
-                    score = (
-                        min(rvol, 6.0) * 1.0 +
-                        cs * 4.0 +
-                        (1.5 if gap > 2.0 else 0.5 if gap > 0 else 0) +
-                        (1.0 if mom5 > 5.0 else 0.5 if mom5 > 0 else 0) +
-                        (0.5 if rng > 3.0 else 0)
+                    # FLZH / S1b-style ranking (mirrors aiem_process gap+volume
+                    # indicators). Gap sweet spot + volume combo dominate;
+                    # RVOL alone cannot saturate to 10/10. Extended 5d runs
+                    # are penalized (already-chased names).
+                    gap_pts = (
+                        3.5 if 15.0 <= gap < 25.0 else
+                        2.0 if 10.0 <= gap < 15.0 else
+                        1.0 if 5.0 <= gap < 10.0 else 0.0
                     )
+                    vol_pts = (
+                        3.0 if rvol >= 5.0 else
+                        2.0 if rvol >= 3.0 else
+                        1.0 if rvol >= 2.0 else 0.0
+                    )
+                    combo_pts = 2.0 if (gap >= 8.0 and rvol >= 3.0) else 0.0
+                    cs_pts = max(0.0, min(1.5, cs * 1.5))
+                    # Mild credit for orderly follow-through; haircut blow-offs
+                    mom_pts = (
+                        -1.0 if mom5 > 40.0 else
+                        0.5 if 0.0 < mom5 <= 15.0 else
+                        0.0
+                    )
+                    rng_pts = 0.5 if 3.0 <= rng < 40.0 else 0.0
+                    score = gap_pts + vol_pts + combo_pts + cs_pts + mom_pts + rng_pts
                     picks.append({
                         "ticker": c["ticker"], "score": round(score, 3),
                         "rvol": rvol, "close_strength": cs, "gap_pct": gap,
-                        "momentum_5d_pct": mom5,
+                        "momentum_5d_pct": mom5, "close": c.get("close"),
                     })
                 picks.sort(key=lambda x: -x["score"])
                 stock_picks = [
@@ -45403,8 +45643,12 @@ def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_u
                         "rank": i + 1,
                         "confidence_score": round(min(10.0, p["score"]), 2),
                         "rationale": (
-                            f"RVOL={p['rvol']:.1f}x, close_strength={p['close_strength']:.2f}, "
-                            f"gap={p['gap_pct']:.1f}%, mom5d={p['momentum_5d_pct']:.1f}%"
+                            f"FLZH-style gap={p['gap_pct']:.1f}% "
+                            f"(sweet={15 <= p['gap_pct'] < 25}), "
+                            f"RVOL={p['rvol']:.1f}x, "
+                            f"close_strength={p['close_strength']:.2f}, "
+                            f"mom5d={p['momentum_5d_pct']:.1f}%, "
+                            f"px=${(p.get('close') or 0):.2f}"
                         ),
                         "holding_period_days": 5,
                     }
@@ -48787,6 +49031,50 @@ def _aiem_paper_pick_candidates(
     except Exception as _dme:
         print(f"[learning_gate] drift gate skipped (non-fatal): {_dme}")
 
+    # ── Module 2 decay → entry rank (closes M2 into pick decisions) ────────
+    # If Module 2 most recently marked a discovery/source DECAYING or failing,
+    # further penalise that source at entry (MTM already uses this on exits).
+    try:
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _m2c, \
+                _m2c.cursor() as _m2cu:
+            _m2cu.execute("""
+                SELECT COALESCE(d.signal_name, d.invented_indicator), m.decay_verdict
+                FROM aiem_module2_evaluations m
+                JOIN aiem_signal_discoveries d ON d.id = m.discovery_id
+                WHERE m.run_at >= NOW() - INTERVAL '14 days'
+                  AND LOWER(COALESCE(m.decay_verdict, '')) IN ('decaying', 'failing')
+            """)
+            for _m2src, _m2verd in _m2cu.fetchall():
+                if not _m2src:
+                    continue
+                _cur = _drift_mult.get(_m2src, 1.0)
+                _drift_mult[_m2src] = min(_cur, 0.50)
+                print(f"[m2_entry_gate] {_m2src} score×{_drift_mult[_m2src]} "
+                      f"(module2 decay_verdict={_m2verd})")
+    except Exception as _m2e:
+        print(f"[m2_entry_gate] skipped (non-fatal): {_m2e}")
+
+    # ── BH-FDR / discovery retirement → entry rank ─────────────────────────
+    # Retired discoveries (BH-FDR / Module 4 retire path) must not keep full
+    # weight when a candidate source name matches.
+    try:
+        with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _bh_c, \
+                _bh_c.cursor() as _bh_cu:
+            _bh_cu.execute("""
+                SELECT DISTINCT COALESCE(signal_name, invented_indicator)
+                FROM aiem_signal_discoveries
+                WHERE status IN ('retired', 'superseded')
+            """)
+            for (_bh_src,) in _bh_cu.fetchall():
+                if not _bh_src:
+                    continue
+                _cur = _drift_mult.get(_bh_src, 1.0)
+                _drift_mult[_bh_src] = min(_cur, 0.25)
+                print(f"[bh_fdr_retire_gate] {_bh_src} score×{_drift_mult[_bh_src]} "
+                      f"(discovery retired/superseded)")
+    except Exception as _bhe:
+        print(f"[bh_fdr_retire_gate] skipped (non-fatal): {_bhe}")
+
     def _add(ticker, score, trade_type, source, detail="", strike=None, expiry=None,
              direction="BULLISH"):
         t = ticker.upper().strip()
@@ -48796,7 +49084,33 @@ def _aiem_paper_pick_candidates(
         _dm   = _drift_mult.get(source, 1.0)
         _eff  = score * _dm
         existing = _candidates.get(t)
-        if existing is None or _eff > existing["score"]:
+        # Protect primary Paper Money source: never let a lower-priority source
+        # overwrite scanner_ai_trades unless the challenger is also scanner_ai
+        # with a higher effective score. (Bug: inject ran but washout/gap/etc.
+        # replaced source labels before insert — 0 scanner_ai_trades rows ever.)
+        _PRIORITY = {
+            "scanner_ai_trades": 100,
+            "conviction_stack": 80,
+            "unusual_calls": 70,
+            "sweep": 65,
+            "aiem_ai": 60,
+            "multi_signal": 50,
+            "gap_volume": 45,
+            "oi_buildup": 40,
+        }
+        if existing is not None and existing.get("source") == "scanner_ai_trades" \
+                and source != "scanner_ai_trades":
+            # Keep scanner attribution; optionally upgrade option legs
+            if trade_type == "CALL_OPTION" and existing["trade_type"] == "STOCK":
+                existing["trade_type"] = "CALL_OPTION"
+                existing["direction"] = direction
+                existing["strike"] = strike if strike is not None else existing.get("strike")
+                existing["expiry"] = expiry if expiry is not None else existing.get("expiry")
+            return
+        if existing is None or _eff > existing["score"] or (
+            source == "scanner_ai_trades"
+            and _PRIORITY.get(source, 0) > _PRIORITY.get(existing.get("source"), 0)
+        ):
             _candidates[t] = {"ticker": t, "score": _eff,
                                "raw_score": score,   # score BEFORE drift/trust (Gap 5)
                                "drift_mult": _dm,    # drift multiplier applied (Gap 5)
@@ -49244,9 +49558,44 @@ def _aiem_paper_pick_candidates(
     # SpecialistOpinion objects inline — see specialist_council.py's
     # "CANONICAL COUNCIL FACTORY" docstring section for why. Vote math is
     # unchanged (verbatim formulas now live in _build_opinion()).
+    # Prefetch Layer 9 so council signal_engine seat sees Hurst/VPIN/stat edge
+    # without adding a duplicate GARCH council seat (double-count forbidden).
+    _l9_council_ctx: dict = {}
+    try:
+        _prelim_tickers = [_sp["ticker"] for _sp in _prelim]
+        if _prelim_tickers:
+            with _pg2_eff.connect(_db_url_eff, connect_timeout=3) as _l9cc, \
+                    _l9cc.cursor() as _l9ccu:
+                _l9ccu.execute("""
+                    SELECT DISTINCT ON (ticker)
+                           ticker,
+                           COALESCE(statistical_score, 50)::float,
+                           COALESCE(regime, 'unknown'),
+                           COALESCE(vpin_raw, 0.5)::float,
+                           COALESCE(hurst_raw, 0.5)::float,
+                           COALESCE(jump_detected, FALSE),
+                           COALESCE(amihud_score, 50)::float
+                    FROM layer9_scores
+                    WHERE ticker = ANY(%s)
+                      AND computed_at >= NOW() - INTERVAL '2 days'
+                    ORDER BY ticker, computed_at DESC
+                """, (_prelim_tickers,))
+                for _r in _l9ccu.fetchall():
+                    _l9_council_ctx[_r[0]] = {
+                        "statistical_score": float(_r[1]),
+                        "regime": str(_r[2]),
+                        "vpin_raw": float(_r[3]),
+                        "hurst_raw": float(_r[4]),
+                        "jump_detected": bool(_r[5]),
+                        "amihud_score": float(_r[6]),
+                    }
+    except Exception as _l9ce:
+        print(f"[council_l9] prefetch skipped (non-fatal): {_l9ce}")
+
     if _council_eff:
         for _sp in _prelim:
             try:
+                _l9c = _l9_council_ctx.get(_sp["ticker"], {})
                 _council = _council_eff.run_council(
                     "candidate_entry",
                     _sp["ticker"],
@@ -49256,6 +49605,13 @@ def _aiem_paper_pick_candidates(
                             "source": _sp.get("source"),
                             "detail": _sp.get("detail", ""),
                             "trade_type": _sp.get("trade_type"),
+                            # Layer 9 / microstructure context for council vote
+                            "layer9_score": _l9c.get("statistical_score"),
+                            "layer9_regime": _l9c.get("regime"),
+                            "vpin_raw": _l9c.get("vpin_raw"),
+                            "hurst_raw": _l9c.get("hurst_raw"),
+                            "jump_detected": _l9c.get("jump_detected"),
+                            "amihud_score": _l9c.get("amihud_score"),
                         },
                         "macro_bias": float(_macro_bias),
                     },
@@ -49267,6 +49623,29 @@ def _aiem_paper_pick_candidates(
                 print(f'[silent_except:L41476_specialist_council] {type(_exc).__name__}: {_exc}')
                 # council is additive; never block a pick — but log so a dead
                 # council doesn't go unnoticed indefinitely (Diagram-2 lesson)
+
+    # ── Layer 9 soft rank multiplier (after council) ───────────────────────
+    # Soft only: elevates names with real statistical edge; dampens weak/jump.
+    for _sp in _prelim:
+        _l9c = _l9_council_ctx.get(_sp["ticker"])
+        if not _l9c:
+            continue
+        _ss = float(_l9c.get("statistical_score") or 50)
+        _jmp = bool(_l9c.get("jump_detected"))
+        if _jmp or _ss < 40:
+            _sp["score"] *= 0.85
+            _sp["detail"] = (_sp.get("detail", "") + f" | L9↓{_ss:.0f}").strip(" |")
+        elif _ss >= 65:
+            _sp["score"] *= 1.10
+            _sp["detail"] = (_sp.get("detail", "") + f" | L9↑{_ss:.0f}").strip(" |")
+        _sp["layer9_score"] = _ss
+        # Keep _candidates map in sync for tickers still present
+        if _sp["ticker"] in _candidates:
+            _candidates[_sp["ticker"]]["score"] = _sp["score"]
+            _candidates[_sp["ticker"]]["detail"] = _sp.get("detail", "")
+            _candidates[_sp["ticker"]]["layer9_score"] = _ss
+            if _sp.get("_council_run_id"):
+                _candidates[_sp["ticker"]]["_council_run_id"] = _sp["_council_run_id"]
 
     _gate_rejections = {}  # ticker → (stage, reason, no_trade_reason)
     _ncm_cand_save = {}    # data snapshot for news-blocked candidates
@@ -49354,6 +49733,15 @@ def _aiem_paper_pick_candidates(
 
     # Apply macro risk-off: cap at 10 picks and downweight options
     _final = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)
+    # Force-pin scanner_ai_trades into the head of the batch so Paper Money
+    # actually records that source (primary directive). Boost + re-sort.
+    _sai = [c for c in _final if c.get("source") == "scanner_ai_trades"]
+    if _sai:
+        for _c in _sai:
+            _c["score"] = max(float(_c.get("score") or 0), 50.0)
+            _c["detail"] = (( _c.get("detail") or "") + " | PIN:scanner_ai_trades").strip(" |")
+        _final = sorted(_final, key=lambda x: x["score"], reverse=True)
+        print(f"[aiem_paper] pinned {len(_sai)} scanner_ai_trades candidates to top of batch")
     if _macro_bias == -1:
         for _fp in _final:
             if _fp["trade_type"] == "CALL_OPTION":
@@ -55956,454 +56344,29 @@ def _ai_trades_worker():
         import sys as _sys
         print(f"[ai_trades_bg] live price refresh error: {_pr_err}", file=_sys.stderr)
 
-    # Build compact signal block - top 15 tickers, one line each, key fields only
-    sig_lines = []
-    for v in candidate_pool[:15]:
-        parts = [f"{v['ticker']} ${v.get('price','?')}"]
-        if v.get("composite_score") is not None:
-            parts.append(f"score={v['composite_score']}/100({v.get('bias','?')})")
-        if v.get("persistence_days") is not None:
-            parts.append(f"persist={v['persistence_days']}d(avg_score={v.get('persistence_avg_score','?')})")
-        if v.get("iv_rank") is not None:
-            parts.append(f"iv_rank={v['iv_rank']}%({v.get('iv_verdict','')})")
-        if v.get("implied_move_pct") is not None:
-            parts.append(f"impl_move=±{v['implied_move_pct']}%")
-        if v.get("rsi") is not None:
-            rsi_tag = "overbought" if v["rsi"] > 70 else "oversold" if v["rsi"] < 30 else "neutral"
-            parts.append(f"rsi={v['rsi']}({rsi_tag})")
-        if v.get("sma50_pct") is not None:
-            parts.append(f"sma50={v['sma50_pct']:+.1f}%")
-        if v.get("vol_trend_5d") is not None:
-            vt = v["vol_trend_5d"]
-            vt_tag = "surging" if vt >= 1.5 else "declining" if vt < 0.7 else "normal"
-            parts.append(f"vol_trend={vt}x({vt_tag})")
-        if v.get("divergence"):
-            parts.append(f"SmartVsRetail={v['divergence']}({v.get('signal_strength','?')}) scp={v.get('smart_cp','?')} rcp={v.get('retail_cp','?')}")
-        if v.get("call_verdict"):
-            vol_oi_tag = f" vol/oi={v['call_vol_oi']}x" if v.get("call_vol_oi") else ""
-            parts.append(f"calls={v['call_verdict']} accum={v.get('accum_pct','?')}%{vol_oi_tag}")
-        if v.get("put_verdict"):
-            parts.append(f"puts={v['put_verdict']} bear={v.get('bear_pct','?')}%")
-        if v.get("max_pain"):
-            parts.append(f"mp=${v['max_pain']}({v.get('mp_dist_pct',0):+.1f}% {v.get('mp_direction','?')} {v.get('days_to_exp','?')}d)")
-        if v.get("gamma_wall_strike"):
-            parts.append(f"gwall=${v['gamma_wall_strike']}({v.get('gamma_wall_dist_pct',0):+.1f}%)")
-        if v.get("dark_pool_prem_m"):
-            parts.append(f"dp=${v['dark_pool_prem_m']}M cp={v.get('dark_pool_cp_ratio','?')}")
-        if v.get("uc_prem_m") is not None:
-            pm = v["uc_prem_m"]
-            pm_tag = "WHALE" if pm >= 5 else "INSTITUTIONAL" if pm >= 1 else "NOTABLE"
-            parts.append(f"uc_prem=${pm}M({pm_tag}) uc_vol_oi={v.get('uc_vol_oi','?')}x strike={v.get('uc_strike','?')} exp={v.get('uc_expiry','?')} otm={v.get('uc_otm_pct','?')}%({v.get('uc_urgency','?')})")
-        if v.get("top_accum_strike"):
-            parts.append(f"topstrike=${v['top_accum_strike']} exp={v.get('top_accum_expiry','?')}")
-        if v.get("days_since_earnings") is not None:
-            parts.append(f"post_earnings={v['days_since_earnings']}d_ago(IV_crush_window)")
-        elif v.get("earnings_date"):
-            parts.append(f"earnings={v['earnings_date']}")
-        if v.get("net_upgrades_7d") is not None and v["net_upgrades_7d"] != 0:
-            tag = f"+{v['net_upgrades_7d']} upgrades" if v["net_upgrades_7d"] > 0 else f"{v['net_upgrades_7d']} downgrades"
-            parts.append(f"analysts({tag}_7d)")
-        if v.get("short_float_pct") is not None:
-            si_str = f"short={v['short_float_pct']}%"
-            if v.get("short_ratio") is not None:
-                si_str += f"/{v['short_ratio']}d-to-cover"
-            parts.append(si_str)
-        if v.get("premarket_chg_pct") is not None:
-            vol_tag = f" vol×{v['premarket_vol_ratio']}" if v.get("premarket_vol_ratio") else ""
-            parts.append(f"premarket={v['premarket_chg_pct']:+.2f}%{vol_tag}")
-        if v.get("options_liquidity_pct") is not None:
-            liq = v["options_liquidity_pct"]
-            liq_tag = "liquid" if liq < 5 else "ILLIQUID_AVOID" if liq > 12 else "ok"
-            parts.append(f"opt_spread={liq}%({liq_tag})")
-        if v.get("earnings_beat_streak"):
-            parts.append(f"earn_beat={v['earnings_beat_streak']}_qtrs")
-        if v.get("spy_beta") is not None:
-            b = v["spy_beta"]
-            b_tag = "high_beta" if b >= 1.5 else "low_beta" if b <= 0.6 else ""
-            parts.append(f"beta={b}x" + (f"({b_tag})" if b_tag else ""))
-        if v.get("iv_skew") is not None:
-            sk = v["iv_skew"]
-            sk_tag = "FEAR_PREMIUM" if sk > 8 else "CALL_SKEW(demand)" if sk < -3 else "balanced"
-            parts.append(f"iv_skew={sk:+.1f}pp({sk_tag})")
-        if v.get("iv_term_structure") is not None:
-            ts = v["iv_term_structure"]
-            ts_tag = "BACKWARDATION(event_risk)" if ts > 5 else "contango(calm)" if ts < -3 else "flat"
-            parts.append(f"iv_ts={ts:+.1f}pp({ts_tag})")
-        if v.get("gex_m") is not None:
-            gr = v.get("gex_regime", "")
-            parts.append(f"GEX=${v['gex_m']}M({gr})")
-        if v.get("iv_rv_premium") is not None:
-            ivp = v["iv_rv_premium"]
-            ivp_tag = "RICH_SELL_PREM" if ivp > 20 else "CHEAP_BUY_VOL" if ivp < -10 else "fair"
-            parts.append(f"iv_rv={ivp:+.1f}%({ivp_tag})")
-        if v.get("momentum_12_1") is not None:
-            mo = v["momentum_12_1"]
-            mo_tag = "strong_momentum" if mo > 15 else "weak_momentum" if mo < -15 else "neutral"
-            parts.append(f"mom12_1={mo:+.1f}%({mo_tag})")
-        if v.get("factor_roe") is not None:
-            parts.append(f"ROE={v['factor_roe']}%")
-        if v.get("factor_fpe") is not None:
-            fpe = v["factor_fpe"]
-            fpe_tag = "CHEAP" if fpe < 15 else "EXPENSIVE" if fpe > 35 else "fair"
-            parts.append(f"fwd_PE={fpe}x({fpe_tag})")
-        if v.get("sector_corr") is not None:
-            sc = v["sector_corr"]
-            sc_tag = "IDIOSYNCRATIC" if sc < 0.5 else "sector_driven" if sc > 0.85 else ""
-            parts.append(f"sector_corr={sc}" + (f"({sc_tag})" if sc_tag else ""))
-        if v.get("news_sentiment") is not None:
-            ns = v["news_sentiment"]
-            ns_tag = "BULLISH_NEWS" if ns > 0.5 else "BEARISH_NEWS" if ns < -0.5 else "neutral_news"
-            hdl = f" [{v['news_headline'][:50]}]" if v.get("news_headline") else ""
-            parts.append(f"news={ns}({ns_tag}){hdl}")
-        if v.get("days_to_earnings") is not None:
-            dte_val = v["days_to_earnings"]
-            dte_tag = "IMMINENT(<7d)" if dte_val <= 7 else "SOON(<30d)" if dte_val <= 30 else f"{dte_val}d_away"
-            earn_part = f"earn_in={dte_val}d({dte_tag})"
-            if v.get("earnings_impl_move_pct") is not None:
-                earn_part += f" impl_earn_move=±{v['earnings_impl_move_pct']}%"
-            parts.append(earn_part)
-        if v.get("analyst_target_pct") is not None:
-            tgt = v["analyst_target_pct"]
-            tgt_tag = "STRONG_BUY_CONSENSUS" if tgt > 25 else "BUY_CONSENSUS" if tgt > 10 else "FULLY_VALUED" if tgt < 0 else "modest_upside"
-            rec_str = f"/{v['analyst_recommendation']}" if v.get("analyst_recommendation") else ""
-            parts.append(f"analyst_tgt={tgt:+.1f}%{rec_str}({tgt_tag})")
-        if v.get("put_call_oi_ratio") is not None:
-            pcoi = v["put_call_oi_ratio"]
-            pcoi_tag = "HEAVY_PUT_OI(bearish_positioning)" if pcoi > 1.5 else "HEAVY_CALL_OI(bullish_positioning)" if pcoi < 0.6 else "balanced_OI"
-            parts.append(f"pc_oi_ratio={pcoi}({pcoi_tag})")
-        if v.get("week52_range_pct") is not None:
-            w52 = v["week52_range_pct"]
-            w52_tag = "NEAR_52W_HIGH(breakout_zone)" if w52 >= 90 else "NEAR_52W_LOW(support_bounce)" if w52 <= 10 else "mid_range"
-            parts.append(f"52w_range={w52:.0f}%({w52_tag})")
-        if v.get("borrow_cost_proxy") in ("HIGH_BORROW", "ELEVATED_BORROW"):
-            parts.append(f"borrow={v['borrow_cost_proxy']}(puts_may_be_synthetic_shorts)")
-        if v.get("call_vol_oi_ratio") is not None and v.get("put_vol_oi_ratio") is not None:
-            cvoi = v["call_vol_oi_ratio"]; pvoi = v["put_vol_oi_ratio"]
-            c_tag = "FRESH(one_day)" if cvoi > 0.25 else "STRUCTURAL(multi_week)" if cvoi < 0.05 else "mixed"
-            p_tag = "FRESH(one_day)" if pvoi > 0.25 else "STRUCTURAL(multi_week)" if pvoi < 0.05 else "mixed"
-            parts.append(f"flow_persist(calls={cvoi}/{c_tag} puts={pvoi}/{p_tag})")
-        if v.get("eps_revision_trend"):
-            parts.append(f"eps_trend={v['eps_revision_trend']}")
-        if v.get("hist_earn_reaction_pct") is not None:
-            her = v["hist_earn_reaction_pct"]
-            her_tag = "LARGE_MOVER" if her >= 8 else "moderate" if her >= 3 else "small_mover"
-            parts.append(f"hist_earn_move=±{her}%({her_tag})")
-        if v.get("squeeze_risk") in ("HIGH", "EXTREME"):
-            sq = v["squeeze_risk"]
-            parts.append(f"squeeze_risk={sq}(short_squeeze_imminent_danger_for_bears)")
-        if v.get("analyst_dispersion_pct") is not None:
-            ad = v["analyst_dispersion_pct"]
-            ad_tag = "HIGH_DISAGREEMENT(prefer_straddle)" if ad >= 30 else "MODERATE_DISAGREEMENT" if ad >= 15 else "CONSENSUS(directional_ok)"
-            parts.append(f"analyst_dispersion={ad}%({ad_tag})")
-        if v.get("pc_premium_ratio") is not None:
-            pcp = v["pc_premium_ratio"]
-            pcp_tag = "HEAVY_PUT_SPEND(institutional_fear)" if pcp > 1.5 else "HEAVY_CALL_SPEND(risk_on)" if pcp < 0.6 else "balanced_spend"
-            parts.append(f"pc_prem_ratio={pcp}({pcp_tag})")
-        if v.get("rs_vs_spy") is not None:
-            rs = v["rs_vs_spy"]
-            rs_tag = "BEATING_MARKET" if rs > 20 else "LAGGING_MARKET" if rs < -20 else "in_line_with_SPY"
-            parts.append(f"rs_vs_spy={rs:+.1f}%({rs_tag})")
-        if v.get("money_flow_ratio") is not None:
-            mf = v["money_flow_ratio"]
-            mf_tag = "ACCUMULATION" if mf > 1.3 else "DISTRIBUTION" if mf < 0.8 else "neutral_flow"
-            parts.append(f"money_flow={mf}({mf_tag})")
-        if v.get("insider_net") and v["insider_net"] != "NEUTRAL":
-            ins = v["insider_net"]
-            ins_tag = "INSIDER_BUYING(high_conviction_bull)" if ins == "BUYING" else "insider_selling(neutral)"
-            parts.append(f"insider={ins}({ins_tag})")
-        if v.get("div_yield_pct") is not None:
-            parts.append(f"div_yield={v['div_yield_pct']}%")
-        if v.get("ex_div_days") is not None:
-            exd = v["ex_div_days"]
-            exd_tag = "IMMINENT_EXDIV(early_assign_risk_on_calls)" if exd <= 7 else f"ex_div_in_{exd}d"
-            parts.append(f"ex_div={exd}d({exd_tag})")
-        if v.get("tail_risk_put_pct") is not None:
-            trp = v["tail_risk_put_pct"]
-            if trp > 20:
-                trp_tag = "CRASH_HEDGING_ACTIVE(extreme)" if trp > 40 else "CRASH_HEDGING(elevated)"
-                parts.append(f"tail_risk_puts={trp}%({trp_tag})")
-        if v.get("iv_skew_pctl") is not None:
-            skp = v["iv_skew_pctl"]
-            skp_tag = "EXTREME_HISTORICAL_FEAR" if skp >= 90 else "HIGH_HISTORICAL_FEAR" if skp >= 75 else "below_avg_fear" if skp <= 25 else "avg_fear"
-            parts.append(f"iv_skew_pctl={skp}th({skp_tag})")
-        if v.get("short_float_trend") is not None:
-            sft = v["short_float_trend"]
-            sft_tag = "SHORTS_BUILDING(bear_conviction)" if sft > 1 else "SHORTS_COVERING(squeeze_trigger)" if sft < -1 else "short_stable"
-            parts.append(f"short_trend={sft:+.1f}pp({sft_tag})")
-        if v.get("pc_ratio_trend") is not None:
-            pct = v["pc_ratio_trend"]
-            pct_tag = "BULLISH_ROTATION(calls_dominating)" if pct < -0.2 else "BEARISH_ROTATION(puts_building)" if pct > 0.2 else "stable"
-            parts.append(f"pc_ratio_mom={pct:+.2f}({pct_tag})")
-        if v.get("instit_own_pct") is not None:
-            iop = v["instit_own_pct"]
-            iop_tag = "HIGH_CONVICTION(smart_money_loaded)" if iop >= 70 else "MODERATE" if iop >= 40 else "LOW_INST_OWN"
-            parts.append(f"instit_own={iop}%({iop_tag})")
-        if v.get("uc_streak_days") is not None:
-            usd = v["uc_streak_days"]
-            usc = v.get("uc_streak_contracts", 1)
-            usd_tag = "PERSISTENT_WHALE(5d+)" if usd >= 5 else "MULTI_DAY_INSTITUTIONAL(3-5d)" if usd >= 3 else "RETURNING_BUYER(2-3d)"
-            parts.append(f"uc_streak={usd:.0f}d({usd_tag}) contracts={usc}")
-        if v.get("sector_etf_flow"):
-            parts.append(f"sector_etf_flow={v['sector_etf_flow']}")
-        if v.get("dp_trend") and v["dp_trend"] != "STEADY":
-            dp3d = v.get("dp_3d_avg_m", "")
-            dp3d_str = f"(3d_avg=${dp3d}M)" if dp3d else ""
-            parts.append(f"dp_trend={v['dp_trend']}{dp3d_str}")
-        if v.get("tech_macd"):
-            m = v["tech_macd"]
-            m_tag = ("BULLISH_CROSS(fresh_buy_signal)" if m == "BULLISH_CROSS" else
-                     "BULLISH(above_signal)"           if m == "BULLISH"        else
-                     "BEARISH_CROSS(momentum_warning)" if m == "BEARISH_CROSS"  else
-                     "BEARISH(below_signal)")
-            div_str = f"+{v['tech_macd_div']}" if v.get("tech_macd_div") else ""
-            parts.append(f"macd={m_tag}{div_str}")
-        if v.get("tech_sr_context"):
-            parts.append(f"sr={v['tech_sr_context']}")
-        if v.get("tech_poc_context"):
-            poc_d = v.get("tech_poc_dist_pct", 0)
-            parts.append(f"poc={v['tech_poc_context']}")
-        if v.get("tech_vwap_context"):
-            vd = v.get("tech_vwap_dist_pct", 0)
-            vwap_label = v["tech_vwap_context"].split("(")[0]
-            parts.append(f"vwap={vd:+.1f}%({vwap_label})")
-        if v.get("live_alerts"):
-            parts.append(f"alerts=[{'; '.join(v['live_alerts'][:2])}]")
-        if v.get("stat9_signal"):
-            parts.append(v["stat9_signal"])
-        sig_lines.append(" | ".join(parts))
+    # ── DETERMINISTIC SCANNER RANKING (no OpenAI ticker selection) ─────────
+    # User directive: AI Trades must pick from Stock Scanner / Layer 9 signals,
+    # not gpt-4o-mini inventing tickers. Thesis text is built from those signals.
+    print("[ai_trades_bg] ranking from scanner signals (OpenAI ranking DISABLED)",
+          flush=True)
+    try:
+        trades = _deterministic_ai_trades_from_pool(candidate_pool, n=5)
+        stock_picks = _deterministic_stock_buys_from_rich(rich, n=3)
+        print(f"[ai_trades_bg] deterministic: {len(trades)} call setups, "
+              f"{len(stock_picks)} stock buys", flush=True)
+    except Exception as _det_e:
+        import sys as _sys_det
+        print(f"[ai_trades_bg] deterministic ranking failed: {_det_e}",
+              file=_sys_det.stderr, flush=True)
+        trades, stock_picks = [], []
 
-    sig_text = "\n".join(sig_lines)
-
-    macro_line = f"MACRO: {macro_context}" if macro_context else ""
-    sector_line = f"SECTORS: {sector_context}" if sector_context else ""
-    index_line = f"INDICES: {index_context}" if index_context else ""
-    regime_line = f"MARKET_REGIME: {market_regime}" if market_regime and market_regime != "UNKNOWN" else ""
-    winrate_line = f"YOUR_HISTORICAL_WIN_RATES: {win_rate_context}" if win_rate_context else ""
-    combo_winrate_line = combo_win_context if combo_win_context else ""
-    macro_cross_line = f"MACRO_CROSS_ASSET: {macro_cross_asset}" if macro_cross_asset else ""
-    context_block = "\n".join(x for x in [macro_line, sector_line, index_line, regime_line, winrate_line, combo_winrate_line, macro_cross_line] if x)
-
-    system_msg = (
-        "You are an elite institutional options trader operating at hedge-fund quant level. "
-        "You receive 50+ data points per ticker across 21 sources including vol surface, dealer gamma, factor scores, macro cross-asset signals, analyst consensus, and earnings intelligence. "
-        "CRITICAL RULES:\n"
-        "1. NEVER recommend a setup where opt_spread>12% (ILLIQUID_AVOID) - wide spreads destroy edge.\n"
-        "2. In HIGH_FEAR or CORRECTION regimes: avoid LONG CALL; prefer PUT spreads or IRON CONDORs on tickers with iv_rv=RICH_SELL_PREM.\n"
-        "3. In BULL_TREND regime: prefer LONG CALL on high-beta (beta≥1.5) names with vol_trend surging and mom12_1>0.\n"
-        "4. In RANGING/CHOP regime: prefer IRON CONDOR on IV_rank≥60 + iv_rv=RICH_SELL_PREM tickers; avoid directional plays.\n"
-        "5. If YOUR_HISTORICAL_WIN_RATES provided: strongly prefer setup_types with high win rates from your own history.\n"
-        "6. persist=3d+ is your highest-conviction filter - multi-day institutional building is rare and reliable.\n"
-        "7. earn_beat=3/4 or 4/4 gives fundamental tailwind; earn_beat=0/4 is a headwind.\n"
-        "8. GEX=LONG_GAMMA(suppressive) → mean-reversion setups; SHORT_GAMMA(amplifying) → directional/momentum setups.\n"
-        "9. iv_skew=FEAR_PREMIUM (>8pp) → institutional crash hedging; use PUT spreads or add protection.\n"
-        "10. iv_rv=RICH_SELL_PREM (>20%) → premium selling edge; CHEAP_BUY_VOL (<-10%) → long vol edge.\n"
-        "11. MACRO_CROSS_ASSET: YieldCurve=INVERTED → rotate defensive; CreditSpread=WIDENING → reduce risk; Gold=FLIGHT_TO_SAFETY → avoid long equities; VIX_TermStructure=BACKWARDATION → event risk priced, vol may spike further.\n"
-        "12. sector_corr=IDIOSYNCRATIC (<0.5) → ticker moves on its own; prefer over highly correlated names.\n"
-        "13. news=BEARISH_NEWS with BULL_TREND → fade the news; news=BULLISH_NEWS with momentum = confirmation.\n"
-        f"14. EXPIRY RULE: TODAY'S REAL DATE IS {str(_et_today())}. ALL expiry dates you output MUST be in YYYY-MM-DD format AND must fall between {str(_et_today() + _timedelta(days=21))} (earliest) and {str(_et_today() + _timedelta(days=90))} (latest). NEVER output a date from 2024 or any year other than the current year/next year. Never recommend weekly or 0DTE expirations. EXCEPTION: If a ticker shows a single block options trade with premium ≥$10M at an expiry 180–365 days out (LEAPS territory), you MAY recommend that longer expiry - this is whale/institutional positioning and is extremely bullish or bearish. In that case set setup_type to LONG CALL or LONG PUT (not a spread), set conviction to HIGH, and explicitly note the whale block in signals_aligned (e.g. '$20M LEAPS call block, 9mo out').\n"
-        "15. EARNINGS PROXIMITY: If earn_in≤7d (IMMINENT), prefer STRADDLE or avoid entirely unless conviction is extreme. If earn_in=8-30d (SOON), IV is likely elevated - check iv_rv; if RICH, sell spreads; if CHEAP, buy vol. impl_earn_move shows the options market's expected ±% move into earnings - compare to earn_beat history.\n"
-        "16. ANALYST CONSENSUS: analyst_tgt=STRONG_BUY_CONSENSUS (>25% upside) combined with institutional accumulation (accum_pct≥60%) = highest fundamental + flow alignment. analyst_tgt=FULLY_VALUED (<0% upside) is a headwind for LONG CALL setups.\n"
-        "17. PUT/CALL OI RATIO: pc_oi_ratio>1.5 (HEAVY_PUT_OI) = institutions are hedged/bearish positioned; <0.6 (HEAVY_CALL_OI) = bullish positioning. Use as directional confirmation or contrarian signal in conjunction with other factors.\n"
-        "18. 52-WEEK RANGE: 52w_range≥90% (NEAR_52W_HIGH) = breakout zone → momentum continuation setups; ≤10% (NEAR_52W_LOW) = support test → mean-reversion bounce or put-selling setups. NEVER recommend LONG CALL on a stock at 52w low without strong catalyst evidence.\n"
-        "19. BORROW COST: borrow=HIGH_BORROW means stock is expensive to short. This means heavy put OI on high-short-interest names may be synthetic short hedges by short sellers, NOT directional bearish bets. Do not read put OI as bearish conviction if borrow=HIGH_BORROW.\n"
-        "20. FLOW PERSISTENCE: flow_persist shows call/put vol-to-OI ratios. calls=STRUCTURAL(multi_week) means call OI has been building over multiple days - institutional conviction. calls=FRESH(one_day) means today's activity only - could be noise or a hedge. Weight STRUCTURAL flow 2x vs FRESH flow in your conviction score.\n"
-        "21. EPS REVISION TREND: eps_trend=RISING means analysts are raising forward earnings estimates - a strong fundamental tailwind. eps_trend=DECLINING means estimates are being cut - a headwind even if flow looks bullish. When eps_trend=DECLINING and call flow is present, reduce conviction; the flow may be a short-term trade against a deteriorating fundamental trend.\n"
-        "22. HISTORICAL EARNINGS REACTION: hist_earn_move=±X% is the average absolute price move this stock has made on past earnings days. Use this to calibrate STRADDLE pricing: if impl_earn_move < hist_earn_move, the straddle is cheap (buy vol); if impl_earn_move > hist_earn_move by >50%, the market is overpricing earnings risk (sell premium). This is one of the highest-edge signals for earnings-event trades.\n"
-        "23. SHORT SQUEEZE RISK: squeeze_risk=HIGH or EXTREME means the stock has: high short float (≥15%), hard-to-borrow conditions, rising price momentum (RSI>60), AND volume surging. In this scenario: (a) NEVER recommend LONG PUT or BEAR PUT SPREAD - short squeeze could cause catastrophic loss. (b) Consider LONG CALL as a squeeze-capture setup. (c) For bearish plays, use far OTM puts only with strict stop loss.\n"
-        "24. ANALYST DISPERSION: analyst_dispersion≥30% (HIGH_DISAGREEMENT) means analysts have wildly different price targets - the outcome is binary and uncertain. In this case: prefer STRADDLE over directional setups, even if flow is one-directional. analyst_dispersion<15% (CONSENSUS) means the fundamental story is clear - directional plays are appropriate.\n"
-        "25. PUT/CALL PREMIUM RATIO (DOLLAR-WEIGHTED): pc_prem_ratio measures dollars spent on puts vs calls. CRITICAL INTERPRETATION - high put spend (pc_prem_ratio>1.5) almost always reflects HEDGING by institutions protecting long stock positions, NOT directional bearish bets. Do NOT use pc_prem_ratio to justify a bearish setup. Use it only to gauge overall market fear level: HEAVY_PUT_SPEND = elevated hedging = slightly higher uncertainty for calls. HEAVY_CALL_SPEND(<0.6) = clean risk-on environment = strong confirmation for LONG CALL entries.\n"
-        "26. RELATIVE STRENGTH VS SPY: rs_vs_spy is the stock's 1-year return minus SPY's 1-year return. BEATING_MARKET(>+20%) = institutions are actively accumulating; strong confirmation for LONG CALL. LAGGING_MARKET(<-20%) = the stock is a structural underperformer - a powerful headwind even with bullish call flow; reduce conviction or skip. Use RS to confirm momentum: only go high-conviction LONG CALL on stocks with positive RS alignment.\n"
-        "27. MONEY FLOW RATIO: money_flow is average volume on up-price days divided by average volume on down-price days over the past 30 sessions. ACCUMULATION(>1.3) = institutions consistently buying on strength AND dips - confirms bullish setups. DISTRIBUTION(<0.8) = sellers are dominant even on green days - confirms bearish or reduces bullish conviction. This is a structural signal; it takes weeks to shift, so treat it as a high-weight baseline.\n"
-        "28. INSIDER TRANSACTIONS: insider=BUYING means company officers or directors purchased shares on the open market in the last 30 days - one of the most reliable long-term bullish signals in finance (insiders only buy with their own money when they believe the stock is undervalued). Add +1 conviction tier when insider=BUYING aligns with bullish call flow. insider=SELLING is NEUTRAL - insiders sell for taxes, diversification, estate planning; never use it as a bearish signal alone.\n"
-        "29. DIVIDEND YIELD & EX-DIVIDEND DATE: CRITICAL RULE - if ex_div<=7d, DO NOT recommend LONG CALL - the option holder may exercise early to capture the dividend, creating assignment risk. Skip that ticker and pick the next best signal instead. div_yield>3% acts as a price floor: income buyers support the stock on dips.\n"
-        "30. TAIL RISK PUT CONCENTRATION: tail_risk_puts is the % of total put volume in deep OTM strikes (>15% below spot). CRASH_HEDGING_ACTIVE(>40%) = institutions are paying for disaster protection, not making directional bets - this is a macro risk-off signal. When tail_risk_puts>30%, do NOT sell premium structures (IRON CONDOR, BULL PUT SPREAD) - institutions may know about an upcoming systemic risk event. The signal does NOT mean the stock will definitely fall; it means smart money is buying insurance at scale.\n"
-        "31. IV SKEW PERCENTILE (when available after 30+ days of data): iv_skew_pctl ranks today's IV skew vs the past year for this specific stock. EXTREME_HISTORICAL_FEAR(>=90th percentile) = put premium is at historically extreme levels for this stock - highest edge to SELL PUT SPREADS when bullish, or BUY CALL SPREADS as mean-reversion plays. Below_avg_fear(<=25th percentile) = options are historically cheap - favor LONG options (calls or straddles) over premium selling.\n"
-        "32. SHORT INTEREST TREND (when available after 5+ sessions of data): short_trend shows change in short float vs 5 sessions ago. SHORTS_BUILDING(>+1pp) = new bearish institutional conviction entering the stock - validates bearish setups and contradicts bullish flow. SHORTS_COVERING(<-1pp) = short sellers are exiting - potential squeeze trigger forming; combine with squeeze_risk=HIGH or EXTREME for maximum conviction LONG CALL setup (short covering can accelerate a move by 2-3x).\n"
-        "34. MACD MOMENTUM: macd=BULLISH_CROSS is the strongest technical signal - momentum just flipped bullish; this is the optimal LONG CALL entry timing. BULLISH means momentum is positive but the cross happened days ago (still valid, lower urgency). BEARISH_CROSS is a warning - momentum turning down, reduce conviction on LONG CALL even with bullish flow. BULLISH_DIV = price made a lower low but MACD held a higher low - institutional accumulation on the dip, high-conviction reversal setup even if the stock looks weak on the surface.\n"
-        "35. SUPPORT/RESISTANCE LEVELS: sr=AT_SUPPORT means price is within 2% of a confirmed historical swing low - institutions have defended this exact level before; this is the optimal LONG CALL entry (risk/reward is best here, stop loss is well-defined just below support). ABOVE_SUPPORT(X%_below) shows a cushion below. BELOW_RESISTANCE(X%_above) means a supply zone overhead - if resistance is <3% away, the stock needs to break through first; if >5% away, the trade has room to run before hitting resistance.\n"
-        "36. VOLUME PROFILE / POINT OF CONTROL: poc=AT_POC means price is sitting at the highest-traded-volume level of the past 90 days - this acts as both a support magnet AND a breakout launch pad. ABOVE_POC = buyers have pushed price above where 90% of volume traded, confirming institutional demand at lower levels. BELOW_POC = sellers are in control of the distribution; avoid LONG CALL unless other signals are overwhelming. Prefer ABOVE_POC with MACD=BULLISH for highest technical confirmation.\n"
-        "37. VWAP (20-DAY): vwap=ABOVE_VWAP means buyers have consistently paid above the average cost basis over the past month - structural bullish; strong confirmation for LONG CALL. BELOW_VWAP is a headwind; institutions are underwater on recent buys. AT_VWAP = decision point, watch for directional resolution. Highest conviction entry: price ABOVE_VWAP + MACD=BULLISH + sr=AT_SUPPORT or ABOVE_SUPPORT - this triple-confirmation setup means technical, momentum, and price structure all agree.\n"
-        "38. P/C RATIO MOMENTUM: pc_ratio_mom tracks the 5-day change in the put/call OI ratio. BULLISH_ROTATION (dropping >0.2) means institutions have been steadily closing puts and opening calls over the past week - this is the single most reliable leading indicator that smart money is shifting bullish BEFORE price moves. A single-day low pc_oi_ratio could be noise; a 5-day declining trend is institutional conviction. BEARISH_ROTATION (rising >0.2) means put positioning is building - confirm with other bearish signals before skipping a bullish setup, but treat it as a caution flag. Stable = no rotation in progress.\n"
-        "39. INSTITUTIONAL OWNERSHIP: instit_own is the % of shares held by institutional investors (mutual funds, hedge funds, pension funds) per the latest 13F filings. HIGH_CONVICTION (≥70%) means professional money managers dominate the shareholder base - this stock is well-researched and institutionally validated; they will not sell easily on small dips, providing price support. LOW_INST_OWN (<40%) means retail dominates - higher volatility, less predictable behavior. When instit_own=HIGH_CONVICTION aligns with unusual call buying, the interpretation is: EXISTING INSTITUTIONAL OWNERS are adding to their already-large positions - the highest possible conviction signal for LONG CALL.\n"
-        "40. MULTI-DAY UC STREAK: uc_streak tracks how many days the same unusual call contract (same strike + expiry) has been actively traded. PERSISTENT_WHALE (5d+) means a single institution has deployed capital into the same options position for 5+ consecutive trading days - this is the rarest and highest-conviction signal in the entire system; they are building a large directional position and cannot do it in one day without moving the market. MULTI_DAY_INSTITUTIONAL (3-5d) = strong conviction, institutional accumulation confirmed. RETURNING_BUYER (2-3d) = same buyer returning, early confirmation. A uc_streak of ANY length combined with uc_prem=WHALE is your absolute highest-conviction setup - override other hesitations when these two align.\n"
-        "41. SECTOR ETF FLOW CONFIRMATION: sector_etf_flow=CONFIRMED(XLK_bullish) means the sector ETF itself had $500K+ unusual call buying TODAY - the entire technology sector is seeing institutional inflows, not just this one stock. This is the most powerful confirmation signal in the system: when a sector-level ETF AND an individual stock both show unusual institutional call buying on the same day, the probability that the move is real (not noise or a hedge) is dramatically higher. A stock pick without sector_etf_flow is still valid; a pick WITH sector_etf_flow gets +1 conviction tier automatically. If two picks are otherwise equal, always prefer the one with sector_etf_flow=CONFIRMED.\n"
-        "42. DARK POOL TREND: dp_trend tracks whether dark pool premium is ACCELERATING (today's DP flow is 25%+ above 3-day average - institutional buying is intensifying, fresh capital entering), FADING (DP flow dropped 25%+ - institutions may be taking profits or reducing exposure), or STEADY (consistent ongoing accumulation). ACCELERATING combined with any bullish signal stack is a powerful confirmation - institutions are stepping up their buying pace. FADING on an otherwise bullish stock is a caution flag - the smart money that drove the setup may be lightening up. Treat dp_trend=ACCELERATING as equivalent to a +0.5 conviction boost.\n"
-        "43. SIGNAL COMBINATION WIN RATES: SIGNAL_COMBO_WIN_RATES shows your actual historical win rate when specific signal tags appeared in past winning vs losing trades. This is YOUR OWN PERFORMANCE DATA - the highest-weight signal in the system. When SIGNAL_COMBO_WIN_RATES shows persist3d+:84%(21/25), it means that out of your 25 past trades where signal had 3+ days persistence, 21 won. USE THIS TO OVERRIDE rule-based weights: if your data shows MACD_CROSS wins 75% of the time but ABOVE_POC wins only 52%, weight MACD_CROSS heavier in your conviction scoring for this session. This self-learning feedback loop means the AI gets smarter every day as more outcomes are logged.\n"
-        "33. UNUSUAL CALL PREMIUM GATE (MANDATORY): Every recommended ticker MUST have a uc_prem signal present in its data AND uc_prem ≥ 0.50M ($500K). Tickers without a uc_prem field, or with uc_prem < 0.50M, must be SKIPPED entirely - no exceptions. This ensures every pick has documented institutional unusual call activity backing it. Prefer picks with uc_prem ≥ 1.0M (INSTITUTIONAL) or ≥ 5.0M (WHALE) when available - these represent the highest-conviction smart money flows. If fewer than 5 tickers meet the $500K threshold, fill remaining slots ONLY from the next-highest uc_prem tickers; do NOT recommend tickers with no unusual call flow.\n"
-        "ABSOLUTE MANDATE - ALL 5 SETUPS MUST BE: direction=BULLISH, setup_type=LONG CALL only. No spreads. No puts. No iron condors. No straddles. No neutral. No bearish. Every single output must be a naked long call buy. If you cannot find 5 strong bullish setups, pick the 5 best available bullish signals regardless. Never output anything other than LONG CALL.\n"
-        "Output ONLY a JSON array of exactly 5 setups. No markdown. No text outside the array."
-    )
-
-    user_msg = f"""WARNING TODAY IS {str(_et_today())}. All expiry dates in your JSON response MUST be after {str(_et_today())} and formatted as YYYY-MM-DD. Do not use any date from 2024 or earlier.
-
-SOURCES ({len(active_sources)}): {', '.join(active_sources)}
-TICKERS SCANNED: {len(rich)}
-{context_block}
-
-TICKER SIGNALS (score-ranked, highest composite first):
-{sig_text}
-
-SIGNAL KEY:
-- score: composite conviction 0-100 | persist: consecutive days signal has been building (3d+ = very high conviction)
-- iv_rank: IV percentile vs 1yr HV | impl_move: options market's priced-in ±% move to expiry
-- rsi: momentum (>70 overbought, <30 oversold) | sma50: % above/below 50-day SMA
-- vol_trend: 5d vs 20d avg volume ratio (≥1.5x = institutional accumulation surge)
-- beta: 30-day beta to SPY (≥1.5 = amplified SPY moves, ≤0.6 = defensive)
-- SmartVsRetail: institutional vs retail C/P divergence | calls/puts: intent verdict
-- vol/oi: call volume-to-open-interest ratio (>2x = concentrated new institutional position)
-- opt_spread: ATM call bid/ask spread % of mid (<5%=liquid, >12%=ILLIQUID_AVOID - do NOT recommend)
-- earn_beat: quarters beat vs missed EPS estimate (3/4 or 4/4 = serial earnings beater)
-- uc_prem: unusual call premium in $M - NOTABLE=<$1M, INSTITUTIONAL=$1-5M, WHALE=$5M+ | uc_vol_oi: vol/OI ratio on the unusual strike
-- mp: max pain & distance | gwall: gamma wall | dp: dark pool premium
-- earnings: next earnings | post_earnings: days since = IV crush window (sell premium while IV deflates)
-- analysts: net upgrades minus downgrades in last 7 days
-- short: short float % / days-to-cover | premarket: gap % & relative volume
-- MACRO: days to Fed/CPI/OPEX | SECTORS: sector rotation leaders/laggards
-- MARKET_REGIME: current market environment → drives which setup_types to use (see rules above)
-- YOUR_HISTORICAL_WIN_RATES: actual win rates from your past trades logged in this system
-- iv_skew: put IV minus call IV at ~25-delta (pp) → positive=fear/downside hedging; FEAR_PREMIUM>8pp=institutional crash protection active
-- iv_ts: near-term IV minus far-term IV (pp) → BACKWARDATION>5pp=event/earnings risk priced near-term
-- GEX: dealer gamma exposure in $M → LONG_GAMMA=suppresses moves/mean-revert; SHORT_GAMMA=amplifies moves/momentum
-- iv_rv: IV premium over realized vol % → RICH_SELL_PREM>20%=edge selling premium; CHEAP_BUY_VOL<-10%=edge buying vol
-- mom12_1: 12-month minus 1-month price momentum % (Fama-French factor) → >15%=strong; <-15%=weak
-- ROE: return on equity % (quality factor) | fwd_PE: forward P/E (value factor - CHEAP<15x, EXPENSIVE>35x)
-- sector_corr: 30d correlation to sector ETF → IDIOSYNCRATIC<0.5=name-specific catalyst; >0.85=sector-driven
-- news: keyword sentiment score from recent headlines (-=bearish, +=bullish)
-- MACRO_CROSS_ASSET: YieldCurve(10y-3m)=curve shape; DXY=dollar; CreditSpread5d=HYG vs LQD; Crude5d; Gold5d; VIX_TermStructure=VIX minus VIX3M (>+2=BACKWARDATION=crisis risk; <-1=contango=calm)
-- earn_in: days until next earnings event | impl_earn_move: IV-based expected ±% move into earnings | earn_beat: past quarters beat rate
-- analyst_tgt: analyst mean price target vs current price % upside/downside | analyst_recommendation: consensus rating
-- pc_oi_ratio: total put OI ÷ total call OI across near-term expirations (>1.5=bearish positioned; <0.6=bullish positioned)
-- pc_ratio_mom: 5-day change in pc_oi_ratio (negative=BULLISH_ROTATION=institutions shifting to calls; positive=BEARISH_ROTATION=put positioning building)
-- instit_own: % of shares held by institutions per latest 13F filings (≥70%=HIGH_CONVICTION smart money loaded; <40%=retail dominated)
-- uc_streak: days the same unusual call contract (ticker+strike+expiry) has been continuously active (5d+=PERSISTENT_WHALE; 3-5d=MULTI_DAY_INSTITUTIONAL; 2-3d=RETURNING_BUYER)
-- 52w_range: where price sits in its 52-week high/low range (0%=at annual low, 100%=at annual high; ≥90%=breakout zone; ≤10%=support test)
-- borrow: short borrow cost proxy from short interest (HIGH_BORROW≥20% float short = puts may be synthetic hedges by short sellers, not directional bets)
-- flow_persist: call/put vol÷OI ratio across 4 expirations (STRUCTURAL<0.05=built over weeks=institutional conviction; FRESH>0.25=today only=may be noise)
-- eps_trend: forward vs trailing EPS direction (RISING=estimates going up=tailwind; DECLINING=estimates cut=headwind even if flow bullish)
-- hist_earn_move: average absolute % price reaction on past earnings days; compare to impl_earn_move to assess straddle value (hist>impl=buy vol; impl>hist×1.5=sell premium)
-- squeeze_risk: composite short squeeze risk (HIGH/EXTREME = high short float + hard borrow + rising RSI + surging vol → danger zone for bears, opportunity for LONG CALL)
-- analyst_dispersion: spread of analyst price targets as % of mean (≥30%=HIGH_DISAGREEMENT=prefer straddle; <15%=CONSENSUS=directional ok)
-- pc_prem_ratio: actual dollars spent on puts ÷ call premium today (>1.5=HEAVY_PUT_SPEND=institutional fear; <0.6=HEAVY_CALL_SPEND=risk-on; cross-check vs pc_oi_ratio)
-- rs_vs_spy: stock 1-year return minus SPY 1-year return (>+20%=BEATING_MARKET=institutional accumulation; <-20%=LAGGING_MARKET=headwind - only go high-conviction LONG CALL on positive RS)
-- money_flow: up-day vs down-day avg volume ratio over 30 sessions (>1.3=ACCUMULATION; <0.8=DISTRIBUTION - structural signal, high weight)
-- insider: net insider open-market buys vs sells last 30d (BUYING=high-conviction bullish; SELLING=neutral - only BUYING counts as a signal)
-- div_yield: annual dividend yield % | ex_div: days to ex-dividend (<=7d=IMMINENT_EXDIV → avoid LONG CALL / COVERED CALL, early assign risk; use BULL CALL SPREAD instead)
-- tail_risk_puts: % of put vol in deep OTM strikes >15% below spot (>40%=CRASH_HEDGING_ACTIVE=risk-off; >30% = do NOT sell premium structures)
-- iv_skew_pctl: today's IV skew ranked vs 1-year history for this stock (>=90th=EXTREME_HISTORICAL_FEAR=sell put prem / buy call spreads; <=25th=historically cheap vol=buy options)
-- short_trend: change in short float vs 5 sessions ago in pp (>+1=SHORTS_BUILDING=bear conviction; <-1=SHORTS_COVERING=squeeze trigger - combine with squeeze_risk=HIGH for max conviction LONG CALL)
-- stat9: Layer 9 Statistical Edge score 0-100 (Hurst+VPIN+entropy+tail_risk+illiquidity). stat9≥70=strong statistical alignment; regime=trending=momentum edge; regime=mean_reverting=mean-reversion edge; vpin≥0.45=high informed-flow toxicity=smart money actively positioning; jump=True=recent price discontinuity (gap/shock); entropy=high=clean predictable pattern=lower noise; tail_risk=high=fat-tail/crash risk present. stat9<40=statistical edge unclear=reduce conviction. Use stat9 as confirmation: a LONG CALL with score≥75 + stat9≥70 + regime=trending is the highest statistical-edge setup.
-
-PRIORITY WEIGHTING (use in order):
-1. opt_spread>12% → SKIP (non-negotiable liquidity gate)
-2. MARKET_REGIME + MACRO_CROSS_ASSET → determines valid setup_types for current environment
-3. GEX regime → LONG_GAMMA=mean-revert setups; SHORT_GAMMA=directional/momentum setups
-4. YOUR_HISTORICAL_WIN_RATES → bias toward setup_types that have worked in your own history
-5. persist=3d+ (multi-day confirmation - strongest signal)
-6. Smart vs Retail divergence (institutional vs retail misalignment)
-7. iv_rv + iv_skew (vol surface edge - where premium is rich/cheap + where fear is concentrated)
-8. score≥75 + vol_trend≥1.5x + beta + mom12_1 (accumulation surge + factor confirmation)
-9. call vol/oi >2x (concentrated unusual new activity)
-10. post_earnings IV crush + earn_beat + ROE + fwd_PE (fundamental quality + vol edge)
-11. sector_corr=IDIOSYNCRATIC (name-specific, not sector noise)
-12. analyst upgrades + premarket gap + news sentiment confirmation
-
-Return a JSON array of exactly 5 objects. ALL 5 must be BULLISH direction, setup_type LONG CALL only - no spreads, no puts, nothing else. Sort by conviction (HIGH first). Each must have ALL fields:
-ticker (string), price (number), setup_type ("LONG CALL"), direction ("BULLISH"), conviction ("HIGH"|"MEDIUM"), entry_strike (number), expiry (YYYY-MM-DD), target_price (number), stop_loss (number), option_premium (number - estimated option ask price per share based on current IV, strike proximity, and days to expiry; this is the cost to buy 1 share of the option, not per contract), signals_aligned (list of 4-5 short strings naming exact signals used), thesis (2 sentences max), risk_level ("LOW"|"MEDIUM"|"HIGH")
-
-JSON array only. No markdown. Start immediately with ["""
-
-    def _call_openai_streaming():
-        """Stream the response so we capture content even if the proxy truncates."""
-        import sys
-        chunks = []
-        finish = "unknown"
-        stream = oai.chat.completions.create(
-            model="gpt-4o-mini",
-            max_completion_tokens=1500,
-            stream=True,
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "user",   "content": user_msg},
-            ],
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content if chunk.choices else None
-            if delta:
-                chunks.append(delta)
-            if chunk.choices and chunk.choices[0].finish_reason:
-                finish = chunk.choices[0].finish_reason
-        raw = "".join(chunks).strip()
-        print(f"[ai_trades] finish={finish} raw_len={len(raw)}", file=sys.stderr, flush=True)
-        return raw, finish
-
-    def _extract_json(raw):
-        if "```" in raw:
-            for part in raw.split("```"):
-                stripped = part.lstrip("json").strip()
-                if stripped.startswith("["):
-                    return stripped
-        if not raw.startswith("["):
-            start = raw.find("[")
-            end   = raw.rfind("]") + 1
-            if start >= 0 and end > start:
-                return raw[start:end]
-        return raw
+    if not trades:
+        import sys as _sys_empty
+        print("[ai_trades_bg] no scanner-ranked trades — aborting (cache kept)",
+              file=_sys_empty.stderr)
+        return
 
     try:
-        raw, finish = _call_openai_streaming()
-        raw = _extract_json(raw)
-
-        # Retry once with a pause if empty (rate-limit or transient hiccup)
-        if not raw:
-            import time as _time, sys
-            print("[ai_trades] empty on first attempt - retrying in 8s", file=sys.stderr, flush=True)
-            _time.sleep(8)
-            raw, finish = _call_openai_streaming()
-            raw = _extract_json(raw)
-
-        if not raw:
-            import sys
-            print(f"[ai_trades_bg] OpenAI returned no content (finish={finish}) - aborting", file=sys.stderr)
-            return  # background worker exits; stale cache stays; user can retry
-
-        try:
-            trades = _json.loads(raw)
-        except Exception:
-            from json_repair import repair_json as _rj
-            trades = _json.loads(_rj(raw))
-
-        # Validate expiry dates - catch and fix any past dates the AI hallucinated
-        import datetime as _dtfix
-        _today_fix = _et_today()
-        _fallback_exp = str(_today_fix + _dtfix.timedelta(days=45))
-        for _tr in trades:
-            try:
-                _exp = _tr.get("expiry", "")
-                if not _exp or _dtfix.date.fromisoformat(_exp) <= _today_fix:
-                    print(f"[ai_trades] fixing bad expiry '{_exp}' for {_tr.get('ticker')} → {_fallback_exp}")
-                    _tr["expiry"] = _fallback_exp
-            except Exception:
-                _tr["expiry"] = _fallback_exp
-
-        # Post-filter: drop any picks the AI made that lack real uc_prem >= $500K.
-        # Build a set of tickers confirmed to have unusual call premium >= 0.5M.
-        _uc_now = getattr(app, "_unusual_calls_cache", None)
-        if _uc_now:
-            _uc_prem_map = {}
-            for _h in _uc_now.get("hits", []):
-                _t = _h["ticker"]
-                _p = _h.get("prem", 0)
-                if _p > _uc_prem_map.get(_t, 0):
-                    _uc_prem_map[_t] = _p
-            _qualified = {t for t, p in _uc_prem_map.items() if p >= 20_000}
-            _filtered = [tr for tr in trades if tr.get("ticker") in _qualified]
-            # Only apply filter if it leaves at least 2 picks; otherwise keep all (data may be stale)
-            if len(_filtered) >= 2:
-                trades = _filtered
-                print(f"[ai_trades] premium filter: {len(trades)} picks kept (had {len(_uc_prem_map)} uc tickers, {len(_qualified)} ≥$20K)")
-            else:
-                print(f"[ai_trades] premium filter skipped - only {len(_filtered)} qualified picks (keeping all {len(trades)})")
-
         # Enrich each trade with SMP conviction score
         try:
             _smp_map = _get_smp_scores_batch([tr.get("ticker", "") for tr in trades])
@@ -56414,60 +56377,11 @@ JSON array only. No markdown. Start immediately with ["""
                 tr["smp_layers"] = smp.get("smp_layers", [])
         except Exception as _exc:
             print(f"[silent_except:L36178] {type(_exc).__name__}: {_exc}")
+    except Exception as _enrich_e:
+        import sys as _sys_en
+        print(f"[ai_trades_bg] post-rank enrich error: {_enrich_e}", file=_sys_en.stderr)
 
-        # Stock picks: 3 pure equity buys ranked by stat9 + composite score
-        # Isolated second LLM call — does not alter the call_picks output above
-        stock_picks = []
-        try:
-            _sp_candidates = sorted(
-                [v for v in rich.values() if v.get("stat9_score", 0) >= 45],
-                key=lambda x: (x.get("stat9_score", 0) * 0.4 + x.get("composite_score", 0) * 0.6),
-                reverse=True,
-            )[:10]
-            if _sp_candidates:
-                _sp_lines = []
-                for _spv in _sp_candidates:
-                    _sp_line = (
-                        f"{_spv['ticker']} ${_spv.get('price','?')} "
-                        f"score={_spv.get('composite_score','?')} "
-                        f"stat9={_spv.get('stat9_score','?')} "
-                        f"regime={_spv.get('stat9_regime','?')} "
-                        f"vpin={_spv.get('stat9_vpin','?')} "
-                        f"jump={_spv.get('stat9_jump','?')} "
-                        f"rsi={_spv.get('rsi','?')} "
-                        f"rs_spy={_spv.get('rs_vs_spy','?')} "
-                        f"vol_trend={_spv.get('vol_trend_5d','?')}"
-                    )
-                    _sp_lines.append(_sp_line)
-                _sp_prompt = (
-                    f"You are a quant portfolio manager. Today is {str(_et_today())}. "
-                    "Select EXACTLY 3 stock BUY recommendations (shares, not options) from this "
-                    "candidate list ranked by Layer 9 Statistical Edge + composite conviction. "
-                    "Each pick must have: stat9>=45, positive momentum, and clear thesis. "
-                    "Output a JSON array of 3 objects. Each object must have: "
-                    "ticker (string), entry_price (number), target_price (number), "
-                    "stop_loss (number), holding_days (integer 3-21), "
-                    "stat9_score (number), regime (string), "
-                    "thesis (string, 1-2 sentences max). "
-                    "JSON array only, no markdown.\n\nCANDIDATES:\n" + "\n".join(_sp_lines)
-                )
-                _sp_resp = oai.chat.completions.create(
-                    model="gpt-4o-mini",
-                    max_completion_tokens=600,
-                    messages=[{"role": "user", "content": _sp_prompt}],
-                )
-                _sp_raw = (_sp_resp.choices[0].message.content or "").strip()
-                if "[" in _sp_raw:
-                    _sp_raw = _sp_raw[_sp_raw.find("["):_sp_raw.rfind("]") + 1]
-                try:
-                    stock_picks = _json.loads(_sp_raw)
-                except Exception:
-                    from json_repair import repair_json as _rj2
-                    stock_picks = _json.loads(_rj2(_sp_raw))
-        except Exception as _spe:
-            import sys
-            print(f"[ai_trades_bg] stock picks error: {_spe}", file=sys.stderr)
-
+    try:
         out = {
             "trades": trades,
             "stock_picks": stock_picks,
@@ -56475,11 +56389,13 @@ JSON array only. No markdown. Start immediately with ["""
             "tickers_scanned": len(rich),
             "signal_sources": active_sources,
             "signal_source_count": len(active_sources),
+            "ranking_mode": "scanner_signals",
+            "openai_ranked": False,
         }
         app._ait_cache = out
         app._ait_cache_ts = _dt.now()
         import sys
-        print(f"[ai_trades_bg] done - {len(trades)} setups cached", file=sys.stderr, flush=True)
+        print(f"[ai_trades_bg] done - {len(trades)} setups cached (scanner-ranked)", file=sys.stderr, flush=True)
         try:
             from datetime import date as _date_now
             _save_ai_trades_to_log(trades, str(_date_now.today()))
@@ -59906,6 +59822,257 @@ def _init_ai_stock_picks_table():
 _DEFERRED_INITS.append(lambda: _init_ai_stock_picks_table())
 
 
+def _deterministic_ai_trades_from_pool(candidate_pool: list, n: int = 5) -> list:
+    """
+    Rank LONG CALL setups from scanner/quant fields already on candidate_pool.
+    No OpenAI — tickers come only from unusual calls / composite / Layer 9 / DP.
+    Output schema matches AI Trades tab (setup_type, entry_strike, thesis, …).
+    """
+    from datetime import date as _d, timedelta as _td
+
+    scored = []
+    for v in candidate_pool:
+        if not v.get("ticker"):
+            continue
+        price = float(v.get("price") or 0)
+        if price <= 0:
+            continue
+        s = 0.0
+        s += float(v.get("composite_score") or 0) * 0.30
+        s += float(v.get("stat9_score") or 50.0) * 0.30
+        uc_prem = float(v.get("uc_prem_m") or 0)
+        s += min(25.0, uc_prem * 8.0)
+        if v.get("uc_vol_oi") is not None:
+            s += min(15.0, float(v["uc_vol_oi"]) * 2.0)
+        if v.get("dark_pool_prem_m"):
+            s += min(10.0, float(v["dark_pool_prem_m"]))
+        if v.get("persistence_days"):
+            s += min(8.0, float(v["persistence_days"]) * 1.5)
+        if v.get("stat9_jump"):
+            s *= 0.90
+        if float(v.get("stat9_score") or 50) < 40:
+            s *= 0.75
+        # Prefer names with real unusual-call flow
+        if uc_prem <= 0 and not v.get("uc_strike"):
+            s *= 0.55
+        scored.append((s, v))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    today = _d.today()
+    fallback_exp = str(today + _td(days=21))
+    trades = []
+    for s, v in scored[: max(n, 5)]:
+        if len(trades) >= n:
+            break
+        price = float(v.get("price") or 0)
+        strike = float(v.get("uc_strike") or 0) or round(price * 1.02, 1)
+        expiry = str(v.get("uc_expiry") or fallback_exp)
+        try:
+            if _d.fromisoformat(expiry[:10]) <= today:
+                expiry = fallback_exp
+        except Exception:
+            expiry = fallback_exp
+        aligned = []
+        if v.get("uc_prem_m"):
+            aligned.append(f"unusual_calls ${v['uc_prem_m']}M")
+        if v.get("stat9_score") is not None:
+            aligned.append(f"layer9={v.get('stat9_score')} ({v.get('stat9_regime', '?')})")
+        if v.get("composite_score") is not None:
+            aligned.append(f"composite={v.get('composite_score')}")
+        if v.get("dark_pool_prem_m"):
+            aligned.append(f"dark_pool ${v['dark_pool_prem_m']}M")
+        if v.get("persistence_days"):
+            aligned.append(f"persist={v['persistence_days']}d")
+        if v.get("stat9_vpin") is not None:
+            aligned.append(f"vpin={v.get('stat9_vpin')}")
+        if not aligned:
+            aligned = ["scanner_multi_signal"]
+        target = round(price * 1.06, 2)
+        stop = round(price * 0.97, 2)
+        thesis = (
+            f"Ranked from Stock Scanner signals (not OpenAI): "
+            f"{', '.join(aligned[:4])}. "
+            f"Layer9 regime={v.get('stat9_regime', 'n/a')}."
+        )
+        trades.append({
+            "ticker": v["ticker"],
+            "price": price,
+            "setup_type": "LONG CALL",
+            "direction": "BULLISH",
+            "conviction": "HIGH" if s >= 55 else "MEDIUM",
+            "entry_strike": strike,
+            "expiry": expiry[:10],
+            "target_price": target,
+            "stop_loss": stop,
+            "option_premium": float(v.get("uc_mid") or max(0.15, price * 0.02)),
+            "signals_aligned": aligned[:5],
+            "thesis": thesis,
+            "risk_level": "MEDIUM" if s >= 55 else "HIGH",
+            "rank_score": round(s, 1),
+            "pick_source": "scanner_signals",
+            "openai_ranked": False,
+        })
+    return trades
+
+
+def _deterministic_stock_buys_from_rich(rich: dict, n: int = 3) -> list:
+    """
+    Pure equity buys from Layer 9 + composite — no OpenAI selection.
+    Schema matches AI Trades stock_picks panel.
+    """
+    cands = []
+    for v in rich.values():
+        if float(v.get("stat9_score") or 0) < 45:
+            continue
+        price = float(v.get("price") or 0)
+        if price <= 0:
+            continue
+        score = float(v.get("stat9_score") or 0) * 0.45 + float(v.get("composite_score") or 0) * 0.55
+        if v.get("stat9_jump"):
+            score *= 0.9
+        cands.append((score, v))
+    cands.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for score, v in cands[:n]:
+        price = float(v["price"])
+        out.append({
+            "ticker": v["ticker"],
+            "entry_price": price,
+            "target_price": round(price * 1.05, 2),
+            "stop_loss": round(price * 0.97, 2),
+            "holding_days": 5,
+            "stat9_score": float(v.get("stat9_score") or 50),
+            "regime": str(v.get("stat9_regime") or "unknown"),
+            "thesis": (
+                f"Scanner-ranked stock buy: Layer9={v.get('stat9_score')} "
+                f"({v.get('stat9_regime')}), composite={v.get('composite_score', '?')}, "
+                f"VPIN={v.get('stat9_vpin', '?')} — not OpenAI-selected."
+            ),
+            "pick_source": "scanner_signals",
+            "openai_ranked": False,
+            "rank_score": round(score, 1),
+        })
+    return out
+
+
+def _deterministic_short_call_picks(hits: list, n: int = 5) -> list:
+    """Take pre-scored unusual-call hits as picks — no OpenAI ranking."""
+    picks = []
+    for h in hits[:n]:
+        tk = h.get("ticker")
+        if not tk:
+            continue
+        score = float(h.get("_pre_score") or 0)
+        aligned_why = []
+        if float(h.get("dark_pool_pct") or 0) >= 50:
+            aligned_why.append(f"dark_pool={h.get('dark_pool_pct'):.0f}%")
+        if 1.5 <= float(h.get("vol_oi") or 0) <= 5:
+            aligned_why.append(f"VOI={h.get('vol_oi')}x sweet-spot")
+        if float(h.get("prem") or 0) >= 750_000:
+            aligned_why.append(f"prem=${float(h['prem'])/1e6:.1f}M")
+        if not aligned_why:
+            aligned_why.append(f"VOI={h.get('vol_oi')}x prem=${h.get('prem', 0):,}")
+        picks.append({
+            "ticker": tk,
+            "rec_type": "BUY_CALL",
+            "strike": h.get("strike"),
+            "expiry": h.get("expiry"),
+            "days_out": h.get("days_out"),
+            "stock_price": h.get("price"),
+            "otm_pct": h.get("otm_pct"),
+            "vol_oi": h.get("vol_oi"),
+            "prem": h.get("prem"),
+            "conviction": "HIGH" if (score >= 80 or float(h.get("prem") or 0) >= 1_000_000) else "MEDIUM",
+            "urgency": h.get("urgency"),
+            "thesis": (
+                f"Scanner-ranked from unusual calls + dark pool + VOI/prem rules "
+                f"(not OpenAI). {' · '.join(aligned_why)}."
+            ),
+            "why_it_stands_out": aligned_why[0],
+            "pick_source": "scanner_signals",
+            "openai_ranked": False,
+            "rank_score": round(score, 1),
+            "dark_pool_pct": h.get("dark_pool_pct"),
+        })
+    return picks
+
+
+def _deterministic_early_mover_picks(movers: list, uc_by_tk: dict, cs_em: dict,
+                                     oi_em: dict, n: int = 5) -> list:
+    """
+    Rank early movers by scanner confirmation — not OpenAI.
+    Priority: 2d confirm + call flow > 2d + conviction > 1d + call flow.
+    """
+    scored = []
+    for m in movers:
+        tk = m.get("ticker")
+        if not tk:
+            continue
+        day_ret = float(m.get("day_ret") or 0)
+        if day_ret > 15:  # parabolic — skip
+            continue
+        price = float(m.get("price") or 0)
+        if price < 5 or price > 500:
+            continue
+        s = 0.0
+        if m.get("confirmed_2d"):
+            s += 40
+        else:
+            s += 10
+        s += min(20.0, day_ret * 1.5)
+        uc = uc_by_tk.get(tk)
+        if uc:
+            s += 35
+            s += min(15.0, float(uc.get("vol_oi") or 0) * 2)
+            s += min(15.0, float(uc.get("prem") or 0) / 200_000)
+        cs = cs_em.get(tk) or {}
+        cs_pts = float(cs.get("pts") or 0)
+        s += min(20.0, cs_pts * 2.5)
+        oi_d = int(oi_em.get(tk) or 0)
+        s += min(10.0, oi_d * 2.5)
+        # 1-day with no confirmation is weak
+        if not m.get("confirmed_2d") and not uc and cs_pts < 5:
+            s *= 0.4
+        scored.append((s, m, uc, cs, oi_d))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    picks = []
+    for s, m, uc, cs, oi_d in scored[:n]:
+        tk = m["ticker"]
+        is_call = bool(uc)
+        why = []
+        if m.get("confirmed_2d"):
+            why.append("2-day confirmed move")
+        if uc:
+            why.append(f"unusual call VOI={uc.get('vol_oi')}x")
+        if cs.get("pts"):
+            why.append(f"conviction={cs.get('pts')}/10")
+        if oi_d:
+            why.append(f"oi_buildup={oi_d}d")
+        picks.append({
+            "ticker": tk,
+            "rec_type": "BUY_CALL" if is_call else "BUY_STOCK",
+            "strike": (uc or {}).get("strike") if is_call else None,
+            "expiry": (uc or {}).get("expiry") if is_call else None,
+            "days_out": (uc or {}).get("days_out") if is_call else None,
+            "stock_price": m.get("price"),
+            "day_ret": m.get("day_ret"),
+            "confirmed_2d": bool(m.get("confirmed_2d")),
+            "vol_oi": (uc or {}).get("vol_oi") if is_call else None,
+            "prem": (uc or {}).get("prem") if is_call else None,
+            "conviction": "HIGH" if s >= 70 else "MEDIUM",
+            "thesis": (
+                f"Scanner-ranked early mover (not OpenAI): "
+                f"{', '.join(why) or 'momentum'}."
+            ),
+            "why_it_stands_out": (why[0] if why else "early momentum"),
+            "pick_source": "scanner_signals",
+            "openai_ranked": False,
+            "rank_score": round(s, 1),
+        })
+    return picks
+
+
 def _build_ai_stock_picks():
     """
     Daily AI Stock Picks — score every ticker across ALL signal layers,
@@ -60094,6 +60261,43 @@ def _build_ai_stock_picks():
                                      mi_cap=_cap.replace("_", " "))
             except Exception as _e9:
                 print(f"[ai_stock_picks] morning inflows query: {_e9}")
+
+            # ── 10. Dark pool prints (stealth accumulation) ───────────────────
+            try:
+                _cur.execute("""
+                    SELECT ticker, SUM(premium)::float
+                    FROM dark_pool_prints
+                    WHERE print_time >= NOW() - INTERVAL '3 days'
+                    GROUP BY ticker
+                    HAVING SUM(premium) >= 500000
+                    ORDER BY SUM(premium) DESC LIMIT 80
+                """)
+                for t, prem in _cur.fetchall():
+                    w = min(20.0, float(prem or 0) / 250000)
+                    _add(t, "dark_pool", w, dp_prem_k=int(float(prem or 0) / 1000))
+            except Exception as _e10:
+                print(f"[ai_stock_picks] dark pool query: {_e10}")
+
+            # ── 11. Layer 9 statistical edge (VPIN/Hurst/Amihud/GARCH) ────────
+            try:
+                _cur.execute("""
+                    SELECT DISTINCT ON (ticker)
+                           ticker, statistical_score, regime, vpin_raw, hurst_raw
+                    FROM layer9_scores
+                    WHERE computed_at >= NOW() - INTERVAL '2 days'
+                      AND statistical_score >= 55
+                    ORDER BY ticker, computed_at DESC
+                """)
+                for t, ss, reg, vpin, hurst in _cur.fetchall():
+                    w = min(25.0, (float(ss or 50) - 50) * 0.8)
+                    if w > 0:
+                        _add(t, "layer9_edge", w,
+                             layer9_score=float(ss or 50),
+                             layer9_regime=str(reg or ""),
+                             vpin_raw=float(vpin or 0),
+                             hurst_raw=float(hurst or 0.5))
+            except Exception as _e11:
+                print(f"[ai_stock_picks] layer9 query: {_e11}")
 
         # ── Require ≥ 2 distinct signal sources ──────────────────────────────
         candidates = {t: v for t, v in tdata.items()
@@ -60904,173 +61108,21 @@ def ai_short_calls():
                 print(f"[ai_short_calls] insider/earnings lookup error: {_iae}", file=_sys.stderr)
             # ─────────────────────────────────────────────────────────────
 
-            oai = _OAI(
-                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
-                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-                timeout=90.0,
-            )
-
-            def _enrich_line(i, h):
-                tk = h["ticker"]
-                mom = _momentum_map.get(tk, {})
-                line = (f"{i+1}. {tk} | ${h['strike']} call | exp {h['expiry']} ({h['days_out']}d) | "
-                        f"Vol/OI={h['vol_oi']}x | prem=${h['prem']:,} | "
-                        f"{'+' if h['otm_pct']>0 else ''}{h['otm_pct']}% OTM | "
-                        f"IV={h.get('iv',0):.0f}% | urgency={h['urgency']} | "
-                        f"stock_price=${h['price']:.2f}")
-                r1 = mom.get("ret1d")
-                r5 = mom.get("ret5d")
-                vs = mom.get("vs_spy5d")
-                if r1 is not None:
-                    line += f" | 1d={'+' if r1>=0 else ''}{r1}%"
-                if r5 is not None:
-                    line += f" | 5d={'+' if r5>=0 else ''}{r5}%(vs_SPY:{'+' if (vs or 0)>=0 else ''}{vs}%)"
-                cs = _cs_map.get(tk)
-                if cs:
-                    line += f" | conviction_stack={cs['pts']}/10({cs['layers']})"
-                bd = _oi_map.get(tk, 0)
-                if bd:
-                    line += f" | oi_buildup={bd}d"
-                # Dark pool % from FINRA Reg SHO — show for all with data, flag >=50
-                dp_pct = h.get("dark_pool_pct", 0.0)
-                if dp_pct >= 40:
-                    _dp_label = (
-                        "[EXTREME]" if dp_pct >= 70 else
-                        "[HIGH]"    if dp_pct >= 62 else
-                        "[ELEVATED]" if dp_pct >= 54 else
-                        "[NOTABLE]"
-                    )
-                    line += f" | dark_pool={dp_pct:.0f}%{_dp_label}"
-                fir = _fir_map.get(tk)
-                if fir and fir["fir"] > 0:
-                    line += f" | FIR={fir['fir']}%"
-                ms = _ms_count_map.get(tk, {})
-                if ms.get("count", 0):
-                    line += f" | scanners={ms['count']}/11({'+'.join(ms.get('labels',[])[:3])})"
-                ch = _charm_map.get(tk)
-                if ch and ch["score"] > 0:
-                    line += f" | charm={ch['score']}(exp {ch['nearest_days']}d)"
-                ins = _insider_map.get(tk)
-                if ins:
-                    line += f" | insider={'PRE_POS' if ins['pre_positioned'] else ins['verdict']}({ins['score']}/100)"
-                ea = _earnings_map.get(tk)
-                if ea:
-                    line += f" | earnings={ea['date']}({ea['days_out']}d)"
-                return line
-
-            signals_text = "\n".join(_enrich_line(i, h) for i, h in enumerate(hits))
-
-            user_msg = f"""These are today's unusual call option signals, pre-filtered and ranked by a quantitative scoring model. All tickers are UPTRENDING (positive 5-day return vs SPY). Each signal represents institutional options activity.
-
-Today's signals (ranked by institutional quality score):
-
-{signals_text}
-
-SIGNAL KEY:
-- Vol/OI = volume-to-open-interest ratio (new positions opened today vs existing)
-- prem = total premium spent ($) — larger = more institutional conviction
-- OTM% = how far out of the money (near-ATM = directional, high-conviction bet)
-- IV = implied volatility
-- urgency = sweep urgency (URGENT = crossed ask, multi-exchange = most institutional)
-- conviction_stack = 10-layer institutional accumulation score
-- FIR = Float Impact Ratio (>2% = mechanical forced dealer buying)
-- oi_buildup = days OI has been accumulating (multi-day = pre-positioned smart money)
-- scanners = number of independent scanners confirming this ticker
-- charm = dealer buying pressure accelerating into expiry
-- insider = unusual insider activity score
-
-BACKTEST-VALIDATED SELECTION RULES (from 320 live trades, real outcomes):
-
-★★ ULTIMATE — 75% win rate:   Vol/OI 1.5–5x + premium ≥ $1M + dark_pool ≥ 50%
-★  PROVEN   — 67% win rate:   Vol/OI 1.5–5x + premium ≥ $1M
-★  STRONG   — 60% win rate:   Vol/OI 1.5–5x + premium ≥ $750K
-
-HARD DISQUALIFIERS (zero or near-zero win rate in backtest — never pick these):
-✗ Vol/OI > 30x — retail chasing after the move (22% win rate, skip)
-✗ OTM > 15% — 0% win rate in 320 trades, literally zero wins ever
-✗ Premium < $500K — insufficient institutional conviction
-✗ Days out > 21 — 11% win rate (vs 47% at ≤7 DTE)
-
-SIGNAL DEFINITIONS:
-- dark_pool = % of today's volume routed through dark pools (FINRA Reg SHO)
-  ≥ 50% means institutions are hiding their buying in dark pools = strongest stealth accumulation signal
-  [ELEVATED]=54–61%, [HIGH]=62–69%, [EXTREME]=70%+ (best)
-
-RANKING PRIORITY (highest to lowest):
-1. dark_pool ≥ 50% + VOI 1.5–5x + prem ≥ $1M → AUTOMATIC HIGH conviction (75% WR in backtest)
-2. VOI 1.5–5x + prem ≥ $1M + OTM ≤ 10% (no dark pool data available)
-3. VOI 1.5–5x + prem ≥ $750K + dark_pool ≥ 40% + uptrending
-4. Any signal with FIR > 2% or oi_buildup ≥ 3d (pre-positioned money adds confidence)
-5. SKIP anything not meeting minimum: VOI ≥ 1.5x, prem ≥ $500K, OTM ≤ 15%, DTE ≤ 21
-
-For each pick, output a JSON object with ALL these fields:
-- ticker (string)
-- rec_type ("BUY_CALL")
-- strike (number - from the signal)
-- expiry (string YYYY-MM-DD)
-- days_out (integer)
-- stock_price (number)
-- otm_pct (number)
-- vol_oi (number)
-- prem (integer)
-- conviction ("HIGH" | "MEDIUM")
-- urgency (string - from signal)
-- thesis (string - 2 sentences MAX explaining the options flow thesis)
-- why_it_stands_out (string - 1 sentence: the single most compelling backtest-aligned signal)
-
-Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT criteria. If fewer than 3 meet the criteria, return only those that do. HIGH conviction first. JSON only, no markdown."""
-
-            system_msg = "You are a quantitative options analyst with a 70%+ win rate. You select only trades that match a backtest-validated institutional flow profile: VOI 1.5-5x, premium ≥ $750K, OTM ≤ 15%, DTE ≤ 21 days. You skip high-VOI retail noise and deep OTM lottery tickets. Output valid JSON only."
-
-            def _stream_ai():
-                chunks = []
-                finish = "unknown"
-                stream = oai.chat.completions.create(
-                    model="gpt-4o-mini",
-                    max_completion_tokens=4000,
-                    stream=True,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user",   "content": user_msg},
-                    ],
-                )
-                for chunk in stream:
-                    delta = chunk.choices[0].delta.content if chunk.choices else None
-                    if delta:
-                        chunks.append(delta)
-                    if chunk.choices and chunk.choices[0].finish_reason:
-                        finish = chunk.choices[0].finish_reason
-                return "".join(chunks).strip(), finish
-
-            def _extract_json(raw):
-                if "```" in raw:
-                    for part in raw.split("```"):
-                        stripped = part.lstrip("json").strip()
-                        if stripped.startswith("["):
-                            return stripped
-                if not raw.startswith("["):
-                    s = raw.find("["); e2 = raw.rfind("]") + 1
-                    if s >= 0 and e2 > s:
-                        return raw[s:e2]
-                return raw
-
-            import time as _time
-            raw, finish = _stream_ai()
-            raw = _extract_json(raw)
-            if not raw:
-                print("[ai_short_calls] empty on first attempt - retrying in 6s", file=_sys.stderr, flush=True)
-                _time.sleep(6)
-                raw, finish = _stream_ai()
-                raw = _extract_json(raw)
-            if not raw:
-                print(f"[ai_short_calls] AI returned no content (finish={finish})", file=_sys.stderr, flush=True)
+            # ── DETERMINISTIC ranking from unusual-calls score (no OpenAI) ──
+            print("[ai_short_calls] ranking from scanner unusual-calls score "
+                  "(OpenAI ranking DISABLED)", flush=True)
+            for _h in hits:
+                try:
+                    _h["_pre_score"] = float(_score_hit(_h))
+                except Exception:
+                    _h["_pre_score"] = 0.0
+            hits = sorted(hits, key=lambda x: -float(x.get("_pre_score") or 0))
+            picks = _deterministic_short_call_picks(hits, n=5)
+            print(f"[ai_short_calls] deterministic picks={len(picks)} "
+                  f"from {len(hits)} scored hits", flush=True)
+            if not picks:
+                print("[ai_short_calls] no scanner-ranked picks — aborting", flush=True)
                 return
-
-            try:
-                picks = _json.loads(raw)
-            except Exception:
-                from json_repair import repair_json as _rj
-                picks = _json.loads(_rj(raw))
 
             # Enrich with SMP conviction scores
             try:
@@ -61103,7 +61155,9 @@ Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT cr
             except Exception as _l9sc_err:
                 print(f"[ai_short_calls] layer9 enrich error: {_l9sc_err}", file=_sys.stderr)
 
-            out = {"picks": picks, "generated_at": _dt.now().isoformat(), "signals_evaluated": len(hits)}
+            out = {"picks": picks, "generated_at": _dt.now().isoformat(),
+                   "signals_evaluated": len(hits),
+                   "ranking_mode": "scanner_signals", "openai_ranked": False}
             app._aisc_cache    = out
             app._aisc_cache_ts = _dt.now()
             try:
@@ -62165,101 +62219,21 @@ def ai_early_movers():
                     line += f" | oi_buildup={bd}d"
                 return line
 
-            _sig_text_em = "\n".join(_enrich_em(i, m) for i, m in enumerate(_movers_em[:35]))
-
-            _user_msg_em = f"""You are scanning the FULL US stock market (8,000+ stocks) via Polygon every day to find stocks in the VERY EARLY innings of a move - day 1 or day 2 - before the crowd notices. This is an experimental early-detection system.
-{_fb_em}
-Today's early movers (Polygon full-market scan - {_tdays_em[0]}):
-
-{_sig_text_em}
-
-SIGNAL KEY:
-- "✅ 2-DAY CONFIRMED" = stock was up yesterday AND moving again today. Strongest signal - two consecutive days of institutional accumulation.
-- "📌 1-DAY MOVE" = strong move today only. Needs options flow or conviction score to confirm.
-- CALL_FLOW = unusual options buying detected on this ticker today (smart money confirmation).
-- conviction = how many of our 10 institutional signals align (dark pool + OI + sweeps + short interest).
-- oi_buildup = days open interest has been growing (pre-positioning by smart money).
-
-SELECT the 5 BEST opportunities for the next 3-7 days:
-PRIORITY ORDER:
-1. 2-DAY CONFIRMED + CALL_FLOW = HIGHEST (momentum confirmed + smart money in)  → BUY_CALL
-2. 2-DAY CONFIRMED + conviction ≥ 6 (no options) = Strong institutional trend → BUY_STOCK
-3. 1-DAY MOVE + CALL_FLOW + conviction ≥ 5 = Smart money just entered → BUY_CALL
-4. 1-DAY MOVE alone (no confirmation) = SKIP - too risky
-5. NEVER pick stocks up > 15% in one day (parabolic = missed it)
-6. NEVER pick stocks below $5 or above $500
-
-For each pick, output a JSON object with EXACTLY these fields:
-- ticker (string)
-- rec_type ("BUY_CALL" | "BUY_STOCK")
-- strike (number | null - nearest ATM strike if CALL_FLOW present; null for BUY_STOCK)
-- expiry (string YYYY-MM-DD | null - target 14-30 days out; null for BUY_STOCK)
-- days_out (integer | null - null for BUY_STOCK)
-- stock_price (number - current price from signal)
-- day_ret (number - day 1 return percent)
-- confirmed_2d (boolean)
-- vol_oi (number | null - from CALL_FLOW if present)
-- prem (integer | null - from CALL_FLOW if present)
-- conviction ("HIGH" | "MEDIUM")
-- thesis (string - 2 sentences: why this will continue moving for 3-7 more days)
-- why_it_stands_out (string - 1 sentence: the single most compelling signal)
-
-Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no markdown."""
-
-            _sys_msg_em = ("You are a quantitative momentum analyst specializing in early-stage breakout detection. "
-                           "You identify stocks in the first 1-2 days of an institutional accumulation move before "
-                           "they become widely noticed. Output valid JSON only.")
-
-            oai_em = _OAI(
-                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
-                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-                timeout=90.0,
+            # ── DETERMINISTIC early-mover ranking (no OpenAI) ───────────────
+            print("[ai_early_movers] ranking from Polygon movers + UC/conviction/OI "
+                  "(OpenAI ranking DISABLED)", flush=True)
+            picks_em = _deterministic_early_mover_picks(
+                _movers_em, _uc_by_tk, _cs_em, _oi_em, n=5,
             )
-
-            def _stream_aiem():
-                _chunks = []; _finish = "unknown"
-                _stream = oai_em.chat.completions.create(
-                    model="gpt-4o-mini", max_completion_tokens=4000, stream=True,
-                    messages=[{"role":"system","content":_sys_msg_em},
-                              {"role":"user","content":_user_msg_em}],
-                )
-                for _chunk in _stream:
-                    _delta = _chunk.choices[0].delta.content if _chunk.choices else None
-                    if _delta: _chunks.append(_delta)
-                    if _chunk.choices and _chunk.choices[0].finish_reason:
-                        _finish = _chunk.choices[0].finish_reason
-                return "".join(_chunks).strip(), _finish
-
-            def _extract_json_em(raw):
-                if "```" in raw:
-                    for part in raw.split("```"):
-                        s = part.lstrip("json").strip()
-                        if s.startswith("["): return s
-                if not raw.startswith("["):
-                    s = raw.find("["); e = raw.rfind("]")+1
-                    if s >= 0 and e > s: return raw[s:e]
-                return raw
-
-            import time as _time_em
-            raw_em, finish_em = _stream_aiem()
-            raw_em = _extract_json_em(raw_em)
-            if not raw_em:
-                print("[ai_early_movers] empty - retrying in 6s", file=_sys.stderr)
-                _time_em.sleep(6)
-                raw_em, finish_em = _stream_aiem()
-                raw_em = _extract_json_em(raw_em)
-            if not raw_em:
-                print(f"[ai_early_movers] no content (finish={finish_em})", file=_sys.stderr)
+            print(f"[ai_early_movers] deterministic picks={len(picks_em)} "
+                  f"from {len(_movers_em)} movers", flush=True)
+            if not picks_em:
+                print("[ai_early_movers] no scanner-ranked picks — aborting", flush=True)
                 return
 
-            try:
-                picks_em = _json.loads(raw_em)
-            except Exception:
-                from json_repair import repair_json as _rj2
-                picks_em = _json.loads(_rj2(raw_em))
-
             out_em = {"picks": picks_em, "generated_at": _aiem_dt.now().isoformat(),
-                      "signals_evaluated": len(_movers_em)}
+                      "signals_evaluated": len(_movers_em),
+                      "ranking_mode": "scanner_signals", "openai_ranked": False}
             app._aiem_cache    = out_em
             app._aiem_cache_ts = _aiem_dt.now()
             try:
@@ -72407,17 +72381,63 @@ def signal_intelligence_endpoint():
             "note": "Needs live Tradier chains — activates Mon–Fri during market hours"
         }
 
-        # ── GARCH + GP status (feed into layer9 statistical_score) ───────────
-        _l9t = out["layer9"].get("tickers", 0)
-        out["groups"]["garch"] = {
-            "tickers_analyzed": _l9t,
-            "regime_covered": out["layer9"].get("regime_covered", 0),
-            "status": "active" if _l9t > 0 else "pending"
-        }
-        out["groups"]["gp"] = {
-            "tickers_fitted": _l9t,
-            "status": "active" if _l9t > 0 else "pending"
-        }
+        # ── GARCH status from garch_regime_log (real fits, not Layer 9 proxy) ─
+        try:
+            _sicu.execute("""
+                SELECT COUNT(DISTINCT ticker),
+                       COUNT(*),
+                       MAX(logged_at),
+                       COUNT(*) FILTER (WHERE vote > 0),
+                       COUNT(*) FILTER (WHERE vote < 0)
+                FROM garch_regime_log
+                WHERE logged_at >= NOW() - INTERVAL '2 days'
+            """)
+            _gc = _sicu.fetchone()
+            _gc_tickers = int(_gc[0] or 0)
+            out["groups"]["garch"] = {
+                "tickers_analyzed": _gc_tickers,
+                "regime_covered": _gc_tickers,
+                "rows": int(_gc[1] or 0),
+                "last_log": _ago(_gc[2]) if _gc[2] else None,
+                "vote_high_vol": int(_gc[3] or 0),
+                "vote_calm": int(_gc[4] or 0),
+                "status": "active" if _gc_tickers > 0 else "pending",
+                "source": "garch_regime_log",
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["garch"] = {
+                "tickers_analyzed": 0, "regime_covered": 0,
+                "status": "pending", "source": "garch_regime_log",
+            }
+
+        # ── GP status from gp_discovered_templates (weekly Module 1 evolution)
+        # NOT ml_infrastructure.gp_signal_search (tool-only, not scheduled).
+        try:
+            _sicu.execute("""
+                SELECT COUNT(*), MAX(evolved_at),
+                       MAX(fitness), MAX(holdout_win_rate)
+                FROM gp_discovered_templates
+            """)
+            _gp = _sicu.fetchone()
+            _gp_n = int(_gp[0] or 0)
+            out["groups"]["gp"] = {
+                "tickers_fitted": _gp_n,  # FE key kept for Signal Intel card
+                "templates": _gp_n,
+                "last_evolved": _ago(_gp[1]) if _gp[1] else None,
+                "best_fitness": _safe(float(_gp[2])) if _gp[2] is not None else None,
+                "best_holdout_wr": _safe(float(_gp[3])) if _gp[3] is not None else None,
+                "status": "active" if _gp_n > 0 else "pending",
+                "source": "gp_discovered_templates",
+                "note": "GP evolution (Module 1 weekly) — not sklearn gp_signal_search",
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["gp"] = {
+                "tickers_fitted": 0, "templates": 0,
+                "status": "pending", "source": "gp_discovered_templates",
+                "note": "GP evolution table unavailable",
+            }
 
         # ── job heartbeats ────────────────────────────────────────────────────
         try:

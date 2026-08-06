@@ -24,6 +24,10 @@ args = "artifacts/stock-scanner: probability-engine-scheduler"
 task = "workflow.run"
 args = "artifacts/stock-scanner: aiem-process"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/stock-scanner: pattern-discovery"
+
 # git-autosync removed from Project auto-start
 # (Directive_FourTLA_And_DaemonRootCause_2026-08-03).
 # Start manually via the workflow panel when needed.
@@ -46,6 +50,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "artifacts/stock-scanner: pattern-discovery"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash /home/runner/workspace/artifacts/stock-scanner-api/pattern_discovery_wrapper.sh"
 
 [workflows.workflow.metadata]
 outputType = "console"
