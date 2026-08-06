@@ -236,6 +236,8 @@ def _commercial_layer() -> dict:
             "aiem_terminal": "equity / autonomous research desk",
             "oe_terminal": "sold separately — not bundled by default",
             "bundle": "optional premium later",
+            "auth": "same password/token for both terminals (Phase 0); books separated in UI",
+            "phase0": "cross-book UI bleed removed — see docs/aiem-sales/phase0-product-honesty.md",
         },
     }
 

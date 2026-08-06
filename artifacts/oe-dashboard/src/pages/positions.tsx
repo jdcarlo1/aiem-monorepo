@@ -51,17 +51,6 @@ interface OptionsMetrics {
   iv_percentile?: number;
 }
 
-interface PaperPosition {
-  id: number;
-  ticker: string;
-  position_type: string;
-  quantity: number;
-  entry_price: number;
-  current_price: number;
-  unrealized_pnl: number;
-  opened_at: string;
-}
-
 // ── Response shape normalisers ────────────────────────────────────────────────
 function extractRows<T>(resp: unknown): T[] {
   if (Array.isArray(resp)) return resp as T[];
@@ -72,35 +61,29 @@ function extractRows<T>(resp: unknown): T[] {
   return [];
 }
 
+function isOpenTrade(t: TradeRecord): boolean {
+  return t.exit_ts === null || t.exit_ts === undefined;
+}
+
 export default function PositionsPage() {
   const { apiFetch } = useApi();
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
 
-  const { data: trades, isLoading: tradesLoading } = useQuery({
-    queryKey: ['trade-records'],
+  // OE SKU only — oe_trade_records. AIEM equity paper lives on /aiem/ (separate product).
+  // Same login password as AIEM; books are not mixed in the UI (Phase 0 product honesty).
+  const { data: allTrades, isLoading: tradesLoading } = useQuery({
+    queryKey: ['trade-records-all'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/trade-records?limit=500')
-        .then(extractRows<TradeRecord>)
-        // Gap 1 fix: only show rows where exit_ts is set (genuinely closed trades)
-        .then((rows) => rows.filter((t) => t.exit_ts !== null && t.exit_ts !== undefined)),
+      apiFetch<unknown>('/admin/trade-records?limit=500').then(extractRows<TradeRecord>),
   });
+
+  const trades = (allTrades ?? []).filter((t) => !isOpenTrade(t));
+  const openOePositions = (allTrades ?? []).filter(isOpenTrade);
 
   const { data: allMetrics } = useQuery({
     queryKey: ['options-metrics'],
     queryFn: () =>
       apiFetch<unknown>('/admin/options-metrics?limit=200').then(extractRows<OptionsMetrics>),
-  });
-
-  const { data: paperPositions } = useQuery({
-    queryKey: ['paper-portfolio'],
-    queryFn: () =>
-      apiFetch<unknown>('/aiem-paper-portfolio').then((resp) => {
-        if (Array.isArray(resp)) return resp as PaperPosition[];
-        const r = resp as Record<string, unknown>;
-        // paper-portfolio may return {positions:[...]} or {open:[...]}
-        const arr = r?.positions ?? r?.open ?? r?.rows ?? [];
-        return (Array.isArray(arr) ? arr : []) as PaperPosition[];
-      }),
   });
 
   const metrics = selectedTraceId
@@ -123,7 +106,7 @@ export default function PositionsPage() {
           Positions & P&L
         </h1>
         <p className="text-base text-muted-foreground mt-1.5">
-          Performance summary, equity curve, closed trades, and options analytics
+          Options Engine book only · AIEM equity paper is a separate product
         </p>
       </div>
 
@@ -295,59 +278,57 @@ export default function PositionsPage() {
         </div>
       </div>
 
-      {/* Paper Positions */}
+      {/* Open OE positions from oe_trade_records (not AIEM equity paper) */}
       <div className="border border-border rounded-lg bg-card overflow-hidden">
-        <div className="p-4 border-b border-border">
-          <h2 className="font-semibold">Active Paper Positions</h2>
+        <div className="p-4 border-b border-border flex items-center justify-between gap-3">
+          <h2 className="font-semibold">Open OE Positions</h2>
+          <span className="text-xs text-muted-foreground font-mono">
+            {openOePositions.length} open · oe_trade_records
+          </span>
         </div>
-        {paperPositions && paperPositions.length > 0 ? (
+        {openOePositions.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Ticker</TableHead>
-                <TableHead>Position Type</TableHead>
-                <TableHead>Quantity</TableHead>
-                <TableHead>Entry Price</TableHead>
-                <TableHead>Current Price</TableHead>
-                <TableHead>Unrealized P&L</TableHead>
-                <TableHead>Opened At</TableHead>
+                <TableHead>Strategy</TableHead>
+                <TableHead>Dir</TableHead>
+                <TableHead>Entry</TableHead>
+                <TableHead>Scan</TableHead>
+                <TableHead>Trace</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paperPositions.map((position) => (
-                <TableRow key={position.id} data-testid={`row-paper-${position.id}`}>
+              {openOePositions.map((position) => (
+                <TableRow key={position.trace_id} data-testid={`row-oe-open-${position.trace_id}`}>
                   <TableCell className="font-semibold font-mono">
                     {position.ticker}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {position.position_type}
+                    {position.strategy_family || '—'}
+                  </TableCell>
+                  <TableCell className="text-sm font-mono">
+                    {position.direction || '—'}
                   </TableCell>
                   <TableCell className="font-mono text-sm">
-                    {position.quantity}
+                    {position.entry_price != null ? formatCurrency(position.entry_price) : '—'}
                   </TableCell>
                   <TableCell className="font-mono text-sm">
-                    {formatCurrency(position.entry_price)}
+                    {position.scan_date || '—'}
                   </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {formatCurrency(position.current_price)}
-                  </TableCell>
-                  <TableCell
-                    className={`font-mono text-sm font-semibold ${
-                      position.unrealized_pnl >= 0 ? 'text-chart-2' : 'text-chart-4'
-                    }`}
-                  >
-                    {formatCurrency(position.unrealized_pnl)}
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {formatDateShort(position.opened_at)}
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {position.trace_id}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         ) : (
-          <div className="p-12 text-center">
-            <p className="text-muted-foreground">0 active paper positions</p>
+          <div className="p-12 text-center space-y-2">
+            <p className="text-muted-foreground">0 open OE positions</p>
+            <p className="text-xs text-muted-foreground font-mono">
+              AIEM equity paper book is on /aiem/ — same password, separate product
+            </p>
           </div>
         )}
       </div>

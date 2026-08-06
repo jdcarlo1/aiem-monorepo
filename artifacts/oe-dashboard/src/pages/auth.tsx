@@ -30,6 +30,9 @@ export default function AuthPage() {
           <p className="text-base text-muted-foreground mt-1.5 font-mono">
             Admin Authentication Required
           </p>
+          <p className="text-xs text-muted-foreground mt-2 text-center max-w-sm">
+            Same password/token as AIEM Terminal — separate product UI
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

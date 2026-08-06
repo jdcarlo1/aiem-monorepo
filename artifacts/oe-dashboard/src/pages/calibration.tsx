@@ -162,6 +162,9 @@ export default function CalibrationPage() {
         <p className="text-base text-muted-foreground mt-1.5">
           Model accuracy and Platt scaling effectiveness
         </p>
+        <p className="text-xs text-muted-foreground mt-2 font-mono">
+          Uses shared platform probability engine (also on AIEM). Same login — separate terminals.
+        </p>
       </div>
 
       {/* Calibration Warning */}

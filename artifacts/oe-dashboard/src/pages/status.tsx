@@ -93,20 +93,35 @@ function normalisePipelineCheckpoint(resp: unknown): PipelineCheckpoint | null {
   };
 }
 
+/** OE-scoped job names — hide AIEM equity / morning / paper jobs from OE Status. */
+const OE_JOB_RE =
+  /option|oe_|gex|0dte|spy_0dte|f3_|options_pipeline|options_structure|reconcile|gamma/i;
+
+function isOeJob(name: string | undefined | null): boolean {
+  return !!name && OE_JOB_RE.test(String(name));
+}
+
 export default function StatusPage() {
   const { apiFetch } = useApi();
 
   // Use /admin/job-heartbeats (raw heartbeat table) instead of /admin/job-health (aggregate)
+  // Phase 0: filter to OE-owned jobs so OE Status does not look like the AIEM terminal.
   const { data: jobHealth, isLoading: jobHealthLoading } = useQuery({
-    queryKey: ['job-health'],
+    queryKey: ['job-health-oe'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/job-heartbeats').then(normaliseJobHealth),
+      apiFetch<unknown>('/admin/job-heartbeats')
+        .then(normaliseJobHealth)
+        .then((jobs) => jobs.filter((j) => isOeJob(j.job_name))),
   });
 
   const { data: schedulerJobs } = useQuery({
-    queryKey: ['scheduler-jobs'],
+    queryKey: ['scheduler-jobs-oe'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/scheduler-jobs').then(normaliseSchedulerJobs),
+      apiFetch<unknown>('/admin/scheduler-jobs')
+        .then(normaliseSchedulerJobs)
+        .then((jobs) =>
+          jobs.filter((j) => isOeJob(j.job_name) || isOeJob(j.job_id)),
+        ),
   });
 
   const { data: reconcileStatus } = useQuery({
@@ -150,7 +165,7 @@ export default function StatusPage() {
           System Status
         </h1>
         <p className="text-base text-muted-foreground mt-1.5">
-          Job health, scheduler state, and pipeline checkpoints
+          OE-scoped jobs only · AIEM equity/morning jobs live on /aiem/
         </p>
       </div>
 
