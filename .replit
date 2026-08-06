@@ -50,17 +50,6 @@ args = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.p
 [workflows.workflow.metadata]
 outputType = "console"
 
-[[workflows.workflow]]
-name = "git-autosync"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 /home/runner/workspace/git_autosync_daemon.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
