@@ -131,3 +131,20 @@ kind = "data-app"
 
   [services.env]
   PROB_ENGINE_PORT = "5056"
+
+  [[services]]
+  name = "pattern-discovery"
+  paths = [ "/pattern-discovery/" ]
+  localPort = 5058
+
+  [services.development]
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/pattern_discovery_wrapper.sh"
+
+  [services.production]
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/pattern_discovery_wrapper.sh"
+
+  [services.production.health.startup]
+  path = "/"
+
+  [services.env]
+  PATTERN_DISCOVERY_PORT = "5058"
