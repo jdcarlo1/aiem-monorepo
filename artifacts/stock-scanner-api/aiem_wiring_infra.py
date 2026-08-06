@@ -570,6 +570,78 @@ def ensure_critical_d3_enforce(
     return {"status": "ok", "results": results}
 
 
+# Known `_aiem_paper_pick_candidates` / paper-adjacent signal sources.
+# G3 ENFORCE requires each strategy_version=pick["source"] to exist in
+# d3_strategy_registry with approval_status='approved' AND status='active'.
+# Neon had 0 rows on 2026-08-05 — every candidate would BLOCK at G3 the
+# moment Diagram2 stage 9 stopped failing first. Seed idempotently at boot.
+_PAPER_STRATEGY_SOURCES = (
+    "conviction_stack",
+    "sweep",
+    "unusual_calls",
+    "gap_volume",
+    "aiem_ai",
+    "multi_signal",
+    "oi_buildup",
+    "washout_ignition",
+    "squeeze_reversion",
+    "aiem_v3_discovery",
+    "fear_premium_gex",
+    "gap_down_distribution",
+    "orchestrator",
+    "premarket_open_trader",
+    # Rankings / adjacent sources that may reach paper via multi_signal merges
+    "building_thrust",
+    "momentum_continuation",
+    "gap_ignition",
+    "thrust_pullback",
+    "washout_reclaim",
+)
+
+
+def ensure_paper_strategy_registry(
+    *,
+    db_url: Optional[str] = None,
+    sources: Optional[List[str]] = None,
+    notes: str = "Boot-seeded so G3 ENFORCE does not block known paper sources",
+) -> Dict[str, Any]:
+    """Upsert known paper signal sources into d3_strategy_registry as approved/active."""
+    srcs = list(sources or _PAPER_STRATEGY_SOURCES)
+    inserted = 0
+    updated = 0
+    try:
+        with psycopg2.connect(db_url or _db_url(), connect_timeout=5) as conn, conn.cursor() as cur:
+            for src in srcs:
+                cur.execute(
+                    """
+                    INSERT INTO d3_strategy_registry
+                        (signal_source, status, approval_status, notes, updated_at)
+                    VALUES (%s, 'active', 'approved', %s, NOW())
+                    ON CONFLICT (signal_source) DO UPDATE SET
+                        status = 'active',
+                        approval_status = 'approved',
+                        notes = COALESCE(EXCLUDED.notes, d3_strategy_registry.notes),
+                        updated_at = NOW()
+                    RETURNING (xmax = 0) AS was_insert
+                    """,
+                    (src, notes),
+                )
+                row = cur.fetchone()
+                if row and row[0]:
+                    inserted += 1
+                else:
+                    updated += 1
+            conn.commit()
+        return {
+            "status": "ok",
+            "inserted": inserted,
+            "updated": updated,
+            "sources": len(srcs),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e), "inserted": inserted, "updated": updated}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 6. ORCHESTRATOR PAPER TRADE INSERT
 # ═══════════════════════════════════════════════════════════════════════════
