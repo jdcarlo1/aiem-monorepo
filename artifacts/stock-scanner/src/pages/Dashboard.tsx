@@ -4300,7 +4300,7 @@ function AIEarlyMoversTab() {
         <div>
           <div style={{ fontSize:15, fontWeight:900, color:"#00ff88", letterSpacing:"0.12em" }}>🧠 AI EARLY MOVERS</div>
           <div style={{ fontSize:10, color:"#666", marginTop:2 }}>
-            EXPERIMENTAL · Full-market Polygon scan · Day 1-2 detection · Isolated system
+            Scanner-ranked · Polygon movers + unusual calls + conviction + OI · OpenAI does not pick tickers
           </div>
         </div>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
@@ -4551,8 +4551,8 @@ function AIShortCallsTab() {
 
       {(loading || (bgGenerating && picks.length === 0)) && (
         <div style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, marginBottom: 8 }}>⚡ Analyzing signals with AI...</div>
-          <div style={{ fontSize: 11, color: BB_DIM }}>Evaluating unusual call flow · typically 30–60s on first load</div>
+          <div style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, marginBottom: 8 }}>⚡ Ranking unusual-call signals…</div>
+          <div style={{ fontSize: 11, color: BB_DIM }}>Scanner score (VOI / prem / dark pool) — OpenAI does not pick tickers</div>
         </div>
       )}
 
@@ -5556,19 +5556,15 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-            🤖 AI Trade Setups
-            <span className="text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>GPT-4o</span>
-            <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(255,255,255,0.04)", color: "#94a3b8", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <svg width="11" height="11" viewBox="0 0 41 41" fill="none"><path d="M37.532 16.87a9.963 9.963 0 0 0-.856-8.184 10.078 10.078 0 0 0-10.855-4.835 9.964 9.964 0 0 0-6.52-3.272A10.08 10.08 0 0 0 8.733 5.183a9.965 9.965 0 0 0-6.663 4.81 10.079 10.079 0 0 0 1.24 11.817 9.965 9.965 0 0 0 .856 8.185 10.079 10.079 0 0 0 10.855 4.835 9.965 9.965 0 0 0 6.52 3.272 10.08 10.08 0 0 0 10.568-4.604 9.965 9.965 0 0 0 6.663-4.81 10.079 10.079 0 0 0-1.24-11.818zM22.498 37.886a7.474 7.474 0 0 1-4.799-1.735c.061-.033.168-.091.237-.134l7.964-4.6a1.294 1.294 0 0 0 .655-1.134V19.054l3.366 1.944a.12.12 0 0 1 .066.092v9.299a7.505 7.505 0 0 1-7.49 7.496zM6.392 31.006a7.471 7.471 0 0 1-.894-5.023c.06.036.162.099.237.141l7.964 4.6a1.297 1.297 0 0 0 1.308 0l9.724-5.614v3.888a.12.12 0 0 1-.048.103l-8.051 4.649a7.504 7.504 0 0 1-10.24-2.744zM4.297 13.62A7.469 7.469 0 0 1 8.2 10.333c0 .068-.004.19-.004.274v9.201a1.294 1.294 0 0 0 .654 1.132l9.723 5.614-3.366 1.944a.12.12 0 0 1-.114.012L7.044 23.86a7.504 7.504 0 0 1-2.747-10.24zm27.658 6.437l-9.724-5.615 3.367-1.943a.121.121 0 0 1 .114-.012l8.048 4.648a7.498 7.498 0 0 1-1.158 13.528v-9.476a1.293 1.293 0 0 0-.647-1.13zm3.35-5.043c-.059-.037-.162-.099-.236-.141l-7.965-4.6a1.298 1.298 0 0 0-1.308 0l-9.723 5.614v-3.888a.12.12 0 0 1 .048-.103l8.05-4.645a7.497 7.497 0 0 1 11.135 7.763zm-21.063 6.929l-3.367-1.944a.12.12 0 0 1-.065-.092v-9.299a7.497 7.497 0 0 1 12.293-5.756 6.94 6.94 0 0 0-.236.134l-7.965 4.6a1.294 1.294 0 0 0-.654 1.132l-.006 11.225zm1.829-3.943l4.33-2.501 4.332 2.498v4.997l-4.331 2.5-4.331-2.5V18z" fill="currentColor"/></svg>
-              Powered by OpenAI
-            </span>
+            🤖 Scanner Trade Setups
+            <span className="text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>Scanner-ranked</span>
           </h2>
-          <p className="text-slate-500 text-sm mt-0.5">3 high-conviction trades synthesized by OpenAI across <strong className="text-slate-400">every signal source</strong> — dark pool, smart money, vol crush, call intent, max pain, gamma wall &amp; more.</p>
+          <p className="text-slate-500 text-sm mt-0.5">Top setups ranked from your Stock Scanner signals — unusual calls, Layer 9 (VPIN/Hurst/GARCH), dark pool, composite, persistence. <strong className="text-slate-400">OpenAI does not pick tickers.</strong></p>
         </div>
         <div className="flex items-center gap-3">
           {generatedAt && <span className="text-slate-600 text-xs hidden sm:block">{scanned} tickers · {sources.length} signal sources · {new Date(generatedAt).toLocaleTimeString()}</span>}
-          {(warming || refreshing) && <span className="text-xs text-amber-400 animate-pulse">⚙ Generating… {warmCountdown}s</span>}
-          <button onClick={handleRegenerate} disabled={warming || refreshing} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24", opacity: (warming || refreshing) ? 0.5 : 1 }}>{(warming || refreshing) ? "Generating…" : "↻ Regenerate"}</button>
+          {(warming || refreshing) && <span className="text-xs text-amber-400 animate-pulse">⚙ Ranking… {warmCountdown}s</span>}
+          <button onClick={handleRegenerate} disabled={warming || refreshing} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24", opacity: (warming || refreshing) ? 0.5 : 1 }}>{(warming || refreshing) ? "Ranking…" : "↻ Regenerate"}</button>
         </div>
       </div>
 
@@ -5581,7 +5577,7 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         </div>
       )}
 
-      <p className="text-xs text-slate-600 mb-5 italic">Not financial advice. Always do your own research. AI analysis is based on public options data and synthesized by OpenAI.</p>
+      <p className="text-xs text-slate-600 mb-5 italic">Not financial advice. Picks are ranked from your scanner/quant signals — not invented by OpenAI.</p>
 
       {/* Warming / first-load state */}
       {(warming && trades.length === 0) && (
@@ -5619,7 +5615,7 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       {loading && !warming && trades.length === 0 && (
         <div className="text-center py-16">
           <div className="text-3xl mb-4 animate-pulse">🤖</div>
-          <div className="text-slate-400 text-sm font-bold">OpenAI is reading all your signal sources…</div>
+          <div className="text-slate-400 text-sm font-bold">Ranking setups from your scanner signals…</div>
           <div className="text-slate-600 text-xs mt-2">Vol Crush · Call Intent · Smart vs Retail · Max Pain · Gamma Wall · Dark Pool · Composite Score</div>
           <div className="text-slate-700 text-xs mt-1">Finding the 5 trades where the most signals converge</div>
         </div>
@@ -12634,21 +12630,21 @@ function SignalIntelTab() {
 
         <SigCard
           icon="📊" name="GARCH Volatility Clustering"
-          desc="Fits a GARCH(1,1) model to each ticker's daily returns to detect whether it is entering a high-volatility regime (explosive moves likely) or a calm regime. Votes into the Layer 9 statistical score."
+          desc="Fits a GARCH(1,1) model to each ticker's daily returns to detect whether it is entering a high-volatility regime (explosive moves likely) or a calm regime. Votes into the Layer 9 statistical score. Status from garch_regime_log (real fits)."
           status={gc.tickers_analyzed > 0 ? "active" : "pending"}
           reading={gc.tickers_analyzed > 0
-            ? `${gc.tickers_analyzed} tickers analyzed · ${gc.regime_covered} with regime computed · feeds Layer 9 vote`
-            : "Awaiting scan"}
-          last="Today (Layer 9 scan)" />
+            ? `${gc.tickers_analyzed} tickers in garch_regime_log · high-vol votes ${gc.vote_high_vol ?? 0} · calm ${gc.vote_calm ?? 0} · last ${gc.last_log ?? "—"}`
+            : "Awaiting GARCH regime log write"}
+          last={gc.last_log ?? "—"} />
 
         <SigCard
           icon="🔮" name="Gaussian Process Signal Search"
-          desc="Fits a Gaussian Process regression to each ticker to learn which features (RVOL, gap, range, close-strength) best predict its forward move. Builds a per-ticker 'best signal' map."
-          status={gp.tickers_fitted > 0 ? "active" : "pending"}
-          reading={gp.tickers_fitted > 0
-            ? `${gp.tickers_fitted} tickers fitted · feature rankings learned per ticker · feeds Layer 9`
-            : "Awaiting scan"}
-          last="Today (Layer 9 scan)" />
+          desc="Weekly GP evolution (Module 1) discovers formula templates stored in gp_discovered_templates — not a Layer 9 ticker-count proxy. Sklearn gp_signal_search remains an on-demand AIEM tool."
+          status={gp.tickers_fitted > 0 || gp.templates > 0 ? "active" : "pending"}
+          reading={(gp.tickers_fitted > 0 || gp.templates > 0)
+            ? `${gp.templates ?? gp.tickers_fitted} evolved templates · best fitness ${gp.best_fitness ?? "—"} · holdout WR ${gp.best_holdout_wr ?? "—"} · ${gp.note ?? "Module 1"}`
+            : "Awaiting weekly GP evolution job"}
+          last={gp.last_evolved ?? "—"} />
 
         <SigCard
           icon="⚡" name="RND / Volatility Risk Premium"
