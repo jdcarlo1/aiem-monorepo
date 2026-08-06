@@ -8659,23 +8659,26 @@ try:
         replace_existing=True,
     )
 
-    _scheduler.start()
-    # ── Protection #4: internal paper trade watchdog ────────────────────────
-    try:
-        import aiem_paper_recovery as _pr_wd_mod
-        _pr_wd_mod.start_internal_watchdog(
-            execute_fn=lambda: _aiem_paper_execute_today(
-                trigger_source="internal_watchdog"),
-            is_trading_day_fn=lambda d: globals().get("_is_trading_day",
-                                                       lambda x: True)(d),
-            et_tz=_ET,
-            # D14 proof verification fires within 5 min of any successful run.
-            # globals() lookup defers until call time so forward-ref is safe.
-            d14_verify_fn=lambda: globals().get(
-                "_aiem_d14_run_verification_async", lambda: None)(),
-        )
-    except Exception as _pr_wd_e:
-        print(f"[paper_recovery] internal watchdog start error (non-fatal): {_pr_wd_e}")
+    if os.environ.get("AIEM_PAPER_ONESHOT"):
+        print("[scheduler] AIEM_PAPER_ONESHOT=1 — skipping APScheduler + internal watchdog start")
+    else:
+        _scheduler.start()
+        # ── Protection #4: internal paper trade watchdog ────────────────────────
+        try:
+            import aiem_paper_recovery as _pr_wd_mod
+            _pr_wd_mod.start_internal_watchdog(
+                execute_fn=lambda: _aiem_paper_execute_today(
+                    trigger_source="internal_watchdog"),
+                is_trading_day_fn=lambda d: globals().get("_is_trading_day",
+                                                           lambda x: True)(d),
+                et_tz=_ET,
+                # D14 proof verification fires within 5 min of any successful run.
+                # globals() lookup defers until call time so forward-ref is safe.
+                d14_verify_fn=lambda: globals().get(
+                    "_aiem_d14_run_verification_async", lambda: None)(),
+            )
+        except Exception as _pr_wd_e:
+            print(f"[paper_recovery] internal watchdog start error (non-fatal): {_pr_wd_e}")
     # reconcile_orphaned_sessions is defined later in the file; defer so the
     # full module finishes loading before the function is looked up.
     import threading as _rt_sched
@@ -13605,7 +13608,7 @@ def _run_sc_morning_ranking():
                     conviction += _SC_DOUBLE_BONUS
                 conviction = int(round(max(0.0, min(100.0, conviction))))
 
-                # ============ PRECOIL SCORE (same-day predictor) ============
+                # ---- PRECOIL SCORE (same-day predictor) ----
                 # PreCoil predicts the probability of a SAME-DAY intraday move
                 # by recombining the existing signals into a new formula.
                 #
@@ -19595,6 +19598,30 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
             except Exception:
                 pass
 
+    # ── In-process lock BEFORE DB claim (Bug fix 2026-08-06) ─────────────────
+    # Root cause Aug 5 FAILED lock_contention_after_claim:
+    #   scheduled_942 held _AIEM_PAPER_LOCK for a long run; after 5 min the
+    #   watchdog stole EXECUTING via try_claim Step 2b, then failed
+    #   acquire(blocking=False) and marked the day FAILED.
+    # Fix: take the in-process lock first. If another thread already owns
+    # execution, exit WITHOUT claiming the ledger (no false FAILED).
+    if not _AIEM_PAPER_LOCK.acquire(blocking=False):
+        print("[aiem_paper] already executing — concurrent call rejected "
+              "(pre-claim; ledger untouched)")
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _llc, _llc.cursor() as _llcu:
+                _llcu.execute(
+                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                    "VALUES ('SKIPPED_LOCK_HELD', %s, %s)",
+                    (trigger_source,
+                     "concurrent call rejected pre-claim — _AIEM_PAPER_LOCK already held"),
+                )
+                _llc.commit()
+        except Exception as _lle:
+            print(f"[aiem_paper] lock-contention log error: {_lle}")
+        _release_gate()
+        return
+
     # ── Protection #9: DB ledger atomic claim (cross-process exactly-once) ──
     # Exactly one row per business date (UNIQUE constraint). The INSERT …
     # ON CONFLICT DO NOTHING ensures only ONE caller among scheduler /
@@ -19608,6 +19635,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         import aiem_paper_recovery as _pr_recovery
         _pr_recovery.mark_readiness(_today, trigger_source)   # Protection #7
         if not _pr_recovery.try_claim(_today, _ledger_exec_id, trigger_source):
+            _AIEM_PAPER_LOCK.release()
             _release_gate()   # release serialization gate before exit
             return  # another caller already owns today's execution (dedup)
         _pr_recovery.mark_started(_today, _ledger_exec_id)
@@ -19615,31 +19643,9 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         print(f"[aiem_paper] ledger claim error (non-fatal, in-process lock fallback): {_pr_claim_e}")
         _ledger_exec_id = None
 
-    if not _AIEM_PAPER_LOCK.acquire(blocking=False):
-        print("[aiem_paper] already executing — concurrent call rejected")
-        if _ledger_exec_id and _pr_recovery:
-            try:
-                _pr_recovery.mark_failed(_today, _ledger_exec_id,
-                                         "lock_contention_after_claim")
-            except Exception:
-                pass
-        # Previously a fully silent no-op (print only, no DB trace). Now writes
-        # an honest SKIPPED_LOCK_HELD row so "did it run, fail, or never fire"
-        # is never ambiguous again — this is the exact gap that made the
-        # 9:42 AM 2026-07-09 run unverifiable after the fact.
-        try:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _llc, _llc.cursor() as _llcu:
-                _llcu.execute(
-                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
-                    "VALUES ('SKIPPED_LOCK_HELD', %s, %s)",
-                    (trigger_source, "concurrent call rejected — _AIEM_PAPER_LOCK already held"),
-                )
-                _llc.commit()
-        except Exception as _lle:
-            print(f"[aiem_paper] lock-contention log error: {_lle}")
-        _release_gate()   # release serialization gate before exit
-        return
-
+    # NOTE: _AIEM_PAPER_LOCK already held (acquired pre-claim above).
+    # The old post-claim acquire(blocking=False) path that wrote
+    # lock_contention_after_claim is removed.
     # ── G0 boot-authorization checkpoint (Path B P3) ─────────────────────────
     # Real DB-backed governance check, once per invocation, BEFORE any
     # trade-executing work begins. While the G0 checkpoint is in SHADOW mode
@@ -48843,7 +48849,33 @@ def _aiem_paper_pick_candidates(
         _dm   = _drift_mult.get(source, 1.0)
         _eff  = score * _dm
         existing = _candidates.get(t)
-        if existing is None or _eff > existing["score"]:
+        # Protect primary Paper Money source: never let a lower-priority source
+        # overwrite scanner_ai_trades unless the challenger is also scanner_ai
+        # with a higher effective score. (Bug: inject ran but washout/gap/etc.
+        # replaced source labels before insert — 0 scanner_ai_trades rows ever.)
+        _PRIORITY = {
+            "scanner_ai_trades": 100,
+            "conviction_stack": 80,
+            "unusual_calls": 70,
+            "sweep": 65,
+            "aiem_ai": 60,
+            "multi_signal": 50,
+            "gap_volume": 45,
+            "oi_buildup": 40,
+        }
+        if existing is not None and existing.get("source") == "scanner_ai_trades" \
+                and source != "scanner_ai_trades":
+            # Keep scanner attribution; optionally upgrade option legs
+            if trade_type == "CALL_OPTION" and existing["trade_type"] == "STOCK":
+                existing["trade_type"] = "CALL_OPTION"
+                existing["direction"] = direction
+                existing["strike"] = strike if strike is not None else existing.get("strike")
+                existing["expiry"] = expiry if expiry is not None else existing.get("expiry")
+            return
+        if existing is None or _eff > existing["score"] or (
+            source == "scanner_ai_trades"
+            and _PRIORITY.get(source, 0) > _PRIORITY.get(existing.get("source"), 0)
+        ):
             _candidates[t] = {"ticker": t, "score": _eff,
                                "raw_score": score,   # score BEFORE drift/trust (Gap 5)
                                "drift_mult": _dm,    # drift multiplier applied (Gap 5)
@@ -49401,6 +49433,15 @@ def _aiem_paper_pick_candidates(
 
     # Apply macro risk-off: cap at 10 picks and downweight options
     _final = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)
+    # Force-pin scanner_ai_trades into the head of the batch so Paper Money
+    # actually records that source (primary directive). Boost + re-sort.
+    _sai = [c for c in _final if c.get("source") == "scanner_ai_trades"]
+    if _sai:
+        for _c in _sai:
+            _c["score"] = max(float(_c.get("score") or 0), 50.0)
+            _c["detail"] = (( _c.get("detail") or "") + " | PIN:scanner_ai_trades").strip(" |")
+        _final = sorted(_final, key=lambda x: x["score"], reverse=True)
+        print(f"[aiem_paper] pinned {len(_sai)} scanner_ai_trades candidates to top of batch")
     if _macro_bias == -1:
         for _fp in _final:
             if _fp["trade_type"] == "CALL_OPTION":
