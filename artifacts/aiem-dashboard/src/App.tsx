@@ -31,6 +31,7 @@ import TraceExplorer from "@/pages/TraceExplorer";
 import Module4Gate from "@/pages/Module4Gate";
 import Dashboard from "@/pages/Dashboard";
 import SalesReadiness from "@/pages/SalesReadiness";
+import Backtest from "@/pages/Backtest";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,7 @@ function Router() {
         <Route path="/options" component={Options} />
         <Route path="/learning" component={Learning} />
         <Route path="/alerts" component={Alerts} />
+        <Route path="/backtest" component={Backtest} />
         <Route path="/performance" component={Performance} />
         <Route path="/probability" component={Probability} />
         <Route path="/calibration" component={Calibration} />

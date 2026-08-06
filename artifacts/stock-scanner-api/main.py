@@ -73011,10 +73011,12 @@ def aiem_chat_start():
     # ─────────────────────────────────────────────────────────────────────
 
     # BYOK before session insert — Quant Agent always burns subscriber OpenAI key.
-    # Internal signed callers (X-AIEM-Token) may omit token and use platform key.
+    # Internal signed callers (X-AIEM-Token) and AIEM Terminal admins (X-Admin-Token)
+    # may omit subscriber token and use the platform key.
     _byok_openai_key = None
     _internal_caller = bool(_req_token)
-    if not _internal_caller:
+    _admin_caller = (not _internal_caller) and _admin_ok()
+    if not _internal_caller and not _admin_caller:
         _auth_st, _byok_openai_key, _auth_code, _auth_body = _byok_resolve_chat_auth(subscriber_token)
         if _auth_st != "ok":
             return jsonify(_auth_body), _auth_code
@@ -73031,7 +73033,9 @@ def aiem_chat_start():
             _c.commit()
     except Exception as _e:
         return jsonify({"error": f"DB error: {_e}"}), 500
-    if not _internal_caller:
+    if _admin_caller:
+        _qa_bind_session_owner(job_id, "__aiem_terminal__")
+    elif not _internal_caller:
         _qa_bind_session_owner(job_id, subscriber_token)
 
     max_iters = _classify_question_complexity(question)
@@ -73288,10 +73292,14 @@ def aiem_chat_stream():
     image_data_urls  = body.get("image_data_urls") or ([image_data_url] if image_data_url else [])
     max_iters        = min(int(body.get("max_iterations", 0) or 0) or _classify_question_complexity(question), 12)
 
-    # BYOK gate — Quant Agent always burns the subscriber's OpenAI key.
-    _auth_st, _byok_openai_key, _auth_code, _auth_body = _byok_resolve_chat_auth(subscriber_token)
-    if _auth_st != "ok":
-        return jsonify(_auth_body), _auth_code
+    # BYOK gate — Quant Agent burns subscriber OpenAI key.
+    # AIEM Terminal admins (X-Admin-Token) may use the platform key.
+    _admin_caller = _admin_ok()
+    _byok_openai_key = None
+    if not _admin_caller:
+        _auth_st, _byok_openai_key, _auth_code, _auth_body = _byok_resolve_chat_auth(subscriber_token)
+        if _auth_st != "ok":
+            return jsonify(_auth_body), _auth_code
 
     _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
     job_id = str(_uuid.uuid4())
@@ -73309,7 +73317,10 @@ def aiem_chat_stream():
             _stc.commit()
     except Exception as _ste:
         print(f"[stream] initial DB insert error (non-fatal): {_ste}")
-    _qa_bind_session_owner(job_id, subscriber_token)
+    if _admin_caller:
+        _qa_bind_session_owner(job_id, "__aiem_terminal__")
+    else:
+        _qa_bind_session_owner(job_id, subscriber_token)
 
     event_q: "queue.Queue" = _ssq.Queue()
 
@@ -73339,6 +73350,7 @@ def aiem_chat_stream():
                 "If they mention tickers, use mkt_retrospective_backtest and mkt_find_behavioral_matches. "
                 "If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
                 "If they ask about a signal or pattern, use mkt_test_signal to validate with real data. "
+                "If they ask for a backtest, run it and report win rate, sample size, average return, and edge. "
                 "End with a clear, direct answer — 3-5 paragraphs max, bullet points for lists."
             )
             text, trace, err, oid = _run_aiem_focused_session(
@@ -73927,18 +73939,23 @@ def aiem_chat_history():
     """Return the last 20 Quant Agent sessions for this subscriber (newest first).
 
     Requires ?subscriber_token=… so history is not a global leak across users.
+    AIEM Terminal admins may pass X-Admin-Token to load terminal-scoped history
+    (sessions owned by __aiem_terminal__).
     """
     import psycopg2 as _ph, json as _phj
     token = (request.args.get("subscriber_token") or "").strip()
-    if not token:
+    _admin_caller = _admin_ok()
+    if not token and not _admin_caller:
         return jsonify({"error": "subscriber_token_required",
                         "message": "Pass subscriber_token to load your Quant Agent history.",
                         "sessions": []}), 401
-    keys = _byok_get_subscriber_keys(token)
-    if keys is None:
-        return jsonify({"error": "invalid_subscriber_token",
-                        "message": "Invalid or inactive subscriber token.",
-                        "sessions": []}), 403
+    if token and not _admin_caller:
+        keys = _byok_get_subscriber_keys(token)
+        if keys is None:
+            return jsonify({"error": "invalid_subscriber_token",
+                            "message": "Invalid or inactive subscriber token.",
+                            "sessions": []}), 403
+    _owner = "__aiem_terminal__" if (_admin_caller and not token) else token
     try:
         with _ph.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("""
@@ -73955,7 +73972,7 @@ def aiem_chat_history():
                    JOIN quant_agent_session_owners o ON o.job_id = s.job_id
                    WHERE o.subscriber_token = %s
                    ORDER BY s.created_at DESC LIMIT 20""",
-                (token,),
+                (_owner,),
             )
             rows = _cu.fetchall()
             out = []

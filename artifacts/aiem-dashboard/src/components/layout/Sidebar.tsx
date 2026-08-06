@@ -4,7 +4,7 @@ import {
   AlertTriangle, Users, Search, ActivitySquare, Calendar,
   Workflow, RefreshCw, Bell, TrendingUp, BrainCircuit, Target,
   X, LogOut, Wifi, ChevronRight, ClipboardCheck, GitBranch, Shield,
-  FlaskConical, Briefcase
+  FlaskConical, Briefcase, BarChart3
 } from "lucide-react";
 import { getRole, serverLogout } from "@/lib/auth";
 
@@ -48,6 +48,7 @@ const NAV_GROUPS = [
   {
     label: "Analytics",
     items: [
+      { href: "/backtest", label: "Backtest", icon: BarChart3 },
       { href: "/performance", label: "Performance", icon: TrendingUp },
       { href: "/calibration", label: "Calibration", icon: Target },
       { href: "/learning", label: "Learning", icon: RefreshCw },
