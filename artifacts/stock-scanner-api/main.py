@@ -3321,8 +3321,11 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
             "run_discovery_cycle_subprocess.py",
         )
         print(f"[discovery_cycle] spawning subprocess run_id={run_id}")
+        # main.py imports `sys as _sys` at module top — bare `sys` NameErrors here
+        # and silently aborts every discovery cycle (stage-9 freshness then FAILs
+        # all paper INSERTs). Use the aliased import.
         _dc_proc = _dc_sp.Popen(
-            [sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
+            [_sys.executable, _dc_script, _dc_tmpl_file, _dc_result_file],
             stdout=_dc_sp.PIPE,
             stderr=_dc_sp.STDOUT,
         )
@@ -8701,6 +8704,39 @@ try:
             _dow      = _now_et.weekday()          # 0=Mon … 4=Fri
             _hour_et  = _now_et.hour
             _today_et = _now_et.strftime("%Y-%m-%d")
+
+            # ── Discovery cycle catch-up (Diagram2 stage 9) ─────────────────
+            # Stage 9 requires a successful discovery_cycle_log row in 7 days.
+            # Cron is 17:30 ET only; Publish after that (or NameError crashes)
+            # leaves stage 9 FAIL → all paper INSERTs skipped next morning.
+            # No prior startup path cleared this — add one on every weekday boot.
+            if _dow < 5:
+                _need_dc = True
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_dc, \
+                            _c_dc.cursor() as _cur_dc:
+                        _cur_dc.execute("""
+                            SELECT 1 FROM discovery_cycle_log
+                            WHERE error_msg IS NULL
+                              AND completed_at >= NOW() - INTERVAL '7 days'
+                            LIMIT 1
+                        """)
+                        if _cur_dc.fetchone():
+                            _need_dc = False
+                except Exception as _dc_ck_e:
+                    print(f"[startup_catchup] discovery freshness check error: {_dc_ck_e}")
+                if _need_dc:
+                    print(f"[startup_catchup] discovery_cycle_log stale (>7d or none) "
+                          f"— launching discovery catch-up (stage-9 unblock)")
+                    try:
+                        import threading as _dc_su_thr
+                        _dc_su_thr.Thread(
+                            target=_discovery_cycle_job,
+                            kwargs={"triggered_by": "startup_catchup"},
+                            daemon=True,
+                        ).start()
+                    except Exception as _dc_su_e:
+                        print(f"[startup_catchup] discovery catch-up launch error: {_dc_su_e}")
 
             # ── Unusual calls (Polygon) - run any time on weekdays ──────────
             # Polygon uses an API key (not Yahoo IP) so there's no throttle risk
@@ -20267,7 +20303,43 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
 
         rows_inserted = 0
-        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+        # Long-lived `with connect()` across the full per-ticker loop (~10–15 min)
+        # lets Neon idle-close the socket; the final `_c.commit()` then raises
+        # "connection already closed" and marks the whole run FAILED even when
+        # per-ticker INSERTs already committed. Manage the conn explicitly and
+        # ping/reconnect at the top of each pick.
+        _c = _psycopg2.connect(_DB_URL, connect_timeout=4)
+        _cu = _c.cursor()
+
+        def _paper_ensure_conn(reason: str = "tick") -> None:
+            nonlocal _c, _cu
+            try:
+                if getattr(_c, "closed", 1):
+                    raise _psycopg2.InterfaceError("connection closed")
+                _cu.execute("SELECT 1")
+                _cu.fetchone()
+                return
+            except Exception as _alive_e:
+                print(f"[aiem_paper] reconnecting DB ({reason}): {_alive_e}")
+            try:
+                try:
+                    _cu.close()
+                except Exception:
+                    pass
+                try:
+                    _c.close()
+                except Exception:
+                    pass
+                _c = _psycopg2.connect(_DB_URL, connect_timeout=4)
+                _cu = _c.cursor()
+                _cu.execute("SELECT 1")
+                _cu.fetchone()
+                print(f"[aiem_paper] DB reconnect OK ({reason})")
+            except Exception as _reconn_e:
+                print(f"[aiem_paper] DB reconnect FAILED ({reason}): {_reconn_e}")
+                raise
+
+        try:
             # ── Bulk prefetch conviction stack scores for position sizing ─────
             # conviction_stack_watchlist.total_pts is the raw 0–10 layer score
             # from _run_conviction_scanner (FLOOR=5.0, CEILING=9.0).
@@ -20299,6 +20371,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                       f"fallback to capped pick score): {_csw_exc}")
 
             for pick in picks:
+                try:
+                    _paper_ensure_conn(f"pre-pick:{pick.get('ticker')}")
+                except Exception as _pre_e:
+                    print(f"[aiem_paper] skip {pick.get('ticker')}: dead DB — {_pre_e}")
+                    continue
                 _t    = pick["ticker"]
                 _audit_trace_id = None
                 # REMEDIATION S2 ("AUTHORITATIVE MASTER REMEDIATION" directive
@@ -21453,7 +21530,22 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                              f"{_t} not in top-ranked debate batch — "
                                              "no debate ran, so nothing to persist"
                                          )})
-            _c.commit()
+            try:
+                _paper_ensure_conn("final-commit")
+                _c.commit()
+            except Exception as _fc_e:
+                # Per-ticker INSERTs already commit individually; a dead socket
+                # here must not flip the whole run to FAILED.
+                print(f"[aiem_paper] final commit skipped (non-fatal): {_fc_e}")
+        finally:
+            try:
+                _cu.close()
+            except Exception:
+                pass
+            try:
+                _c.close()
+            except Exception:
+                pass
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
         # Runs inside _aiem_paper_execute_today(), not deferred to EOD batch.
@@ -27479,7 +27571,9 @@ def _aiem_tool_save_daily_predictions(predictions):
 # picks and reasoning, saved to aiem_independent_picks, then compared later
 # against website-sourced performance.
 
-def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, max_rvol=40.0):
+def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=None, limit=200,
+                                     max_rvol=15.0, min_gap=5.0, max_gap=25.0,
+                                     min_price=1.0):
     """
     INDEPENDENT stock candidate pool - raw Polygon technical facts ONLY.
     Source: polygon_market_daily (raw daily bars ingested straight from
@@ -27487,18 +27581,13 @@ def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, ma
     conviction_stack_watchlist, unusual_calls_log, or any other
     website-computed composite/conviction score.
 
-    Quality/sanity gates (added after 2026-07-09 review - extreme RVOL
-    names like 500x were dominating the candidate pool and were almost
-    certainly data artifacts, not genuine conviction):
-      - max_rvol ceiling: rvol is volume / historical-average-volume, and
-        polygon_market_daily has no independent liquidity baseline column
-        to cross-check it against. In practice a real breakout/gap rarely
-        prints >40x; beyond that it is overwhelmingly a thin/halted/
-        reverse-split ticker where the denominator (avg volume) is
-        near-zero, not real institutional flow.
-      - raised dollar-volume floor ($1M -> $3M) and an absolute share-volume
-        floor so a name can't qualify purely because its price is high on
-        tiny share counts.
+    Tuned for FLZH-style gap+volume setups (2026-08-05 post-mortem):
+      - Price ≥ $1; no upper price ceiling (user: range may exceed $20)
+      - Gap 5–25% (sweet spot is 15–25%; >25% is chase/blow-off)
+      - RVOL 2–15× ( >15× historically avg −7.6% on graded independent picks)
+      - Dollar-volume ≥ $500k and shares ≥ 200k (liquid enough, not micro-dust)
+    Prior pool (no gap cap, RVOL to 40×) saturated every high-RVOL name at
+    10/10 and surfaced AMIX-class 100%+ gap junk.
     """
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
@@ -27507,19 +27596,29 @@ def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, ma
             latest = _row[0] if _row else None
             if not latest:
                 return {"error": "polygon_market_daily has no data yet"}
-            _cu.execute("""
+            _price_clause = "AND close_price >= %s"
+            _params = [latest, min_price]
+            if max_price is not None:
+                _price_clause = "AND close_price BETWEEN %s AND %s"
+                _params = [latest, min_price, max_price]
+            _params.extend([min_rvol, max_rvol, min_gap, max_gap, limit])
+            _cu.execute(f"""
                 SELECT ticker, close_price, open_price, volume, gap_pct, rvol,
                        close_strength, range_pct
                 FROM polygon_market_daily
                 WHERE scan_date = %s
-                  AND close_price BETWEEN 1.0 AND %s
+                  {_price_clause}
                   AND rvol >= %s
                   AND rvol <= %s
-                  AND volume * close_price >= 3000000
-                  AND volume >= 300000
-                ORDER BY rvol DESC NULLS LAST
+                  AND gap_pct IS NOT NULL
+                  AND gap_pct >= %s
+                  AND gap_pct < %s
+                  AND range_pct IS NOT NULL AND range_pct < 80
+                  AND volume * close_price >= 500000
+                  AND volume >= 200000
+                ORDER BY gap_pct DESC NULLS LAST, rvol DESC NULLS LAST
                 LIMIT %s
-            """, (latest, max_price, min_rvol, max_rvol, limit))
+            """, tuple(_params))
             rows = _cu.fetchall()
             tickers = [r[0] for r in rows]
             hist = {}
@@ -27547,9 +27646,15 @@ def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, ma
                     "range_pct": float(rng) if rng is not None else None,
                     "momentum_5d_pct": mom5, "momentum_20d_pct": mom20,
                 })
+        _price_gate = f">={min_price}" if max_price is None else f"{min_price}-{max_price}"
         return {
             "scan_date": str(latest), "candidate_count": len(candidates),
             "source": "polygon_market_daily raw bars only - NO website conviction/composite scores",
+            "profile": "flzh_style_gap_volume",
+            "gates": {
+                "price": _price_gate, "gap_pct": f"{min_gap}-{max_gap}",
+                "rvol": f"{min_rvol}-{max_rvol}", "max_range_pct": 80,
+            },
             "candidates": candidates,
         }
     except Exception as e:
@@ -39024,6 +39129,10 @@ try:
             reason="Startup integrity wiring — close D2/D3 fail-open gap on G0/G2/G3",
         )
         print(f"[aiem_integrity] D3 ENFORCE bootstrap: {_d3res.get('status')}")
+        # G3 ENFORCE + empty d3_strategy_registry = every paper INSERT BLOCKED.
+        # Seed known pick sources as approved/active (idempotent upsert).
+        _reg = _awi_d3.ensure_paper_strategy_registry()
+        print(f"[aiem_integrity] paper strategy registry seed: {_reg}")
     except Exception as _d3boot_e:
         print(f"[aiem_integrity] D3 ENFORCE bootstrap skipped: {_d3boot_e}")
     try:
@@ -45119,7 +45228,7 @@ _AIEM_INDEPENDENT_STOCK_TOOLS = [
         ),
         "parameters": {"type": "object", "properties": {
             "min_rvol": {"type": "number", "description": "Min relative volume (default 2.0)"},
-            "max_price": {"type": "number", "description": "Max stock price (default 150)"}
+            "max_price": {"type": "number", "description": "Optional max stock price; omit for no ceiling"}
         }, "required": []}
     }},
     {"type": "function", "function": {
@@ -45288,7 +45397,11 @@ def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_u
                     print(f"[aiem_independent_stock] DRY_RUN — using "
                           f"{len(universe['candidates'])} stub candidates")
                 else:
-                    universe = _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150)
+                    # FLZH-style gates: gap 5–25%, RVOL 2–15×, $1+ (no price ceiling)
+                    universe = _aiem_indep_tool_stock_universe(
+                        min_rvol=2.0, max_price=None, limit=200,
+                        max_rvol=15.0, min_gap=5.0, max_gap=25.0,
+                    )
                 candidates = universe.get("candidates", [])
                 picks = []
                 for c in candidates:
@@ -45297,27 +45410,34 @@ def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_u
                     gap        = float(c.get("gap_pct") or 0.0)
                     mom5       = float(c.get("momentum_5d_pct") or 0.0)
                     rng        = float(c.get("range_pct") or 0.0)
-                    # RVOL weight capped at 6x (was 10x*1.5=15, which alone
-                    # saturated the min(10.0, ...) clip below for anything
-                    # >=6.67x RVOL). That let raw volume-ratio outliers
-                    # (often thin/halted/reverse-split data artifacts, now
-                    # additionally filtered upstream by max_rvol) dominate
-                    # and made every high-RVOL name score an identical
-                    # 10.0/10 with zero real differentiation. Capping lower
-                    # and leaving weight on close_strength/gap/momentum/range
-                    # means a pick only reaches the top score by genuinely
-                    # combining volume conviction with real technical quality.
-                    score = (
-                        min(rvol, 6.0) * 1.0 +
-                        cs * 4.0 +
-                        (1.5 if gap > 2.0 else 0.5 if gap > 0 else 0) +
-                        (1.0 if mom5 > 5.0 else 0.5 if mom5 > 0 else 0) +
-                        (0.5 if rng > 3.0 else 0)
+                    # FLZH / S1b-style ranking (mirrors aiem_process gap+volume
+                    # indicators). Gap sweet spot + volume combo dominate;
+                    # RVOL alone cannot saturate to 10/10. Extended 5d runs
+                    # are penalized (already-chased names).
+                    gap_pts = (
+                        3.5 if 15.0 <= gap < 25.0 else
+                        2.0 if 10.0 <= gap < 15.0 else
+                        1.0 if 5.0 <= gap < 10.0 else 0.0
                     )
+                    vol_pts = (
+                        3.0 if rvol >= 5.0 else
+                        2.0 if rvol >= 3.0 else
+                        1.0 if rvol >= 2.0 else 0.0
+                    )
+                    combo_pts = 2.0 if (gap >= 8.0 and rvol >= 3.0) else 0.0
+                    cs_pts = max(0.0, min(1.5, cs * 1.5))
+                    # Mild credit for orderly follow-through; haircut blow-offs
+                    mom_pts = (
+                        -1.0 if mom5 > 40.0 else
+                        0.5 if 0.0 < mom5 <= 15.0 else
+                        0.0
+                    )
+                    rng_pts = 0.5 if 3.0 <= rng < 40.0 else 0.0
+                    score = gap_pts + vol_pts + combo_pts + cs_pts + mom_pts + rng_pts
                     picks.append({
                         "ticker": c["ticker"], "score": round(score, 3),
                         "rvol": rvol, "close_strength": cs, "gap_pct": gap,
-                        "momentum_5d_pct": mom5,
+                        "momentum_5d_pct": mom5, "close": c.get("close"),
                     })
                 picks.sort(key=lambda x: -x["score"])
                 stock_picks = [
@@ -45326,8 +45446,12 @@ def _run_aiem_independent_pick_scan(kind: str, dry_run: bool = False, _dry_run_u
                         "rank": i + 1,
                         "confidence_score": round(min(10.0, p["score"]), 2),
                         "rationale": (
-                            f"RVOL={p['rvol']:.1f}x, close_strength={p['close_strength']:.2f}, "
-                            f"gap={p['gap_pct']:.1f}%, mom5d={p['momentum_5d_pct']:.1f}%"
+                            f"FLZH-style gap={p['gap_pct']:.1f}% "
+                            f"(sweet={15 <= p['gap_pct'] < 25}), "
+                            f"RVOL={p['rvol']:.1f}x, "
+                            f"close_strength={p['close_strength']:.2f}, "
+                            f"mom5d={p['momentum_5d_pct']:.1f}%, "
+                            f"px=${(p.get('close') or 0):.2f}"
                         ),
                         "holding_period_days": 5,
                     }

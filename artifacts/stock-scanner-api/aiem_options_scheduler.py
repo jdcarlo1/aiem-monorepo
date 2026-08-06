@@ -73,6 +73,10 @@ except Exception as _chkp_init_e:
         f"[scheduler] checkpoint module init failed: {_chkp_init_e}")
     _chkp = None
 _SCHEDULER_NAME      = "aiem_options_scheduler"
+# Bumped when liquidity path changes — appears in NO_LIQUID errors so Neon
+# proves which build Replit actually published (2026-08-05: live TB was still
+# on pre-walk code at line 1952; this tag must appear after Tradier publish).
+_OE_LIQ_BUILD        = "tradier-expiry-walk-v2"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -350,7 +354,12 @@ def _bootstrap_db() -> None:
 # HEARTBEAT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _write_heartbeat(success: bool, error: str = None) -> None:
+def _write_heartbeat(success: bool, error: str = None, *, soft: bool = False) -> None:
+    """
+    soft=True: deliberate NO_TRADE / gate rejection — update last_attempt + last_error
+    but do NOT increment consecutive_failures (and do not clear last_success).
+    Used so NO_LIQUID_CONTRACTS on illiquid names does not look like a crash loop.
+    """
     try:
         # Capture scheduler liveness BEFORE opening the DB connection so the
         # flag reflects the state at the moment of the heartbeat write, not
@@ -359,7 +368,16 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
             _scheduler_ref.running if _scheduler_ref is not None else False
         )
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
-            if success:
+            if soft:
+                cur.execute("""
+                    INSERT INTO job_heartbeats
+                        (job_name, last_attempt, last_error, consecutive_failures)
+                    VALUES (%s, NOW(), %s, 0)
+                    ON CONFLICT (job_name) DO UPDATE
+                    SET last_attempt=NOW(), last_error=%s
+                """, (_HEARTBEAT_JOB_NAME, error or "soft_no_trade",
+                      error or "soft_no_trade"))
+            elif success:
                 cur.execute("""
                     INSERT INTO job_heartbeats (job_name, last_success, last_attempt, consecutive_failures)
                     VALUES (%s, NOW(), NOW(), 0)
@@ -392,14 +410,23 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
                     )
                 """)
                 _jal_detail = f"sched_running={_sched_running}"
-                if not success:
+                if soft:
+                    _jal_status = "success"
+                    _jal_detail = (
+                        f"sched_running={_sched_running}; soft_no_trade; "
+                        f"{error or 'gate_reject'}"
+                    )
+                elif not success:
+                    _jal_status = "failure"
                     _jal_detail = f"sched_running={_sched_running}; {error or 'unknown'}"
+                else:
+                    _jal_status = "success"
                 cur.execute("""
                     INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
                     VALUES (%s, NOW(), %s, %s)
                 """, (
                     _HEARTBEAT_JOB_NAME,
-                    'success' if success else 'failure',
+                    _jal_status,
                     _jal_detail,
                 ))
             except Exception as _jal_e:
@@ -1864,6 +1891,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             })
             return exps[0][1] if exps else None
 
+        def _all_expiries(chain, min_dte=_MIN_DTE_CHAIN):
+            """All expiries with dte >= min_dte, nearest first."""
+            return [
+                exp for (_dte, exp) in sorted({
+                    (c.get("dte"), c.get("expiration_date"))
+                    for c in (chain or [])
+                    if c.get("expiration_date") and c.get("dte") is not None
+                    and c.get("dte") >= min_dte
+                })
+            ]
+
         def _liquid_chain(chain, typ, expiry):
             """Filter to liquid contracts of given type and expiry.
             Predicate: bid>0, ask>0, 0<iv<=3.0, abs(delta)>0.
@@ -1894,80 +1932,272 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                                float(c.get("strike") or 0.0)),
             )
 
+        def _apply_leg(picked, side):
+            """Populate call_* or put_* locals from a liquid contract dict."""
+            nonlocal call_strike, call_bid, call_ask, call_mid, call_spread
+            nonlocal call_delta_bs, call_probability_itm, call_iv, call_oi, call_vol, call_exp
+            nonlocal put_strike, put_bid, put_ask, put_mid, put_spread
+            nonlocal put_delta_bs, put_probability_itm, put_iv, put_oi, put_vol, put_exp
+            if side == "call":
+                call_strike       = float(picked["strike"])
+                call_delta_bs     = float(picked["delta"])
+                call_probability_itm = call_delta_bs
+                call_bid          = float(picked["bid"])
+                call_ask          = float(picked["ask"])
+                call_mid          = round((call_bid + call_ask) / 2.0, 2)
+                call_spread       = round((call_ask - call_bid) / call_mid, 4) if call_mid else None
+                call_iv           = float(picked["implied_volatility"])
+                call_oi           = int(picked.get("open_interest") or 0)
+                call_vol          = int(picked.get("volume") or 0)
+                call_exp          = picked["expiration_date"]
+            else:
+                put_strike        = float(picked["strike"])
+                put_delta_bs      = float(picked["delta"])
+                put_probability_itm = abs(float(picked["delta"]))
+                put_bid           = float(picked["bid"])
+                put_ask           = float(picked["ask"])
+                put_mid           = round((put_bid + put_ask) / 2.0, 2)
+                put_spread        = round((put_ask - put_bid) / put_mid, 4) if put_mid else None
+                put_iv            = float(picked["implied_volatility"])
+                put_oi            = int(picked.get("open_interest") or 0)
+                put_vol           = int(picked.get("volume") or 0)
+                put_exp           = picked["expiration_date"]
+
+        def _clear_leg(side, expiry):
+            nonlocal call_strike, call_bid, call_ask, call_mid, call_spread
+            nonlocal call_delta_bs, call_probability_itm, call_oi, call_vol, call_exp
+            nonlocal put_strike, put_bid, put_ask, put_mid, put_spread
+            nonlocal put_delta_bs, put_probability_itm, put_oi, put_vol, put_exp
+            if side == "call":
+                call_strike = None
+                call_bid = call_ask = call_mid = call_spread = None
+                call_delta_bs = call_probability_itm = None
+                call_oi = call_vol = None
+                call_exp = expiry
+            else:
+                put_strike = None
+                put_bid = put_ask = put_mid = put_spread = None
+                put_delta_bs = put_probability_itm = None
+                put_oi = put_vol = None
+                put_exp = expiry
+
+        def _select_legs(contracts, expiries):
+            """Try each expiry until at least one liquid call or put is found."""
+            nonlocal _poly_exp
+            best_call = best_put = None
+            used_exp = expiries[0] if expiries else None
+            for exp in (expiries or [None]):
+                cc = _liquid_chain(contracts, "call", exp) if exp else []
+                pc = _liquid_chain(contracts, "put", exp) if exp else []
+                if cc or pc:
+                    used_exp = exp
+                    best_call = _pick_by_delta(cc, _DELTA_TARGET) if cc else None
+                    best_put = _pick_by_delta(pc, _DELTA_TARGET) if pc else None
+                    break
+            _poly_exp = used_exp
+            if best_call:
+                _apply_leg(best_call, "call")
+            else:
+                _clear_leg("call", used_exp)
+                _NO_CAND("NO_LIQUID_CALL_CONTRACT", ticker, used_exp)
+            if best_put:
+                _apply_leg(best_put, "put")
+            else:
+                _clear_leg("put", used_exp)
+                _NO_CAND("NO_LIQUID_PUT_CONTRACT", ticker, used_exp)
+            return best_call is not None or best_put is not None
+
+        def _tradier_chain_as_contracts(sym, scan_dt, diag=None):
+            """
+            Fetch Tradier options chain(s) and normalize to Polygon-like contract
+            dicts. Used when Polygon returns contracts but bid/ask/greeks are
+            empty (common on plans without options quotes — 2026-08-05 BMY/NEE
+            had 140–250 contracts, strategies_evaluated=0, then NO_LIQUID).
+
+            Walks *listed* expirations from Tradier /expirations (DTE 5–21),
+            not a guessed Friday calendar — weeklies and monthlies both qualify.
+            """
+            tok = "".join(os.environ.get("TRADIER_API_TOKEN_2",
+                           os.environ.get("TRADIER_API_TOKEN", "")).split())
+            if diag is not None:
+                diag["tradier_token_present"] = bool(tok)
+            if not tok:
+                log.warning(
+                    f"[exec] Tradier fallback skipped for {sym}: "
+                    f"TRADIER_API_TOKEN(_2) not set in process env"
+                )
+                if diag is not None:
+                    diag["tradier_skip"] = "NO_TOKEN"
+                return []
+
+            headers = {"Authorization": f"Bearer {tok}",
+                       "Accept": "application/json"}
+            # 1) Listed expirations (authoritative), fall back to Friday guess.
+            exp_dates = []
+            try:
+                exp_url = (
+                    f"https://api.tradier.com/v1/markets/options/expirations"
+                    f"?symbol={sym}&includeAllRoots=true"
+                )
+                req = urllib.request.Request(exp_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    raw = json.loads(resp.read())
+                dates = (raw.get("expirations") or {}).get("date") or []
+                if isinstance(dates, str):
+                    dates = [dates]
+                for ds in dates:
+                    try:
+                        ed = datetime.strptime(ds, "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                    dte = (ed - scan_dt).days
+                    if 5 <= dte <= 21:
+                        exp_dates.append((dte, ed))
+                exp_dates.sort()
+                if diag is not None:
+                    diag["tradier_expirations_api"] = len(dates)
+                    diag["tradier_expiries_in_window"] = [
+                        ed.isoformat() for (_d, ed) in exp_dates
+                    ]
+            except Exception as _tex:
+                log.warning(f"[exec] Tradier expirations {sym}: {_tex}")
+                if diag is not None:
+                    diag["tradier_expirations_error"] = str(_tex)[:120]
+
+            if not exp_dates:
+                # Friday fallback if expirations endpoint fails/empty.
+                for dte in range(5, 22):
+                    ed = scan_dt + timedelta(days=dte)
+                    if ed.weekday() == 4:
+                        exp_dates.append((dte, ed))
+                if diag is not None:
+                    diag["tradier_expiries_source"] = "friday_guess"
+            else:
+                if diag is not None:
+                    diag["tradier_expiries_source"] = "expirations_api"
+
+            out = []
+            for dte, exp in exp_dates:
+                url = (
+                    f"https://api.tradier.com/v1/markets/options/chains"
+                    f"?symbol={sym}&expiration={exp.strftime('%Y-%m-%d')}&greeks=true"
+                )
+                try:
+                    req = urllib.request.Request(url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=8) as resp:
+                        raw = json.loads(resp.read())
+                    opts = (raw.get("options") or {}).get("option") or []
+                    if isinstance(opts, dict):
+                        opts = [opts]
+                    for o in opts:
+                        grk = o.get("greeks") or {}
+                        bid = float(o.get("bid") or 0)
+                        ask = float(o.get("ask") or 0)
+                        iv  = grk.get("mid_iv") or grk.get("smv_vol")
+                        delta = grk.get("delta")
+                        if bid <= 0 or ask <= 0 or iv is None or delta is None:
+                            continue
+                        try:
+                            iv_f = float(iv)
+                            d_f  = float(delta)
+                        except (TypeError, ValueError):
+                            continue
+                        if iv_f <= 0 or iv_f > _LIQ_IV_MAX or abs(d_f) == 0.0:
+                            continue
+                        out.append({
+                            "contract_type":   (o.get("option_type") or "").lower(),
+                            "expiration_date": exp.strftime("%Y-%m-%d"),
+                            "dte":             dte,
+                            "strike":          float(o.get("strike") or 0),
+                            "bid":             bid,
+                            "ask":             ask,
+                            "implied_volatility": iv_f,
+                            "delta":           d_f,
+                            "open_interest":   int(o.get("open_interest") or 0),
+                            "volume":          int(o.get("volume") or 0),
+                        })
+                except Exception as _td_e:
+                    log.warning(
+                        f"[exec] Tradier chain fallback {sym} {exp}: {_td_e}"
+                    )
+            if diag is not None:
+                diag["tradier_quoted_contracts"] = len(out)
+            return out
+
         # ── Strike selection: real chain, nearest-to-target delta ─────────────
         # Source: options_chain fetched above from Polygon (Stage OC).
-        # _poly_exp avoids name collision with the Tradier _exp date computed below.
+        # Walk expiries (not just the nearest) before declaring NO_LIQUID.
+        # If Polygon contracts exist but quotes/greeks are blank, fall back to
+        # Tradier — otherwise liquid names (BMY/AMGN/NEE) false-reject.
         _all_contracts = (options_chain.get("calls", [])
                           + options_chain.get("puts", []))
         _poly_exp = _pick_expiry(_all_contracts)
+        _expiries = _all_expiries(_all_contracts)
+        _liq_diag = {
+            "oe_liq_build": _OE_LIQ_BUILD,
+            "poly_contracts": len(_all_contracts),
+            "poly_expiries": list(_expiries or []),
+            "poly_nearest_exp": _poly_exp,
+        }
 
-        if not _poly_exp:
-            call_strike = put_strike = None
+        # Initialize leg locals before helpers mutate them via nonlocal.
+        call_strike = put_strike = None
+        call_bid = call_ask = call_mid = call_spread = None
+        call_delta_bs = call_probability_itm = call_iv = call_oi = call_vol = None
+        call_exp = None
+        put_bid = put_ask = put_mid = put_spread = None
+        put_delta_bs = put_probability_itm = put_iv = put_oi = put_vol = None
+        put_exp = None
+
+        if not _expiries:
             _NO_CAND("NO_EXPIRY_WITH_MIN_DTE", ticker, None)
-
-        # ---- CALL leg ----
-        _cc = (_liquid_chain(_all_contracts, "call", _poly_exp)
-               if _poly_exp else [])
-        if not _cc:
-            call_strike = None
-            call_bid = call_ask = call_mid = call_spread = None
-            call_delta_bs = call_probability_itm = None
-            call_oi = call_vol = None
-            call_exp = _poly_exp
-            _NO_CAND("NO_LIQUID_CALL_CONTRACT", ticker, _poly_exp)
+            _liq_diag["poly_select"] = "NO_EXPIRY"
         else:
-            _p = _pick_by_delta(_cc, _DELTA_TARGET)
-            call_strike       = float(_p["strike"])
-            call_delta_bs     = float(_p["delta"])          # Polygon: positive for calls
-            call_probability_itm = call_delta_bs
-            call_bid          = float(_p["bid"])
-            call_ask          = float(_p["ask"])
-            call_mid          = round((call_bid + call_ask) / 2.0, 2)
-            call_spread       = round((call_ask - call_bid) / call_mid, 4)
-            call_iv           = float(_p["implied_volatility"])
-            call_oi           = int(_p.get("open_interest") or 0)
-            call_vol          = int(_p.get("volume") or 0)
-            call_exp          = _p["expiration_date"]
+            _poly_ok = _select_legs(_all_contracts, _expiries)
+            _liq_diag["poly_liquid_leg"] = bool(_poly_ok)
+            _liq_diag["poly_call"] = call_strike
+            _liq_diag["poly_put"] = put_strike
 
-        # ---- PUT leg ----
-        _pc = (_liquid_chain(_all_contracts, "put", _poly_exp)
-               if _poly_exp else [])
-        if not _pc:
-            put_strike = None
-            put_bid = put_ask = put_mid = put_spread = None
-            put_delta_bs = put_probability_itm = None
-            put_oi = put_vol = None
-            put_exp = _poly_exp
-            _NO_CAND("NO_LIQUID_PUT_CONTRACT", ticker, _poly_exp)
-        else:
-            _p = _pick_by_delta(_pc, _DELTA_TARGET)
-            put_strike        = float(_p["strike"])
-            put_delta_bs      = float(_p["delta"])          # Polygon: negative for puts
-            put_probability_itm = abs(float(_p["delta"]))
-            put_bid           = float(_p["bid"])
-            put_ask           = float(_p["ask"])
-            put_mid           = round((put_bid + put_ask) / 2.0, 2)
-            put_spread        = round((put_ask - put_bid) / put_mid, 4)
-            put_iv            = float(_p["implied_volatility"])
-            put_oi            = int(_p.get("open_interest") or 0)
-            put_vol           = int(_p.get("volume") or 0)
-            put_exp           = _p["expiration_date"]
+        # Tradier quote fallback when Polygon chain had rows but zero liquid legs.
+        if call_strike is None and put_strike is None:
+            _td_contracts = _tradier_chain_as_contracts(
+                ticker, scan_date, diag=_liq_diag
+            )
+            if _td_contracts:
+                log.info(
+                    f"[exec] [{trace_id}] Polygon liquid_chain empty — "
+                    f"Tradier fallback returned {len(_td_contracts)} quoted contracts "
+                    f"build={_OE_LIQ_BUILD}"
+                )
+                _td_exps = _all_expiries(_td_contracts)
+                _liq_diag["tradier_expiries_used"] = list(_td_exps or [])
+                _select_legs(_td_contracts, _td_exps)
+                _liq_diag["tradier_call"] = call_strike
+                _liq_diag["tradier_put"] = put_strike
+                if call_strike is not None or put_strike is not None:
+                    _NO_CAND("POLY_QUOTE_FALLBACK_TRADIER", ticker, _poly_exp)
+            else:
+                log.warning(
+                    f"[exec] [{trace_id}] Tradier fallback returned 0 contracts "
+                    f"for {ticker} diag={_liq_diag}"
+                )
 
         # ── C5/FIX-1: No-liquid early exit ────────────────────────────────────
         # When both legs fail the liquidity gate (bid=0/ask=0 during market
         # closure or no contracts pass the predicate), there is no tradeable
         # strike for either direction.  Continuing would propagate None into
-        # arithmetic at lines 1906-1934 and _bs_d1d2 at line 1742, causing
-        # TypeError crashes instead of a clean NO_TRADE decision.
+        # arithmetic and _bs_d1d2, causing TypeError crashes instead of a clean
+        # NO_TRADE decision.
         # The "not ready_for_decision:" prefix routes through the NO_TRADE_GATES
-        # path (outer except, line 2986) so the job status is searchable and
-        # the Telegram alert reads "Options: NO TRADE (Hard Gates)" not a crash.
+        # path (outer except) so the job status is searchable and the Telegram
+        # alert reads "Options: NO TRADE (Hard Gates)" not a crash.
         if call_strike is None and put_strike is None:
             raise ValueError(
                 "not ready_for_decision: NO_LIQUID_CONTRACTS — "
                 "liquidity gate rejected all contracts on both legs "
                 f"(bid=0/ask=0 or no contracts passed predicate; "
-                f"expiry={_poly_exp}; ticker={ticker})"
+                f"expiry={_poly_exp}; ticker={ticker}; "
+                f"diag={json.dumps(_liq_diag, default=str)[:400]})"
             )
 
         # Black-Scholes greeks — computed live from spot + front_iv (vary per ticker/date)
@@ -3305,7 +3535,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except Exception as _st_fg_e:
                 log.debug(f"[scheduler_trace] PAPER_EXEC hard-gate: {_st_fg_e}")
 
-        _write_heartbeat(False, err_msg_with_tb)
+        _write_heartbeat(False, err_msg_with_tb, soft=_is_gate_reject)
         # ── Phase 4: record operational incident ─────────────────────────────
         if _p4_ready:
             try:
@@ -4121,6 +4351,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
             "scheduler": "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped",
             "service":   _SCHEDULER_NAME,
             "ts":        datetime.utcnow().isoformat() + "Z",
+            "oe_liq_build": _OE_LIQ_BUILD,
             "oe_scheduler_enabled": os.environ.get("OE_SCHEDULER_ENABLED", "unset"),
             "replit_deployment":    os.environ.get("REPLIT_DEPLOYMENT", "unset"),
         }
