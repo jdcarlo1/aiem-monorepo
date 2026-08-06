@@ -1,0 +1,1187 @@
+{
+  "as_of": "2026-08-06T01:25:28.958977Z",
+  "underlying": "SPY",
+  "window": {
+    "start": "2025-08-01",
+    "end": "2026-08-04",
+    "bars": 253
+  },
+  "risk_per_trade_usd": 100,
+  "data_notes": [
+    "Underlying from Neon polygon_market_daily (Polygon-ingested).",
+    "Live Polygon API key returned Unknown API Key \u2014 option prices are Black\u2013Scholes with IV = 1.10 \u00d7 20d realized vol (not live option NBBO).",
+    "Theoretical fractional contracts sized to $100 max defined risk."
+  ],
+  "exit_rules": {
+    "credit": "TP 50% of credit; SL 2\u00d7 credit; time 21 DTE (0DTE \u2192 EOD)",
+    "debit_vertical": "TP 50% of debit; SL 50% of debit; time 21 DTE",
+    "long_vol": "TP +50% premium; SL \u221250%; time 14 DTE",
+    "calendar_family": "TP 50% debit; SL \u2212100% debit; front 7 DTE",
+    "ratio": "TP 50% |premium|; SL 2\u00d7 |premium|; time 21 DTE"
+  },
+  "verification": [
+    {
+      "name": "put_call_parity_atm",
+      "pass": true,
+      "detail": "|C-P - (S-Ke^-rT)|=0.0000 (tol 0.05)"
+    },
+    {
+      "name": "intrinsic_bounds",
+      "pass": true,
+      "detail": "C=19.620 P=15.025"
+    },
+    {
+      "name": "bull_put_short_otm_16delta",
+      "pass": true,
+      "detail": "S=771.33 short_k=735 delta=-0.162 credit=0.801"
+    },
+    {
+      "name": "bull_put_max_loss_identity",
+      "pass": true,
+      "detail": "credit=0.801 max_loss=4.199 width=5.0"
+    },
+    {
+      "name": "bull_put_max_loss_at_expiry_breach",
+      "pass": true,
+      "detail": "pnl_at_breach=-4.199 expected=-4.199"
+    },
+    {
+      "name": "iron_condor_defined_risk",
+      "pass": true,
+      "detail": "credit=1.482 max_loss=3.518"
+    },
+    {
+      "name": "spy_bars_1y",
+      "pass": true,
+      "detail": "n=253 from 2025-08-01 to 2026-08-04"
+    }
+  ],
+  "ranking": [
+    {
+      "n": 15,
+      "total_pnl": 382.49,
+      "avg_pnl": 25.5,
+      "win_rate": 66.7,
+      "profit_factor": 2.65,
+      "max_dd": -118.59,
+      "expectancy": 25.5,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "take_profit_50pct": 8,
+        "time_front_7dte": 6
+      },
+      "strategy": "Double Calendar"
+    },
+    {
+      "n": 15,
+      "total_pnl": 284.66,
+      "avg_pnl": 18.98,
+      "win_rate": 60.0,
+      "profit_factor": 2.42,
+      "max_dd": -98.04,
+      "expectancy": 18.98,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "take_profit_50pct": 8,
+        "time_front_7dte": 6
+      },
+      "strategy": "Calendar Spread"
+    },
+    {
+      "n": 18,
+      "total_pnl": 167.58,
+      "avg_pnl": 9.31,
+      "win_rate": 66.7,
+      "profit_factor": 1.76,
+      "max_dd": -113.09,
+      "expectancy": 9.31,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_full_debit": 3,
+        "take_profit_50pct": 11,
+        "time_front_7dte": 3
+      },
+      "strategy": "Double Diagonal"
+    },
+    {
+      "n": 13,
+      "total_pnl": 124.16,
+      "avg_pnl": 9.55,
+      "win_rate": 92.3,
+      "profit_factor": 10.48,
+      "max_dd": -13.1,
+      "expectancy": 9.55,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "take_profit_50pct": 1,
+        "time_front_7dte": 11
+      },
+      "strategy": "Diagonal Spread"
+    },
+    {
+      "n": 11,
+      "total_pnl": 83.57,
+      "avg_pnl": 7.6,
+      "win_rate": 45.5,
+      "profit_factor": 1.41,
+      "max_dd": -141.43,
+      "expectancy": 7.6,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_50pct": 1,
+        "take_profit_50pct": 3,
+        "time_14dte": 6
+      },
+      "strategy": "Long Straddle"
+    },
+    {
+      "n": 22,
+      "total_pnl": 79.43,
+      "avg_pnl": 3.61,
+      "win_rate": 54.5,
+      "profit_factor": 1.15,
+      "max_dd": -303.67,
+      "expectancy": 3.61,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_50pct_debit": 9,
+        "take_profit_50pct_debit": 10,
+        "time_21dte": 2
+      },
+      "strategy": "Bull Call Debit Spread"
+    },
+    {
+      "n": 20,
+      "total_pnl": 57.88,
+      "avg_pnl": 2.89,
+      "win_rate": 45.0,
+      "profit_factor": 1.12,
+      "max_dd": -237.6,
+      "expectancy": 2.89,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_50pct_debit": 7,
+        "take_profit_50pct_debit": 8,
+        "time_21dte": 4
+      },
+      "strategy": "Bear Put Debit Spread"
+    },
+    {
+      "n": 22,
+      "total_pnl": 49.42,
+      "avg_pnl": 2.25,
+      "win_rate": 72.7,
+      "profit_factor": 1.18,
+      "max_dd": -154.77,
+      "expectancy": 2.25,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_2x_credit": 2,
+        "take_profit_50pct": 15,
+        "time_21dte": 4
+      },
+      "strategy": "Broken-Wing Butterfly"
+    },
+    {
+      "n": 13,
+      "total_pnl": 45.84,
+      "avg_pnl": 3.53,
+      "win_rate": 46.2,
+      "profit_factor": 1.17,
+      "max_dd": -88.5,
+      "expectancy": 3.53,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_50pct_debit": 3,
+        "take_profit_50pct_debit": 4,
+        "time_21dte": 5
+      },
+      "strategy": "Long Butterfly"
+    },
+    {
+      "n": 15,
+      "total_pnl": 41.79,
+      "avg_pnl": 2.79,
+      "win_rate": 60.0,
+      "profit_factor": 1.3,
+      "max_dd": -63.43,
+      "expectancy": 2.79,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "take_profit_50pct": 7,
+        "time_21dte": 7
+      },
+      "strategy": "Iron Condor"
+    },
+    {
+      "n": 228,
+      "total_pnl": 39.69,
+      "avg_pnl": 0.17,
+      "win_rate": 86.8,
+      "profit_factor": 1.02,
+      "max_dd": -385.07,
+      "expectancy": 0.17,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "expiry": 227
+      },
+      "strategy": "0DTE Credit Spreads"
+    },
+    {
+      "n": 7,
+      "total_pnl": 22.99,
+      "avg_pnl": 3.28,
+      "win_rate": 57.1,
+      "profit_factor": 1.14,
+      "max_dd": -74.3,
+      "expectancy": 3.28,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "expiry": 6
+      },
+      "strategy": "Reverse Iron Condor"
+    },
+    {
+      "n": 21,
+      "total_pnl": -0.48,
+      "avg_pnl": -0.02,
+      "win_rate": 61.9,
+      "profit_factor": 1.0,
+      "max_dd": -56.44,
+      "expectancy": -0.02,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_2x_credit": 2,
+        "take_profit_50pct": 13,
+        "time_21dte": 5
+      },
+      "strategy": "Bear Call Credit Spread"
+    },
+    {
+      "n": 24,
+      "total_pnl": -10.71,
+      "avg_pnl": -0.45,
+      "win_rate": 75.0,
+      "profit_factor": 0.95,
+      "max_dd": -89.35,
+      "expectancy": -0.45,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_2x_credit": 3,
+        "take_profit_50pct": 16,
+        "time_21dte": 4
+      },
+      "strategy": "Bull Put Credit Spread"
+    },
+    {
+      "n": 12,
+      "total_pnl": -48.56,
+      "avg_pnl": -4.05,
+      "win_rate": 41.7,
+      "profit_factor": 0.79,
+      "max_dd": -139.18,
+      "expectancy": -4.05,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "time_21dte": 11
+      },
+      "strategy": "Iron Butterfly"
+    },
+    {
+      "n": 17,
+      "total_pnl": -90.57,
+      "avg_pnl": -5.33,
+      "win_rate": 35.3,
+      "profit_factor": 0.85,
+      "max_dd": -277.27,
+      "expectancy": -5.33,
+      "exit_reasons": {
+        "stop_50pct": 10,
+        "take_profit_50pct": 6,
+        "time_14dte": 1
+      },
+      "strategy": "Long Strangle"
+    },
+    {
+      "n": 19,
+      "total_pnl": -113.8,
+      "avg_pnl": -5.99,
+      "win_rate": 57.9,
+      "profit_factor": 0.75,
+      "max_dd": -214.93,
+      "expectancy": -5.99,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_2x": 2,
+        "take_profit_50pct": 11,
+        "time_21dte": 5
+      },
+      "strategy": "Call Ratio Spread"
+    },
+    {
+      "n": 23,
+      "total_pnl": -166.42,
+      "avg_pnl": -7.24,
+      "win_rate": 73.9,
+      "profit_factor": 0.74,
+      "max_dd": -384.4,
+      "expectancy": -7.24,
+      "exit_reasons": {
+        "end_of_sample": 1,
+        "stop_2x": 3,
+        "take_profit_50pct": 15,
+        "time_21dte": 4
+      },
+      "strategy": "Put Ratio Spread"
+    }
+  ],
+  "trades_sample": {
+    "0DTE Credit Spreads": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-09",
+        "reason": "expiry",
+        "pnl": 7.39,
+        "contracts": 0.2148,
+        "entry_prem": 0.3439,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-09",
+        "exit": "2025-09-10",
+        "reason": "expiry",
+        "pnl": 8.75,
+        "contracts": 0.2175,
+        "entry_prem": 0.4021,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-10",
+        "exit": "2025-09-11",
+        "reason": "expiry",
+        "pnl": -26.98,
+        "contracts": 0.2167,
+        "entry_prem": 0.3846,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-11",
+        "exit": "2025-09-12",
+        "reason": "expiry",
+        "pnl": 6.48,
+        "contracts": 0.213,
+        "entry_prem": 0.3045,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-12",
+        "exit": "2025-09-15",
+        "reason": "expiry",
+        "pnl": 5.82,
+        "contracts": 0.2116,
+        "entry_prem": 0.2752,
+        "family": "credit"
+      }
+    ],
+    "Bull Put Credit Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-11",
+        "reason": "take_profit_50pct",
+        "pnl": 9.54,
+        "contracts": 0.2339,
+        "entry_prem": 0.725,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-15",
+        "exit": "2025-09-22",
+        "reason": "take_profit_50pct",
+        "pnl": 11.95,
+        "contracts": 0.2325,
+        "entry_prem": 0.6993,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-22",
+        "exit": "2025-10-06",
+        "reason": "take_profit_50pct",
+        "pnl": 8.55,
+        "contracts": 0.2302,
+        "entry_prem": 0.6553,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-10",
+        "reason": "stop_2x_credit",
+        "pnl": -39.87,
+        "contracts": 0.2313,
+        "entry_prem": 0.6758,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-10-24",
+        "reason": "take_profit_50pct",
+        "pnl": 10.89,
+        "contracts": 0.2364,
+        "entry_prem": 0.7695,
+        "family": "credit"
+      }
+    ],
+    "Bear Call Credit Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-02",
+        "reason": "time_21dte",
+        "pnl": -14.35,
+        "contracts": 0.2291,
+        "entry_prem": 0.6356,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-28",
+        "reason": "stop_2x_credit",
+        "pnl": -27.96,
+        "contracts": 0.2279,
+        "entry_prem": 0.6118,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-11-03",
+        "exit": "2025-11-07",
+        "reason": "take_profit_50pct",
+        "pnl": 11.53,
+        "contracts": 0.2308,
+        "entry_prem": 0.6676,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-11-10",
+        "exit": "2025-11-17",
+        "reason": "take_profit_50pct",
+        "pnl": 9.57,
+        "contracts": 0.2311,
+        "entry_prem": 0.6724,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-11-17",
+        "exit": "2025-12-11",
+        "reason": "time_21dte",
+        "pnl": -12.41,
+        "contracts": 0.2299,
+        "entry_prem": 0.6512,
+        "family": "credit"
+      }
+    ],
+    "Broken-Wing Butterfly": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-11",
+        "reason": "take_profit_50pct",
+        "pnl": 12.88,
+        "contracts": 0.2417,
+        "entry_prem": 0.8624,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-15",
+        "exit": "2025-09-22",
+        "reason": "take_profit_50pct",
+        "pnl": 17.35,
+        "contracts": 0.2399,
+        "entry_prem": 0.8311,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-22",
+        "exit": "2025-10-02",
+        "reason": "take_profit_50pct",
+        "pnl": 6.36,
+        "contracts": 0.2226,
+        "entry_prem": 0.5074,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-10",
+        "reason": "stop_2x_credit",
+        "pnl": -42.51,
+        "contracts": 0.2238,
+        "entry_prem": 0.5319,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-10-24",
+        "reason": "take_profit_50pct",
+        "pnl": 18.56,
+        "contracts": 0.2686,
+        "entry_prem": 1.2767,
+        "family": "credit"
+      }
+    ],
+    "Iron Condor": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-25",
+        "reason": "take_profit_50pct",
+        "pnl": 21.2,
+        "contracts": 0.2748,
+        "entry_prem": 1.3605,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-09-29",
+        "exit": "2025-10-23",
+        "reason": "time_21dte",
+        "pnl": -16.39,
+        "contracts": 0.2673,
+        "entry_prem": 1.2596,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-10-27",
+        "exit": "2025-11-11",
+        "reason": "take_profit_50pct",
+        "pnl": 21.64,
+        "contracts": 0.2819,
+        "entry_prem": 1.453,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-11-17",
+        "exit": "2025-12-11",
+        "reason": "time_21dte",
+        "pnl": 4.9,
+        "contracts": 0.2778,
+        "entry_prem": 1.4001,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-12-15",
+        "exit": "2025-12-23",
+        "reason": "take_profit_50pct",
+        "pnl": 21.14,
+        "contracts": 0.2773,
+        "entry_prem": 1.3941,
+        "family": "credit"
+      }
+    ],
+    "Bull Call Debit Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-15",
+        "reason": "take_profit_50pct_debit",
+        "pnl": 51.85,
+        "contracts": 0.5122,
+        "entry_prem": -1.9522,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-09-15",
+        "exit": "2025-10-08",
+        "reason": "take_profit_50pct_debit",
+        "pnl": 59.72,
+        "contracts": 0.5107,
+        "entry_prem": -1.9579,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-10-27",
+        "reason": "take_profit_50pct_debit",
+        "pnl": 66.47,
+        "contracts": 0.5062,
+        "entry_prem": -1.9754,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-10-27",
+        "exit": "2025-11-07",
+        "reason": "stop_50pct_debit",
+        "pnl": -52.52,
+        "contracts": 0.5019,
+        "entry_prem": -1.9923,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-11-10",
+        "exit": "2025-11-18",
+        "reason": "stop_50pct_debit",
+        "pnl": -57.26,
+        "contracts": 0.5012,
+        "entry_prem": -1.9954,
+        "family": "debit"
+      }
+    ],
+    "Bear Put Debit Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-18",
+        "reason": "stop_50pct_debit",
+        "pnl": -55.54,
+        "contracts": 0.4741,
+        "entry_prem": -2.1093,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-09-22",
+        "exit": "2025-10-10",
+        "reason": "take_profit_50pct_debit",
+        "pnl": 70.5,
+        "contracts": 0.5033,
+        "entry_prem": -1.9869,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-10-27",
+        "reason": "stop_50pct_debit",
+        "pnl": -56.16,
+        "contracts": 0.4636,
+        "entry_prem": -2.1572,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-10-27",
+        "exit": "2025-11-17",
+        "reason": "take_profit_50pct_debit",
+        "pnl": 66.17,
+        "contracts": 0.4563,
+        "entry_prem": -2.1917,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-11-17",
+        "exit": "2025-12-05",
+        "reason": "stop_50pct_debit",
+        "pnl": -55.62,
+        "contracts": 0.4564,
+        "entry_prem": -2.1911,
+        "family": "debit"
+      }
+    ],
+    "Iron Butterfly": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-02",
+        "reason": "time_21dte",
+        "pnl": -55.4,
+        "contracts": 2.2517,
+        "entry_prem": 4.5559,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-30",
+        "reason": "time_21dte",
+        "pnl": -31.59,
+        "contracts": 1.8409,
+        "entry_prem": 4.4568,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-11-03",
+        "exit": "2025-11-28",
+        "reason": "time_21dte",
+        "pnl": 37.38,
+        "contracts": 3.539,
+        "entry_prem": 4.7174,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-12-01",
+        "exit": "2025-12-26",
+        "reason": "time_21dte",
+        "pnl": 80.79,
+        "contracts": 3.5986,
+        "entry_prem": 4.7221,
+        "family": "credit"
+      },
+      {
+        "entry": "2025-12-29",
+        "exit": "2026-01-22",
+        "reason": "time_21dte",
+        "pnl": 11.19,
+        "contracts": 2.1316,
+        "entry_prem": 4.5309,
+        "family": "credit"
+      }
+    ],
+    "Call Ratio Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-02",
+        "reason": "time_21dte",
+        "pnl": -54.58,
+        "contracts": 0.0818,
+        "entry_prem": 6.1128,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-27",
+        "reason": "stop_2x",
+        "pnl": -108.15,
+        "contracts": 0.1192,
+        "entry_prem": 4.1947,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-10-27",
+        "exit": "2025-11-07",
+        "reason": "take_profit_50pct",
+        "pnl": 36.58,
+        "contracts": 0.0422,
+        "entry_prem": 11.8508,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-11-10",
+        "exit": "2025-11-17",
+        "reason": "take_profit_50pct",
+        "pnl": 28.45,
+        "contracts": 0.0515,
+        "entry_prem": 9.7142,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-11-17",
+        "exit": "2025-12-11",
+        "reason": "time_21dte",
+        "pnl": -40.1,
+        "contracts": 0.0493,
+        "entry_prem": 10.1376,
+        "family": "ratio"
+      }
+    ],
+    "Put Ratio Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-11",
+        "reason": "take_profit_50pct",
+        "pnl": 30.33,
+        "contracts": 0.1353,
+        "entry_prem": 3.6967,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-09-15",
+        "exit": "2025-09-22",
+        "reason": "take_profit_50pct",
+        "pnl": 39.93,
+        "contracts": 0.1414,
+        "entry_prem": 3.5355,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-09-22",
+        "exit": "2025-10-06",
+        "reason": "take_profit_50pct",
+        "pnl": 36.12,
+        "contracts": 0.2439,
+        "entry_prem": 2.05,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-10",
+        "reason": "stop_2x",
+        "pnl": -274.27,
+        "contracts": 0.2336,
+        "entry_prem": 2.1406,
+        "family": "ratio"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-10-24",
+        "reason": "take_profit_50pct",
+        "pnl": 29.62,
+        "contracts": 0.0729,
+        "entry_prem": 6.8585,
+        "family": "ratio"
+      }
+    ],
+    "Calendar Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-01",
+        "reason": "time_front_7dte",
+        "pnl": -27.05,
+        "contracts": 0.2362,
+        "entry_prem": -4.2344,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-13",
+        "reason": "take_profit_50pct",
+        "pnl": 54.03,
+        "contracts": 0.2684,
+        "entry_prem": -3.7257,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-11-04",
+        "reason": "take_profit_50pct",
+        "pnl": 56.98,
+        "contracts": 0.1866,
+        "entry_prem": -5.3588,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-11-10",
+        "exit": "2025-11-26",
+        "reason": "take_profit_50pct",
+        "pnl": 54.58,
+        "contracts": 0.1888,
+        "entry_prem": -5.2967,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-12-01",
+        "exit": "2025-12-24",
+        "reason": "time_front_7dte",
+        "pnl": -16.29,
+        "contracts": 0.1601,
+        "entry_prem": -6.2475,
+        "family": "calendar"
+      }
+    ],
+    "Diagonal Spread": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-01",
+        "reason": "time_front_7dte",
+        "pnl": 11.73,
+        "contracts": 0.0857,
+        "entry_prem": -6.6687,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-20",
+        "reason": "take_profit_50pct",
+        "pnl": 28.6,
+        "contracts": 0.0897,
+        "entry_prem": -6.1426,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-20",
+        "exit": "2025-11-12",
+        "reason": "time_front_7dte",
+        "pnl": 19.71,
+        "contracts": 0.0761,
+        "entry_prem": -8.1429,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-11-17",
+        "exit": "2025-12-10",
+        "reason": "time_front_7dte",
+        "pnl": 19.62,
+        "contracts": 0.0774,
+        "entry_prem": -7.9135,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-12-15",
+        "exit": "2026-01-07",
+        "reason": "time_front_7dte",
+        "pnl": 13.94,
+        "contracts": 0.0786,
+        "entry_prem": -7.7221,
+        "family": "calendar"
+      }
+    ],
+    "Double Calendar": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-01",
+        "reason": "time_front_7dte",
+        "pnl": -32.63,
+        "contracts": 0.1679,
+        "entry_prem": -5.9548,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-13",
+        "reason": "take_profit_50pct",
+        "pnl": 84.69,
+        "contracts": 0.2076,
+        "entry_prem": -4.8162,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-11-04",
+        "reason": "take_profit_50pct",
+        "pnl": 73.36,
+        "contracts": 0.1221,
+        "entry_prem": -8.1924,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-11-10",
+        "exit": "2025-11-25",
+        "reason": "take_profit_50pct",
+        "pnl": 59.81,
+        "contracts": 0.125,
+        "entry_prem": -7.9991,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-12-01",
+        "exit": "2025-12-24",
+        "reason": "time_front_7dte",
+        "pnl": -21.2,
+        "contracts": 0.1007,
+        "entry_prem": -9.9257,
+        "family": "calendar"
+      }
+    ],
+    "Double Diagonal": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-01",
+        "reason": "stop_full_debit",
+        "pnl": -32.18,
+        "contracts": 0.1413,
+        "entry_prem": -2.078,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-13",
+        "reason": "take_profit_50pct",
+        "pnl": 57.47,
+        "contracts": 0.1616,
+        "entry_prem": -1.1865,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-10-22",
+        "reason": "take_profit_50pct",
+        "pnl": 24.81,
+        "contracts": 0.1108,
+        "entry_prem": -4.0253,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-10-27",
+        "exit": "2025-11-19",
+        "reason": "time_front_7dte",
+        "pnl": -19.97,
+        "contracts": 0.0991,
+        "entry_prem": -5.086,
+        "family": "calendar"
+      },
+      {
+        "entry": "2025-11-24",
+        "exit": "2025-12-17",
+        "reason": "take_profit_50pct",
+        "pnl": 29.49,
+        "contracts": 0.0976,
+        "entry_prem": -5.251,
+        "family": "calendar"
+      }
+    ],
+    "Long Butterfly": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-02",
+        "reason": "stop_50pct_debit",
+        "pnl": -55.54,
+        "contracts": 2.4012,
+        "entry_prem": -0.4165,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-10-06",
+        "exit": "2025-10-30",
+        "reason": "time_21dte",
+        "pnl": -30.43,
+        "contracts": 1.9397,
+        "entry_prem": -0.5156,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-11-03",
+        "exit": "2025-11-28",
+        "reason": "time_21dte",
+        "pnl": 47.45,
+        "contracts": 3.9231,
+        "entry_prem": -0.2549,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-12-01",
+        "exit": "2025-12-16",
+        "reason": "take_profit_50pct_debit",
+        "pnl": 59.8,
+        "contracts": 3.9965,
+        "entry_prem": -0.2502,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-12-22",
+        "exit": "2026-01-14",
+        "reason": "take_profit_50pct_debit",
+        "pnl": 59.02,
+        "contracts": 2.7495,
+        "entry_prem": -0.3637,
+        "family": "debit"
+      }
+    ],
+    "Reverse Iron Condor": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-23",
+        "reason": "expiry",
+        "pnl": -80.1,
+        "contracts": 0.1001,
+        "entry_prem": 9.9945,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-10-27",
+        "exit": "2025-12-11",
+        "reason": "expiry",
+        "pnl": 87.1,
+        "contracts": 0.0594,
+        "entry_prem": 16.821,
+        "family": "debit"
+      },
+      {
+        "entry": "2025-12-15",
+        "exit": "2026-01-29",
+        "reason": "expiry",
+        "pnl": 20.95,
+        "contracts": 0.0716,
+        "entry_prem": 13.966,
+        "family": "debit"
+      },
+      {
+        "entry": "2026-02-02",
+        "exit": "2026-03-19",
+        "reason": "expiry",
+        "pnl": 1.77,
+        "contracts": 0.0819,
+        "entry_prem": 12.2159,
+        "family": "debit"
+      },
+      {
+        "entry": "2026-03-23",
+        "exit": "2026-05-07",
+        "reason": "expiry",
+        "pnl": -74.3,
+        "contracts": 0.0622,
+        "entry_prem": 16.0645,
+        "family": "debit"
+      }
+    ],
+    "Long Straddle": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-10-09",
+        "reason": "time_14dte",
+        "pnl": 23.49,
+        "contracts": 0.0529,
+        "entry_prem": -18.9213,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-11-13",
+        "reason": "time_14dte",
+        "pnl": -33.47,
+        "contracts": 0.0384,
+        "entry_prem": -26.0538,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2025-11-17",
+        "exit": "2025-12-18",
+        "reason": "time_14dte",
+        "pnl": -37.21,
+        "contracts": 0.0372,
+        "entry_prem": -26.8705,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2025-12-22",
+        "exit": "2026-01-22",
+        "reason": "time_14dte",
+        "pnl": -39.1,
+        "contracts": 0.0461,
+        "entry_prem": -21.685,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2026-01-26",
+        "exit": "2026-02-26",
+        "reason": "time_14dte",
+        "pnl": -31.66,
+        "contracts": 0.044,
+        "entry_prem": -22.721,
+        "family": "long_vol"
+      }
+    ],
+    "Long Strangle": [
+      {
+        "entry": "2025-09-08",
+        "exit": "2025-09-25",
+        "reason": "stop_50pct",
+        "pnl": -56.44,
+        "contracts": 0.1428,
+        "entry_prem": -7.0047,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2025-09-29",
+        "exit": "2025-10-10",
+        "reason": "take_profit_50pct",
+        "pnl": 115.98,
+        "contracts": 0.1775,
+        "entry_prem": -5.6338,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2025-10-13",
+        "exit": "2025-11-07",
+        "reason": "stop_50pct",
+        "pnl": -66.01,
+        "contracts": 0.1024,
+        "entry_prem": -9.7632,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2025-11-10",
+        "exit": "2025-11-18",
+        "reason": "take_profit_50pct",
+        "pnl": 53.15,
+        "contracts": 0.1057,
+        "entry_prem": -9.462,
+        "family": "long_vol"
+      },
+      {
+        "entry": "2025-11-24",
+        "exit": "2025-12-12",
+        "reason": "stop_50pct",
+        "pnl": -58.99,
+        "contracts": 0.0891,
+        "entry_prem": -11.2263,
+        "family": "long_vol"
+      }
+    ]
+  },
+  "winner": "Double Calendar"
+}
