@@ -148,3 +148,20 @@ kind = "data-app"
 
   [services.env]
   PATTERN_DISCOVERY_PORT = "5058"
+
+  [[services]]
+  name = "stat-research-runner"
+  paths = [ "/stat-research/" ]
+  localPort = 5057
+
+  [services.development]
+  run = "python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_stat_research_runner.py"
+
+  [services.production]
+  run = "python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_stat_research_runner.py"
+
+  [services.production.health.startup]
+  path = "/health"
+
+  [services.env]
+  STAT_RESEARCH_PORT = "5057"

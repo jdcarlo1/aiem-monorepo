@@ -1,12 +1,8 @@
 name: AIEM Morning Pipeline Backup
 
 on:
-  schedule:
-    # 9:50 AM ET (13:50 UTC) Mon-Fri — fires 10 min after the primary 9:40 window
-    # If primary ran, endpoint exits in <5s (dedup check). No cost.
-    - cron: '50 13 * * 1-5'
-    # 10:10 AM ET (14:10 UTC) — second safety net
-    - cron: '10 14 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
 
   workflow_dispatch:
     inputs:

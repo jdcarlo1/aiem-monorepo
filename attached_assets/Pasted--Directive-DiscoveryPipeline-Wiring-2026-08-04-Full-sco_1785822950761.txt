@@ -1,0 +1,43 @@
+# Directive_DiscoveryPipeline_Wiring_2026-08-04
+
+## Full-scope check FIRST (before any fix)
+Pull raw evidence on all 4 breaks below and state whether they share ONE root cause (e.g. a bad deploy/restart around Jul 25) or are 4 independent bugs. Do not fix anything until this table is filled with real command output:
+
+| Component | Last good run | Break date | Evidence pulled |
+|---|---|---|---|
+| 24/7 background scanner (historical_pattern_grid) | ? | Jul 25 | git log --since/--until around Jul 25; process/service status |
+| Daily discovery cycle (5:30 PM ET) | Jul 31 | Aug 1 | scheduler job list + next_run_time; exception logs Aug 1-4 |
+| Master orchestrator (79 sessions, 0 tool calls) | ? | ? | orchestrator source for the tool-call loop |
+| research_insights -> signal_discoveries promotion | never (discovery_saved=0 on every session per agent's own report) | N/A — check if this ever worked | grep for the promotion function |
+
+## Item 1 — Promotion gap (why 8 Aug 1 patterns are stranded)
+1. `grep -rn "aiem_signal_discoveries" .` and `grep -rn "discovery_saved" .` — paste every match with file:line.
+2. Identify the function that is SUPPOSED to INSERT a row into `aiem_signal_discoveries` after a pattern clears significance testing. Paste it in full.
+3. Determine exactly why it isn't firing — pick one, prove it with raw output, don't guess:
+   - (a) function exists but is never called (dead code) — show the call site is missing
+   - (b) function is called but throws and the exception is swallowed — show the try/except
+   - (c) function is called but a WHERE/threshold condition silently filters out every row — show the condition and a query proving it's always false
+4. Fix the actual cause found in step 3. Paste the exact diff (before/after lines).
+5. Backfill the 8 stranded Aug 1 patterns: write a one-time script that reads the raw JSON rows from `aiem_research_insights` for that session and inserts them into `aiem_signal_discoveries` using the same insert logic as the real pipeline (not a hand-written one-off). Paste row count before/after.
+
+## Item 2 — Scheduler not firing since Jul 31
+1. Paste the live scheduler job list (APScheduler `get_jobs()` or equivalent) showing whether the 5:30 PM ET discovery job is even registered, and its `next_run_time`.
+2. If missing/misregistered: find why (crash on boot losing the job? code path that only registers it under a condition that stopped being true?). Paste the registration code.
+3. If registered but not firing: pull process logs for Aug 1-4 around 17:30 ET, paste raw lines (not a summary).
+4. Fix, then require ONE real live-fired run (not a manual/forced trigger) before closing this item.
+
+## Item 3 — Background scanner stopped Jul 25 (448-cell historical_pattern_grid, 0 tested in 7 days)
+1. Confirm what process/cron is supposed to run this scanner continuously and its supervisor (systemd, cron, in-process thread, etc).
+2. Paste evidence of when/why it stopped — crash log, OOM, deploy that removed the job, etc. Correlate with Item 1's timeline.
+3. Restart it and paste a live query showing at least one cell tested with a fresh `last_tested` timestamp after restart.
+
+## Item 4 — 79 orchestrator sessions with total_tool_calls=0
+1. Paste the orchestrator's main loop — the code that is supposed to call tools.
+2. Explain concretely why it's logging `status=running` but making 0 calls: early return before the tool-call loop, a disabled/misconfigured flag, an empty tool registry, etc. Prove with raw code + a raw query, not narrative.
+3. Fix, then require ONE real live session showing `total_tool_calls > 0`.
+
+## Evidence bar (standing protocol — no exceptions)
+- Raw grep/query output for every claim above, not descriptions of what you did
+- git diff --stat + full sha256 before/after for every changed file
+- For every "fixed" claim: one real, live-triggered (not forced/manual) proof run showing the fix working end-to-end
+- State plainly if any of the 4 items turn out to share a root cause — don't file 4 separate fixes for 1 bug

@@ -34,6 +34,41 @@ log = logging.getLogger("stat_research")
 
 DB_URL = os.environ["DATABASE_URL"]
 
+# ── Minimal HTTP health server ─────────────────────────────────────────────
+# Required by artifact.toml health-check probe; runs on STAT_RESEARCH_PORT.
+import threading as _health_thr
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _THTTPS
+import json as _health_json
+
+_HEALTH_PORT = int(os.environ.get("STAT_RESEARCH_PORT", "5057"))
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            body = _health_json.dumps(
+                {"status": "ok", "service": "stat-research-runner"}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, *_):  # suppress noisy access logging
+        pass
+
+
+def _start_health_server():
+    srv = _THTTPS(("0.0.0.0", _HEALTH_PORT), _HealthHandler)
+    _health_thr.Thread(
+        target=srv.serve_forever, daemon=True, name="health-server"
+    ).start()
+    log.info("Health server running on port %d", _HEALTH_PORT)
+
+
 # ── Schema ──────────────────────────────────────────────────────────────────
 
 _SCHEMA_EOD = """
@@ -1526,6 +1561,7 @@ def send_pattern_digest(force: bool = False):
 
 def main():
     log.info("AIEM statistical research runner starting — pure stats, zero OpenAI")
+    _start_health_server()
     ensure_schema()
 
     # ── Startup kick: run the historical backtest immediately ──────────────────

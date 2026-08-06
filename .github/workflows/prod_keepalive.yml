@@ -22,11 +22,8 @@ name: Prod Keepalive — 8:30–12:00 ET
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
-  schedule:
-    # Every 5 min, 12:00–15:55 UTC (08:00–11:55 AM ET) — Mon-Fri
-    - cron: '*/5 12-15 * * 1-5'
-    # 16:00 UTC = 12:00 PM ET exactly
-    - cron: '0 16 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
 
   workflow_dispatch: {}   # allow manual trigger for testing
 

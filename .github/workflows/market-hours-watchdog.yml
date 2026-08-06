@@ -22,6 +22,8 @@ on:
     - cron: '* 13-19 * * 1-5'
     # 20:00-20:05 UTC slot covers the 4:00 PM ET close
     - cron: '0-5 20 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
 
   workflow_dispatch:
     inputs:
