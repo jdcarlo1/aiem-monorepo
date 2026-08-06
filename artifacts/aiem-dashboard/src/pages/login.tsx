@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { setToken, setCsrfToken } from "@/lib/auth";
+import { setToken, setCsrfToken, setRole } from "@/lib/auth";
 import { Terminal, Lock, Key, ArrowRight, Clipboard } from "lucide-react";
 
 type Mode = "password" | "token";
@@ -44,6 +44,7 @@ export default function Login() {
       const cookieMatch = document.cookie.match(/(?:^|;\s*)aiem_csrf=([^;]+)/);
       if (!csrf && cookieMatch) setCsrfToken(decodeURIComponent(cookieMatch[1]));
       if (data.session_token) setToken(data.session_token);
+      setRole("Admin");
       sessionStorage.setItem("aiem_authed", "1");
       sessionStorage.setItem("aiem_username", data.user?.username || username.trim());
       setLocation("/command");
@@ -58,6 +59,7 @@ export default function Login() {
     e.preventDefault();
     if (token.trim()) {
       setToken(token.trim());
+      setRole("Admin");
       sessionStorage.setItem("aiem_authed", "1");
       setLocation("/command");
     }

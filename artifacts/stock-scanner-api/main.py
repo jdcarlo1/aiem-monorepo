@@ -53198,6 +53198,19 @@ def aiem_paper_force_mtm():
     return jsonify({"status": "marking", "message": "Refreshing marks + MTM — refresh portfolio in 10s"})
 
 
+@app.route("/stock-api/aiem-sales-readiness", methods=["GET"])
+def aiem_sales_readiness_endpoint():
+    """Buyer-facing AIEM sales readiness: reliability, honest P&L, live path, commercial."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import aiem_sales_readiness as _asr
+        return jsonify(_asr.build_sales_readiness(_DB_URL))
+    except Exception as _e:
+        return jsonify({"ok": False, "error": str(_e)}), 500
+
+
 @app.route("/stock-api/admin/paper-fill-audit", methods=["GET", "POST"])
 def admin_paper_fill_audit():
     """

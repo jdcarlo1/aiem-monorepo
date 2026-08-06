@@ -30,6 +30,7 @@ import Audit from "@/pages/Audit";
 import TraceExplorer from "@/pages/TraceExplorer";
 import Module4Gate from "@/pages/Module4Gate";
 import Dashboard from "@/pages/Dashboard";
+import SalesReadiness from "@/pages/SalesReadiness";
 
 const queryClient = new QueryClient();
 
@@ -56,6 +57,7 @@ function Router() {
         <Route path="/probability" component={Probability} />
         <Route path="/calibration" component={Calibration} />
         <Route path="/audit" component={Audit} />
+        <Route path="/sales-readiness" component={SalesReadiness} />
         <Route path="/trace" component={TraceExplorer} />
         <Route path="/module4" component={Module4Gate} />
         <Route path="/dashboard" component={Dashboard} />

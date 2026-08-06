@@ -4,9 +4,9 @@ import {
   AlertTriangle, Users, Search, ActivitySquare, Calendar,
   Workflow, RefreshCw, Bell, TrendingUp, BrainCircuit, Target,
   X, LogOut, Wifi, ChevronRight, ClipboardCheck, GitBranch, Shield,
-  FlaskConical
+  FlaskConical, Briefcase
 } from "lucide-react";
-import { serverLogout } from "@/lib/auth";
+import { getRole, serverLogout } from "@/lib/auth";
 
 const NAV_GROUPS = [
   {
@@ -16,6 +16,12 @@ const NAV_GROUPS = [
       { href: "/scheduler", label: "Scheduler", icon: Calendar },
       { href: "/alerts", label: "Alerts", icon: Bell },
       { href: "/trace", label: "Trace Explorer", icon: GitBranch },
+    ],
+  },
+  {
+    label: "Commercial",
+    items: [
+      { href: "/sales-readiness", label: "Sales Readiness", icon: Briefcase },
     ],
   },
   {
@@ -66,6 +72,7 @@ export function Sidebar({ onClose }: SidebarProps) {
   };
 
   const username = sessionStorage.getItem("aiem_username") || "operator";
+  const role = getRole();
 
   return (
     <aside className="w-64 flex flex-col h-full bg-sidebar border-r border-sidebar-border shrink-0">
@@ -145,7 +152,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           </div>
           <div className="min-w-0">
             <div className="text-sm font-medium text-white truncate">{username}</div>
-            <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Administrator</div>
+            <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">{role}</div>
           </div>
           <Wifi size={14} className="text-success shrink-0" />
         </div>
