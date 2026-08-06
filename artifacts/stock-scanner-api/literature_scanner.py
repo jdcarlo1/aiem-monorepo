@@ -8,13 +8,18 @@ dark pool, float on-demand, sweep detection, sector heat, quant aggregator).
 NEVER touches signals, conviction scores, or production tables.
 All output is advisory text saved to literature_briefs only.
 
-REQUIRES: DATABASE_URL (or AIEM_DATABASE_URL), ANTHROPIC_API_KEY, and a
-search_fn you provide (search_fn(query) → list of {"title","snippet","url"}).
+REQUIRES: DATABASE_URL (or AIEM_DATABASE_URL), ANTHROPIC_API_KEY.
+search_fn is optional — default_search_fn() uses arXiv (no API key) with a
+DuckDuckGo Instant Answer fallback.
 """
 
 import os
 import json
 import datetime as dt
+import re
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Callable, Optional
 
 import psycopg2
@@ -25,6 +30,105 @@ try:
     _HAS_ANTHROPIC = True
 except ImportError:
     _HAS_ANTHROPIC = False
+
+
+def default_search_fn(query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    """Keyless literature search: arXiv Atom API, then DuckDuckGo Instant Answer.
+
+    Returns list of {title, snippet, url}. Never raises — empty list on failure.
+    """
+    results: List[Dict[str, str]] = []
+    q = (query or "").strip()
+    if not q:
+        return results
+
+    # ── arXiv ────────────────────────────────────────────────────────────
+    try:
+        params = urllib.parse.urlencode({
+            "search_query": f"all:{q}",
+            "start": 0,
+            "max_results": max_results,
+            "sortBy": "relevance",
+            "sortOrder": "descending",
+        })
+        url = f"http://export.arxiv.org/api/query?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "AIEM-literature-scanner/1.0"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            xml_bytes = resp.read()
+        root = ET.fromstring(xml_bytes)
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall("a:entry", ns)[:max_results]:
+            title = (entry.findtext("a:title", default="", namespaces=ns) or "").strip()
+            title = re.sub(r"\s+", " ", title)
+            summary = (entry.findtext("a:summary", default="", namespaces=ns) or "").strip()
+            summary = re.sub(r"\s+", " ", summary)[:400]
+            link = ""
+            for link_el in entry.findall("a:link", ns):
+                if link_el.attrib.get("type") == "text/html" or link_el.attrib.get("rel") == "alternate":
+                    link = link_el.attrib.get("href", "")
+                    break
+            if not link:
+                link = entry.findtext("a:id", default="", namespaces=ns) or ""
+            if title:
+                results.append({"title": title, "snippet": summary, "url": link})
+    except Exception as e:
+        print(f"[literature_scanner] arXiv search error: {e}")
+
+    if results:
+        return results[:max_results]
+
+    # ── DuckDuckGo Instant Answer fallback ───────────────────────────────
+    try:
+        params = urllib.parse.urlencode({
+            "q": q,
+            "format": "json",
+            "no_html": 1,
+            "skip_disambig": 1,
+        })
+        url = f"https://api.duckduckgo.com/?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "AIEM-literature-scanner/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if data.get("Heading") or data.get("AbstractText"):
+            results.append({
+                "title": data.get("Heading") or q,
+                "snippet": (data.get("AbstractText") or "")[:400],
+                "url": data.get("AbstractURL") or data.get("AbstractSource") or "",
+            })
+        for topic in (data.get("RelatedTopics") or [])[:max_results]:
+            if isinstance(topic, dict) and topic.get("Text"):
+                results.append({
+                    "title": (topic.get("Text") or "")[:120],
+                    "snippet": (topic.get("Text") or "")[:400],
+                    "url": topic.get("FirstURL") or "",
+                })
+            elif isinstance(topic, dict) and topic.get("Topics"):
+                for sub in topic["Topics"][:2]:
+                    if sub.get("Text"):
+                        results.append({
+                            "title": (sub.get("Text") or "")[:120],
+                            "snippet": (sub.get("Text") or "")[:400],
+                            "url": sub.get("FirstURL") or "",
+                        })
+    except Exception as e:
+        print(f"[literature_scanner] DuckDuckGo search error: {e}")
+
+    return results[:max_results]
+
+
+def run_weekly_scan(queries: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Scheduled entry point — scan_and_save with default_search_fn."""
+    try:
+        init_schema()
+    except Exception as e:
+        print(f"[literature_scanner] init_schema warning: {e}")
+    new_ids = scan_and_save(default_search_fn, queries=queries)
+    return {
+        "status": "ok",
+        "briefs_created": len(new_ids),
+        "brief_ids": new_ids,
+        "search": "arxiv+duckduckgo",
+    }
 
 
 DDL = """

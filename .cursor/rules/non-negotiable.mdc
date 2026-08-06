@@ -24,3 +24,10 @@ alwaysApply: true
 
 4. Never run a migration that drops or alters a table/column without
    pasting the full diff and getting explicit approval first.
+
+5. AIEM has no chat inbox. To "tell AIEM" to do something: edit its
+   code (brain) and restart the owning workflow, write DB state (memory)
+   for the next poll, curl an admin/trigger endpoint for a one-shot, or
+   place a script under artifacts/stock-scanner-api/ for AIEM to run.
+   Never run AIEM’s backtests or 24/7 research jobs as this Cursor
+   agent’s own continuous work — see .agents/memory/aiem-communication-protocol.md.

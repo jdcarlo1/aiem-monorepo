@@ -20,11 +20,8 @@ name: Options Seed Failsafe
 #   - Auth errors (401/403) hard-fail; service-unavailable exits 0 (retry at next slot).
 
 on:
-  schedule:
-    # 9:40 AM ET (13:40 UTC)
-    - cron: '40 13 * * 1-5'
-    # 9:50 AM ET (13:50 UTC)
-    - cron: '50 13 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
 
   workflow_dispatch:
     inputs:

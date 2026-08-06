@@ -12,6 +12,7 @@ import Login from "@/pages/login";
 import CommandCenter from "@/pages/CommandCenter";
 import Opportunities from "@/pages/Opportunities";
 import PaperTrades from "@/pages/PaperTrades";
+import PatternLab from "@/pages/PatternLab";
 import Decisions from "@/pages/Decisions";
 import Proof from "@/pages/Proof";
 import Risk from "@/pages/Risk";
@@ -26,6 +27,10 @@ import Performance from "@/pages/Performance";
 import Probability from "@/pages/Probability";
 import Calibration from "@/pages/Calibration";
 import Audit from "@/pages/Audit";
+import TraceExplorer from "@/pages/TraceExplorer";
+import Module4Gate from "@/pages/Module4Gate";
+import Dashboard from "@/pages/Dashboard";
+import PatternLab from "@/pages/PatternLab";
 
 const queryClient = new QueryClient();
 
@@ -37,6 +42,7 @@ function Router() {
         <Route path="/command" component={CommandCenter} />
         <Route path="/opportunities" component={Opportunities} />
         <Route path="/paper-trades" component={PaperTrades} />
+        <Route path="/pattern-lab" component={PatternLab} />
         <Route path="/decisions" component={Decisions} />
         <Route path="/proof" component={Proof} />
         <Route path="/risk" component={Risk} />
@@ -51,6 +57,9 @@ function Router() {
         <Route path="/probability" component={Probability} />
         <Route path="/calibration" component={Calibration} />
         <Route path="/audit" component={Audit} />
+        <Route path="/trace" component={TraceExplorer} />
+        <Route path="/module4" component={Module4Gate} />
+        <Route path="/dashboard" component={Dashboard} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

@@ -24,12 +24,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/replit-restart-guard.yml'
-  schedule:
-    - cron: '30,35,40,45,50,55 10 * * 1-5'
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 11 * * 1-5'
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 12 * * 1-5'
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 13 * * 1-5'
-    - cron: '0,5,10,15,20,25,30 14 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
   workflow_dispatch:
     inputs:
       dry_run:

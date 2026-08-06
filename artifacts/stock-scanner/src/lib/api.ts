@@ -613,13 +613,11 @@ export interface MorningBrief {
 }
 
 export async function fetchMorningBrief(): Promise<MorningBrief> {
-  const res = await fetch("/api/morning-brief");
-  if (!res.ok) throw new Error("Morning brief fetch failed");
-  return res.json();
+  return fetchJson<MorningBrief>("/morning-brief");
 }
 
 export async function refreshMorningBrief(): Promise<void> {
-  await fetch("/api/morning-brief/refresh", { method: "POST" });
+  await fetchJson<{ ok?: boolean; brief?: string }>("/morning-brief/refresh", { method: "POST" });
 }
 
 export interface DarkPoolRow {
@@ -800,6 +798,7 @@ export interface ConvictionOutcomeResult {
     high:    { d1: ConvictionOutcomeStats; d3: ConvictionOutcomeStats; d5: ConvictionOutcomeStats };
   };
   total: number;
+  latest_snap_date?: string | null;
 }
 export function fetchConvictionOutcomes() {
   return fetchJson<ConvictionOutcomeResult>(`/conviction-outcomes`);
@@ -1531,10 +1530,14 @@ export interface InsiderRadarRow extends UnusualCallsLogEntry {
 export interface InsiderRadarResult {
   signals:         InsiderRadarRow[];
   total:           number;
+  shown?:          number;
+  truncated?:      boolean;
   earnings_linked: number;
   high_suspicion:  number;
   rare_tickers:    number;
   as_of:           string;
+  stale?:          boolean;
+  generating?:     boolean;
 }
 
 export function fetchInsiderRadar(bust = false) {
@@ -2617,6 +2620,7 @@ export interface CandlestickConfluenceResult {
   signals: CandlestickConfluenceSignal[];
   count: number;
   scan_date: string | null;
+  market_date?: string | null;
   stale: boolean;
 }
 
@@ -2667,6 +2671,21 @@ export function fetchUnusualPuts() {
   return fetchJson<UnusualPutsResult>("/unusual-puts");
 }
 
+export interface UnusualPutsLogEntry extends UnusualPut {
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface UnusualPutsLogResult {
+  signals: UnusualPutsLogEntry[];
+  total: number;
+}
+
+export function fetchUnusualPutsLog(ticker?: string) {
+  const q = ticker ? `?ticker=${encodeURIComponent(ticker)}` : "";
+  return fetchJson<UnusualPutsLogResult>(`/unusual-puts-log${q}`);
+}
+
 export interface BearFlowRow {
   ticker:             string;
   bearish_score:      number;
@@ -2682,7 +2701,7 @@ export interface BearFlowRow {
   hurst:              number;
   regime:             string;
   rvol:               number;
-  pct_change:         number;
+  close_strength:     number;
   signal_count:       number;
   session_days:       number;
   spread_flag:        boolean;
@@ -2695,7 +2714,7 @@ export interface BearFlowRow {
     composite:   number;
     put_flow_detail:    { vol_oi_pts: number; prem_pts: number; multi_pts: number; spread_penalty: number };
     regime_detail:      { vpin: number; hurst: number; l9_score: number; regime: string };
-    tech_detail:        { pct_change: number; rvol: number; max_iv: number };
+    tech_detail:        { close_strength: number; rvol: number; max_iv: number };
     smart_money_detail: { session_days: number; cumul_prem_m: number };
   };
 }

@@ -3,7 +3,8 @@ import {
   Terminal, Activity, BarChart2, Layers, ShieldCheck,
   AlertTriangle, Users, Search, ActivitySquare, Calendar,
   Workflow, RefreshCw, Bell, TrendingUp, BrainCircuit, Target,
-  X, LogOut, Wifi, ChevronRight, ClipboardCheck
+  X, LogOut, Wifi, ChevronRight, ClipboardCheck, GitBranch, Shield,
+  FlaskConical
 } from "lucide-react";
 import { serverLogout } from "@/lib/auth";
 
@@ -14,6 +15,7 @@ const NAV_GROUPS = [
       { href: "/command", label: "Command Center", icon: Terminal },
       { href: "/scheduler", label: "Scheduler", icon: Calendar },
       { href: "/alerts", label: "Alerts", icon: Bell },
+      { href: "/trace", label: "Trace Explorer", icon: GitBranch },
     ],
   },
   {
@@ -21,6 +23,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/opportunities", label: "Opportunities", icon: Search },
       { href: "/paper-trades", label: "Paper Trades", icon: BarChart2 },
+      { href: "/pattern-lab", label: "Pattern Lab", icon: FlaskConical },
       { href: "/decisions", label: "Decisions", icon: Activity },
       { href: "/risk", label: "Risk", icon: AlertTriangle },
       { href: "/options", label: "Options", icon: Workflow },
@@ -31,6 +34,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/regime", label: "Regime", icon: Layers },
       { href: "/signals", label: "Signals", icon: ActivitySquare },
+      { href: "/module4", label: "Signal Gate", icon: Shield },
       { href: "/council", label: "Specialist Council", icon: Users },
       { href: "/probability", label: "Probability", icon: BrainCircuit },
     ],

@@ -18,36 +18,14 @@ Expected shape from position_source_fn():
         ...
     ]
 ====================================================================
-STATUS (as of 2026-07-01): INTENTIONALLY DISABLED — DO NOT "FIX" THIS
-BY WIRING THE MOCK INTO PRODUCTION.
+STATUS (as of 2026-08-04): PAPER-MODE RECONCILER ENABLED.
 
-reconcile_positions() is NOT called anywhere in production (no
-scheduler job, no cron entry, no automated call site). This is
-deliberate, not an oversight: there is currently no real brokerage
-account/positions integration anywhere in this codebase (Tradier
-tokens here are market-data-only — quotes/chains/history — with no
-account or positions access; no Alpaca/IBKR integration exists
-either). The only "broker" available is `mock_position_source()`
-below, which is a permanently hardcoded fake position
-(AAPL/qty 10/long) for exercising the reconciliation logic in
-isolation, not real data.
+`aiem_wiring_infra.run_paper_reconciliation()` is scheduled Mon-Fri 16:10 ET
+and uses `paper_position_source()` / OPEN `aiem_paper_trades` — NEVER
+`mock_position_source()`. Mock remains for isolated unit tests only.
 
-If `mock_position_source()` were ever scheduled into production as
-today's `position_source_fn`, it would manufacture a fresh
-broker/DB mismatch on every single run (its fake AAPL position will
-never match real DB state) and permanently trip
-`has_unresolved_mismatch()`, which `pre_decision_risk_gate.py`'s
-check 0a uses to block ALL new orders. That happened once already
-(2026-06-28 19:38:52 UTC row in reconciliation_log, cleared
-2026-07-01) and would happen again immediately on the next run.
-
-Do not re-enable this by scheduling `reconcile_positions()` or by
-treating `mock_position_source()` as good enough "for now." The
-correct fix, when it's actually time to turn this on, is to write a
-real `get_broker_positions()` against an actual brokerage account
-API (matching the shape documented above) and swap it in as
-`position_source_fn` — then wire `reconcile_positions()` into a
-schedule. Until that broker integration exists, this stays off.
+Broker live positions still require a real brokerage API; until then paper
+self-consistency is the production path. Do not schedule mock_position_source.
 ====================================================================
 """
 

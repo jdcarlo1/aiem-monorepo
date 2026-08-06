@@ -1,0 +1,1724 @@
+{
+  "checked_all_81_tabs": true,
+  "check_method": "Live HTTP probe of every tab primary API(s) on nclexai.org/stock-api. Not full browser click-through of UI chrome.",
+  "generated_at": "2026-08-05T20:40:00Z",
+  "counts": {
+    "STALE": 15,
+    "OK": 41,
+    "FAIL": 7,
+    "EMPTY": 15,
+    "ERR": 1,
+    "DEGRADED": 1,
+    "GATED": 1
+  },
+  "tabs": [
+    {
+      "id": "overview",
+      "label": "OVERVIEW",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/daily-top10",
+        "/bull-flow/top10",
+        "/market/overview"
+      ],
+      "probes": [
+        {
+          "path": "/daily-top10",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": 1,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/bull-flow/top10",
+          "method": "POST",
+          "status": "OK",
+          "code": 200,
+          "n": 40,
+          "note": "Yahoo rate-limited - showing today's stored signals",
+          "err": null
+        },
+        {
+          "path": "/market/overview",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": "feed temporarily paused - try again shortly",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "aitrades",
+      "label": "\ud83e\udd16 AI TRADES",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/ai-trades"
+      ],
+      "probes": [
+        {
+          "path": "/ai-trades",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 5,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "papermoney",
+      "label": "\ud83d\udcb9 PAPER MONEY",
+      "status": "FAIL",
+      "reason": "auth or missing route",
+      "apis": [
+        "/aiem-paper-portfolio"
+      ],
+      "probes": [
+        {
+          "path": "/aiem-paper-portfolio",
+          "method": "GET",
+          "status": "FAIL",
+          "code": 401,
+          "n": null,
+          "note": null,
+          "err": "unauthorized"
+        }
+      ]
+    },
+    {
+      "id": "composite",
+      "label": "\ud83c\udfaf SCORE BOARD",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/composite-score"
+      ],
+      "probes": [
+        {
+          "path": "/composite-score",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": "feed temporarily paused - try again shortly",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "topscore",
+      "label": "\ud83d\udc8e TOP SCORE 8+",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/conviction-stack",
+        "/conviction-stack-track-record"
+      ],
+      "probes": [
+        {
+          "path": "/conviction-stack",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": 3,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/conviction-stack-track-record",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 3,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "morningbrief",
+      "label": "\ud83c\udf05 MORNING BRIEF",
+      "status": "FAIL",
+      "reason": "auth or missing route",
+      "apis": [
+        "/api/morning-brief"
+      ],
+      "probes": [
+        {
+          "path": "/api/morning-brief",
+          "method": "GET",
+          "status": "FAIL",
+          "code": 404,
+          "n": null,
+          "note": "nonjson",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "convergence",
+      "label": "\u26a1 CONVERGENCE",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/convergence"
+      ],
+      "probes": [
+        {
+          "path": "/convergence",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "darkpool",
+      "label": "\ud83c\udf11 DARK POOL",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/darkpool"
+      ],
+      "probes": [
+        {
+          "path": "/darkpool",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 25,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "gammawall",
+      "label": "\ud83e\uddf2 GAMMA WALL",
+      "status": "FAIL",
+      "reason": "auth or missing route",
+      "apis": [
+        "/gamma-wall"
+      ],
+      "probes": [
+        {
+          "path": "/gamma-wall",
+          "method": "GET",
+          "status": "FAIL",
+          "code": 401,
+          "n": null,
+          "note": null,
+          "err": "unauthorized"
+        }
+      ]
+    },
+    {
+      "id": "premarket",
+      "label": "PRE-MARKET",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/premarket"
+      ],
+      "probes": [
+        {
+          "path": "/premarket",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "bullflow",
+      "label": "BULL FLOW",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/bull-flow/top10",
+        "/bull-flow/history"
+      ],
+      "probes": [
+        {
+          "path": "/bull-flow/top10",
+          "method": "POST",
+          "status": "OK",
+          "code": 200,
+          "n": 40,
+          "note": "Yahoo rate-limited - showing today's stored signals",
+          "err": null
+        },
+        {
+          "path": "/bull-flow/history",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 872,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "persistence",
+      "label": "\ud83d\udd01 PERSISTENCE",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/bull-flow/persistence",
+        "/cross-scanner"
+      ],
+      "probes": [
+        {
+          "path": "/bull-flow/persistence",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/cross-scanner",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "smartmoney",
+      "label": "SMART MONEY",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/smart-money/scan"
+      ],
+      "probes": [
+        {
+          "path": "/smart-money/scan",
+          "method": "POST",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "congress",
+      "label": "CONGRESS",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/congress/trades"
+      ],
+      "probes": [
+        {
+          "path": "/congress/trades",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "lookup",
+      "label": "STOCK LOOKUP",
+      "status": "FAIL",
+      "reason": "",
+      "apis": [
+        "/stock/analyze"
+      ],
+      "probes": [
+        {
+          "path": "/stock/analyze",
+          "method": "POST",
+          "status": "FAIL",
+          "code": 405,
+          "n": null,
+          "note": "nonjson",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "scanner",
+      "label": "SCANNER",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/stock/scan"
+      ],
+      "probes": [
+        {
+          "path": "/stock/scan",
+          "method": "POST",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "outcomes",
+      "label": "OUTCOMES",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/outcomes"
+      ],
+      "probes": [
+        {
+          "path": "/outcomes",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 500,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "analytics",
+      "label": "ANALYTICS",
+      "status": "ERR",
+      "reason": "",
+      "apis": [
+        "/analytics/historical"
+      ],
+      "probes": [
+        {
+          "path": "/analytics/historical",
+          "method": "POST",
+          "status": "ERR",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": "No data could be fetched"
+        }
+      ]
+    },
+    {
+      "id": "propdesk",
+      "label": "PROP DESK",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/prop/scan"
+      ],
+      "probes": [
+        {
+          "path": "/prop/scan",
+          "method": "POST",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "squeeze",
+      "label": "SQUEEZE",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/squeeze/detector"
+      ],
+      "probes": [
+        {
+          "path": "/squeeze/detector",
+          "method": "POST",
+          "status": "OK",
+          "code": 200,
+          "n": 19,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "breakout",
+      "label": "BREAKOUT",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/breakout/radar"
+      ],
+      "probes": [
+        {
+          "path": "/breakout/radar",
+          "method": "POST",
+          "status": "OK",
+          "code": 200,
+          "n": 20,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "insiders",
+      "label": "INSIDERS",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/insider/trades"
+      ],
+      "probes": [
+        {
+          "path": "/insider/trades",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": "Yahoo throttled - no cached data yet",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "market",
+      "label": "MARKET",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/market/overview"
+      ],
+      "probes": [
+        {
+          "path": "/market/overview",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": "feed temporarily paused - try again shortly",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "portfolio",
+      "label": "PORTFOLIO",
+      "status": "FAIL",
+      "reason": "auth or missing route",
+      "apis": [
+        "/portfolio",
+        "/aiem-paper-portfolio"
+      ],
+      "probes": [
+        {
+          "path": "/portfolio",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/aiem-paper-portfolio",
+          "method": "GET",
+          "status": "FAIL",
+          "code": 401,
+          "n": null,
+          "note": null,
+          "err": "unauthorized"
+        }
+      ]
+    },
+    {
+      "id": "trackrecord",
+      "label": "\ud83d\udcc8 AI TRACK RECORD",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/ai-trade-log"
+      ],
+      "probes": [
+        {
+          "path": "/ai-trade-log",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 589,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "whale",
+      "label": "\ud83d\udc0b WHALE ACTIVITY",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/whale-activity"
+      ],
+      "probes": [
+        {
+          "path": "/whale-activity",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 140,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "whalelog",
+      "label": "\ud83d\udccb WHALE LOG",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/whale-history"
+      ],
+      "probes": [
+        {
+          "path": "/whale-history",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 500,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "watchlist",
+      "label": "\ud83d\udccc MY WATCHLIST",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/trade-watchlist"
+      ],
+      "probes": [
+        {
+          "path": "/trade-watchlist",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "insiderradar",
+      "label": "\ud83d\udd75\ufe0f INSIDER RADAR",
+      "status": "DEGRADED",
+      "reason": "huge payload + empty outcomes",
+      "apis": [
+        "/insider-radar",
+        "/insider-alerts",
+        "/insider-outcomes"
+      ],
+      "probes": [
+        {
+          "path": "/insider-radar",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 38823,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/insider-alerts",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 158,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/insider-outcomes",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "unusualcalls",
+      "label": "\ud83d\udea8 UNUSUAL CALLS",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/unusual-calls"
+      ],
+      "probes": [
+        {
+          "path": "/unusual-calls",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": 80,
+          "note": "market closed - showing last logged sweep data",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "unusualputs",
+      "label": "\ud83d\udd34 UNUSUAL PUTS",
+      "status": "FAIL",
+      "reason": "no /unusual-puts-log (404)",
+      "apis": [
+        "/unusual-puts",
+        "/unusual-puts-log"
+      ],
+      "probes": [
+        {
+          "path": "/unusual-puts",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": "Market closed \u2014 showing last logged put activity",
+          "err": null
+        },
+        {
+          "path": "/unusual-puts-log",
+          "method": "GET",
+          "status": "FAIL",
+          "code": 404,
+          "n": null,
+          "note": "nonjson",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "bearflow",
+      "label": "\ud83d\udc3b BEAR FLOW",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/bear-flow"
+      ],
+      "probes": [
+        {
+          "path": "/bear-flow",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 16,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "unusualcallslog",
+      "label": "\ud83d\udccb CALLS LOG",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/unusual-calls-log"
+      ],
+      "probes": [
+        {
+          "path": "/unusual-calls-log",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 500,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "smpressure",
+      "label": "\ud83d\udd25 SMART MONEY PRESSURE",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/conviction-stack"
+      ],
+      "probes": [
+        {
+          "path": "/conviction-stack",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": 3,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "convictionstack",
+      "label": "\ud83c\udfaf 8-LAYER CONVICTION",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/conviction-stack"
+      ],
+      "probes": [
+        {
+          "path": "/conviction-stack",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": 3,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "sweepradar",
+      "label": "\ud83d\udd0d SWEEP RADAR",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/far-otm-sweeps"
+      ],
+      "probes": [
+        {
+          "path": "/far-otm-sweeps",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 11,
+          "note": "These are directional conviction bets, not hedges. Probability of innocence <3%.",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "sectorheat",
+      "label": "\ud83c\udf21\ufe0f SECTOR HEAT",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/sector-heat"
+      ],
+      "probes": [
+        {
+          "path": "/sector-heat",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "gammapressure",
+      "label": "\u26a1 GAMMA SQUEEZE",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/gamma-pressure"
+      ],
+      "probes": [
+        {
+          "path": "/gamma-pressure",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 38,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "oiaccum",
+      "label": "\ud83d\udcc8 OI BUILDUP",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/oi-accumulation"
+      ],
+      "probes": [
+        {
+          "path": "/oi-accumulation",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 10,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "etfcalls",
+      "label": "\ud83d\udd25 HC ETFs",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/etf-calls"
+      ],
+      "probes": [
+        {
+          "path": "/etf-calls",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 300,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "convictioncalls",
+      "label": "\ud83d\udd25 HIGH CONVICTION",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/conviction-calls"
+      ],
+      "probes": [
+        {
+          "path": "/conviction-calls",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 15,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "eodsweep",
+      "label": "\ud83c\udf19 EOD SWEEP",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/eod-sweeps"
+      ],
+      "probes": [
+        {
+          "path": "/eod-sweeps",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 31,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "sweeptrack",
+      "label": "\ud83d\udcca SWEEP TRACK RECORD",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/eod-sweep-track-record"
+      ],
+      "probes": [
+        {
+          "path": "/eod-sweep-track-record",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "0dte-paper",
+      "label": "\ud83c\udfaf 0DTE PAPER TRACK",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/0dte/paper-trades",
+        "/0dte/paper-stats"
+      ],
+      "probes": [
+        {
+          "path": "/0dte/paper-trades",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 125,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/0dte/paper-stats",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "convictiontrack",
+      "label": "\ud83c\udfaf CONVICTION TRACK RECORD",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/conviction-outcomes"
+      ],
+      "probes": [
+        {
+          "path": "/conviction-outcomes",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 26,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "mytrades",
+      "label": "\ud83d\udcc8 MY TRADES",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/my-trades"
+      ],
+      "probes": [
+        {
+          "path": "/my-trades",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "aiearlymovers",
+      "label": "\ud83e\udde0 AI EARLY MOVERS",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/ai-early-movers"
+      ],
+      "probes": [
+        {
+          "path": "/ai-early-movers",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 5,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "aishortcalls",
+      "label": "\u26a1 AI SHORT CALLS",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/ai-short-calls"
+      ],
+      "probes": [
+        {
+          "path": "/ai-short-calls",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": 12,
+          "note": "cached - Yahoo rate limited",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "shortcallrecord",
+      "label": "\ud83d\udccb SHORT CALLS RECORD",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/ai-short-calls-log"
+      ],
+      "probes": [
+        {
+          "path": "/ai-short-calls-log",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 544,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "netflow",
+      "label": "\ud83d\udcb0 NET FLOW",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/net-flow"
+      ],
+      "probes": [
+        {
+          "path": "/net-flow",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 16,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "micronetflow",
+      "label": "\ud83d\udd2c MICRO NET FLOW",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/net-flow/microcap"
+      ],
+      "probes": [
+        {
+          "path": "/net-flow/microcap",
+          "method": "POST",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": "Market closed \u00b7 showing last trading day's scan",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "microcalls",
+      "label": "\ud83c\udfaf MICRO/SMALL CALLS",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/unusual-calls/microcap"
+      ],
+      "probes": [
+        {
+          "path": "/unusual-calls/microcap",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 3,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "midnetflow",
+      "label": "\ud83c\udfe2 MID NET FLOW",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/net-flow/microcap"
+      ],
+      "probes": [
+        {
+          "path": "/net-flow/microcap",
+          "method": "POST",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": "Market closed \u00b7 showing last trading day's scan",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "streakflow",
+      "label": "\ud83d\udcc8 FLOW STREAK",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/net-flow/multiday"
+      ],
+      "probes": [
+        {
+          "path": "/net-flow/multiday",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 2,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "crossscanner",
+      "label": "\ud83d\udea8 DOUBLE SIGNAL",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/cross-scanner",
+        "/morning-inflows"
+      ],
+      "probes": [
+        {
+          "path": "/cross-scanner",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        },
+        {
+          "path": "/morning-inflows",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "standoutflow",
+      "label": "\ud83d\udd25 STANDOUT FLOW",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/morning-inflows"
+      ],
+      "probes": [
+        {
+          "path": "/morning-inflows",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "standouttrack",
+      "label": "\ud83d\udcc8 STANDOUT TRACK",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/standout-track"
+      ],
+      "probes": [
+        {
+          "path": "/standout-track",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 300,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "morningrunners",
+      "label": "\ud83c\udf05 MORNING RUNNERS",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/morning-runners"
+      ],
+      "probes": [
+        {
+          "path": "/morning-runners",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 75,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "eodaccum",
+      "label": "\ud83c\udf19 EOD ACCUM",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/eod-accumulation"
+      ],
+      "probes": [
+        {
+          "path": "/eod-accumulation",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": "Yahoo rate limited - try again shortly",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "eodaccumtrack",
+      "label": "\ud83d\udcca EOD TRACK",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/eod-accum-track"
+      ],
+      "probes": [
+        {
+          "path": "/eod-accum-track",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 51,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "squeezesetup",
+      "label": "\ud83d\udca5 SQUEEZE SETUP",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/squeeze-setup"
+      ],
+      "probes": [
+        {
+          "path": "/squeeze-setup",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": "market closed - no scan data yet for this week",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "breakout52week",
+      "label": "\ud83d\ude80 52WK BREAKOUT",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/52week-breakout"
+      ],
+      "probes": [
+        {
+          "path": "/52week-breakout",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": 15,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "sectorrotation",
+      "label": "\ud83c\udf00 SECTOR ROTATION",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/sector-rotation"
+      ],
+      "probes": [
+        {
+          "path": "/sector-rotation",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "multisignal",
+      "label": "\ud83c\udfaf MULTI-SIGNAL",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/multi-signal"
+      ],
+      "probes": [
+        {
+          "path": "/multi-signal",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": "Yahoo rate limited - try again shortly",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "ivrank",
+      "label": "\ud83d\udcca IV RANK",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/iv-rank"
+      ],
+      "probes": [
+        {
+          "path": "/iv-rank",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "marketpress",
+      "label": "\ud83d\udcf0 MARKET PRESS",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/market-press"
+      ],
+      "probes": [
+        {
+          "path": "/market-press",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "earningscal",
+      "label": "\ud83d\udcc5 EARNINGS CALENDAR",
+      "status": "STALE",
+      "reason": "",
+      "apis": [
+        "/earnings-calendar"
+      ],
+      "probes": [
+        {
+          "path": "/earnings-calendar",
+          "method": "GET",
+          "status": "STALE",
+          "code": 200,
+          "n": null,
+          "note": "Yahoo rate limited - try again shortly",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "squeezeradar",
+      "label": "\ud83e\ude73 SQUEEZE RADAR",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/short-squeeze"
+      ],
+      "probes": [
+        {
+          "path": "/short-squeeze",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": "No scan data yet - first run occurs during market hours (Mon\u2013Fri 9:30 AM\u20134 PM ET)",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "nanomorning",
+      "label": "\ud83d\ude80 NANO MORNING",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/nano-morning/candidates"
+      ],
+      "probes": [
+        {
+          "path": "/nano-morning/candidates",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "nanocarry",
+      "label": "\u26a1 S1B \u00b7 S1C \u00b7 S1D",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/nano-carry/picks"
+      ],
+      "probes": [
+        {
+          "path": "/nano-carry/picks",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 16,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "ics",
+      "label": "\ud83c\udfaf CONVICTION SCORE",
+      "status": "OK",
+      "reason": "client-only",
+      "apis": [],
+      "probes": []
+    },
+    {
+      "id": "multidayrunner",
+      "label": "\ud83d\udcc8 MULTI-DAY RUNNER",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/multiday-runners"
+      ],
+      "probes": [
+        {
+          "path": "/multiday-runners",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "runneroutcomes",
+      "label": "\ud83d\udcca RUNNER OUTCOMES",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/runner-outcomes"
+      ],
+      "probes": [
+        {
+          "path": "/runner-outcomes",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 38,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "steadygrinder",
+      "label": "\ud83d\udd04 STEADY GRINDERS",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/grinder-scan"
+      ],
+      "probes": [
+        {
+          "path": "/grinder-scan",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 268,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "gapvolume",
+      "label": "\u26a1 GAP+VOL SIGNAL",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/gap-volume-signal"
+      ],
+      "probes": [
+        {
+          "path": "/gap-volume-signal",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 29,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "orb",
+      "label": "\ud83d\udcd0 ORB BREAKOUT",
+      "status": "EMPTY",
+      "reason": "",
+      "apis": [
+        "/orb-signals"
+      ],
+      "probes": [
+        {
+          "path": "/orb-signals",
+          "method": "GET",
+          "status": "EMPTY",
+          "code": 200,
+          "n": 0,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "washout-complete",
+      "label": "\ud83c\udfaf WASHOUT COMPLETE",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/momentum-washout-complete"
+      ],
+      "probes": [
+        {
+          "path": "/momentum-washout-complete",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 13,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "candlestick-confluence",
+      "label": "\ud83d\udd6f\ufe0f CANDLESTICK CONFLUENCE",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/candlestick-confluence"
+      ],
+      "probes": [
+        {
+          "path": "/candlestick-confluence",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": 200,
+          "note": null,
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "quantagent",
+      "label": "\ud83e\udd16 QUANT AGENT",
+      "status": "GATED",
+      "reason": "BYOK/streaming",
+      "apis": [
+        "/aiem/chat/stream"
+      ],
+      "probes": []
+    },
+    {
+      "id": "gasboard",
+      "label": "\u26a1 GAS BOARD",
+      "status": "FAIL",
+      "reason": "",
+      "apis": [
+        "/user/gas-board"
+      ],
+      "probes": [
+        {
+          "path": "/user/gas-board",
+          "method": "GET",
+          "status": "FAIL",
+          "code": 405,
+          "n": null,
+          "note": "nonjson",
+          "err": null
+        }
+      ]
+    },
+    {
+      "id": "signalintel",
+      "label": "\ud83d\udd2c SIGNAL INTEL",
+      "status": "OK",
+      "reason": "",
+      "apis": [
+        "/signal-intelligence"
+      ],
+      "probes": [
+        {
+          "path": "/signal-intelligence",
+          "method": "GET",
+          "status": "OK",
+          "code": 200,
+          "n": null,
+          "note": null,
+          "err": null
+        }
+      ]
+    }
+  ]
+}

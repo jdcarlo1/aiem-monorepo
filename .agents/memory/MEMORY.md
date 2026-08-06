@@ -4,7 +4,6 @@
 - [OE Dashboard Phase B normalisers](oe-dashboard-phase-b-normalisers.md) — all 6 pages + actual response shapes; /candidates route is plain array; job_heartbeats has NO status/recorded_at cols; grade_outcomes not wired to record_job_success
 - [Options scheduler hot-reload gap](options-scheduler-hot-reload.md) — scheduler never reloads code; must restart workflow after any aiem_options_scheduler.py change; _BOOT_COMMIT+/health drift fields+check_scheduler_drift.sh now detect stale processes in one query
 - [post_seal_verify PSV8 allowlist](post-seal-psv8-allowlist.md) — PSV8 SKIP for non-test-suite CMDs; WARN when non-allowlist CMD still produces SUMMARY: line; 4-counter summary (PASS/FAIL/SKIPPED/WARN); sha256=35e2aae1
-- [Git dev-branch autosync](git-dev-autosync.md) — push `git add -u && commit && push origin dev` at end of every session; all 10 workflow slots full so no persistent daemon possible
 - [Ledger bypass protocol](ledger-bypass-protocol.md) — any pre-push block on trading_logic_approvals.jsonl means STOP and ask; never --no-verify; never write approved_by="Joel" on self-issued records
 - [Git dev-branch autosync](git-dev-autosync.md) — push `git add -u && commit && push origin dev` at end of every session; workflow slots are NOT hard-capped (stat-research-runner added as 13th workflow 2026-08-04)
 - [Stat research runner workflow wiring](stat-research-runner.md) — was never persistent (Jul 25 data = one-time e2e test); now has workflow + health server on port 5057; writes aiem_historical_pattern_grid
@@ -25,6 +24,8 @@
 - [DPL Phase 3 — Reproducibility Replay](options-dpl-phase3.md) — D17-R1 DONE; SEQ=56: 195P/8F; freeze baseline restored; C44_legacy_entry_documented in _A8_L1_META_EXCL (SEQ=52+53 only); 8 FAILs=known blockers
 - [DPL Phase 1 — Immutable Audit Record](dpl-phase1-immutable-audit.md) — oe_decision_audit; trigger allows DELETE/UPDATE on is_test_record=TRUE only; integrity gate in _post_write_integrity_check; SEQ=2 PASS=44
 - [AIEM full verification audit](aiem-full-verification-audit.md) — 162 items audited: 121 PASS/27 PROXY/5 CONDITIONAL/8 UNSUPPORTED/1 FAIL; only validated signal=gap_volume; 152 scheduled jobs; aiem_tool_registry cols=tool_name/tool_type/owning_module_or_phase/required_inputs/produced_outputs; d3_governance_events does NOT exist (use d3_governance_decisions)
+- [AIEM communication protocol](aiem-communication-protocol.md) — no inbox; code/DB/admin/script only; restart = message; never run AIEM’s 24/7 or backtests as Cursor agent job (Joel confirmed via stocksai screenshots 2026-08-05)
+- [Backtest delegation rule](backtest-delegation-rule.md) — route backtests/research to AIEM; Cursor agent wires scripts/workflows only
 - [Standing verification protocol](standing-verification-protocol.md) — 5 permanent rules; Rule 5 (raw grep/sed for code-location claims) added 2026-07-17; narrative/described snippets rejected outright
 - [verified_run.sh canonical hash](verified-run-canonical.md) — re-baselined 2026-07-27 (c058d12); current canonical=dce94f6e…; old 97589232… is stale, not drift
 - [Dual timezone timestamp rule](dual-timezone-timestamp-rule.md) — all permanent records must show UTC and ET side by side; e.g. 2026-07-28T00:05Z UTC / 2026-07-27 20:05 ET; late July = EDT (UTC−4)

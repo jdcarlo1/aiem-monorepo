@@ -29,6 +29,7 @@
 --        Note: created_at sits at ordinal_position=3 in dev (legacy stub
 --        position) vs position=8 on prod; Drizzle compares by name/type,
 --        not ordinal, so this does NOT produce any DROP/ALTER in the diff.
+
 --
 -- ITEM 2  aiem_pipeline                   TABLE
 --   Prod status: CONFIRMED LIVE (Cursor query 2026-08-05, 13 rows,
@@ -37,6 +38,7 @@
 --        information_schema — all cols, types, and nullability match prod.
 --        Same ordinal_position caveat as aiem_diagnostics (created_at=pos 3
 --        in dev, pos 8 in prod); harmless for migration diff purposes.
+
 --
 -- ITEM 3  layer9_scores.xmom_zscore       COLUMN
 --   Prod status: UNVERIFIED — absent from dev and from all current Python code.
@@ -693,6 +695,7 @@ CREATE TABLE IF NOT EXISTS aiem_pipeline (
 );
 CREATE INDEX IF NOT EXISTS aiem_pipeline_trace_idx ON aiem_pipeline (trace_id);
 CREATE INDEX IF NOT EXISTS aiem_pipeline_module_idx ON aiem_pipeline (module_name);
+
 
 -- ITEM 3 — layer9_scores.xmom_zscore
 -- Verified Neon: data_type=double precision, udt_name=float8,
