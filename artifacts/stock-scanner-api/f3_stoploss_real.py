@@ -25,7 +25,7 @@ TRADIER_TOKEN   = (os.environ.get("TRADIER_API_TOKEN_2") or
 TRADE_SIZE      = 200
 BACKTEST_DAYS   = 365
 API_DELAY       = 0.5
-STOP_LEVELS     = [0.30, 0.35, 0.40, 0.45, 0.50]
+STOP_LEVELS     = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
