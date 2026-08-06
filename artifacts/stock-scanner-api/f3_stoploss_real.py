@@ -23,9 +23,9 @@ POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")
 TRADIER_TOKEN   = (os.environ.get("TRADIER_API_TOKEN_2") or
                    os.environ.get("TRADIER_API_TOKEN", ""))
 TRADE_SIZE      = 200
-BACKTEST_DAYS   = 365
-API_DELAY       = 0.5
-STOP_LEVELS     = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
+BACKTEST_DAYS   = 730
+API_DELAY       = 0.4
+STOP_LEVELS     = [0.45, 0.60]   # winners from year-1 sweep
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -412,3 +412,73 @@ if __name__ == "__main__":
     reg, pm  = organize(raw)
     results, skipped = run(dm, reg, pm)
     print_report(results)
+
+    # ── year-by-year split ────────────────────────────────────────────────────
+    if not results:
+        raise SystemExit
+
+    cutoff  = (end_date - timedelta(days=365)).strftime("%Y-%m-%d")
+    yr2     = [r for r in results if r["date"] <  cutoff]   # earlier year
+    yr1     = [r for r in results if r["date"] >= cutoff]   # recent year
+
+    def yr_stats(label, subset):
+        if not subset: return
+        n_s   = len(subset)
+        dates = sorted(r["date"] for r in subset)
+        ns_tot = sum(r["nostop_pnl"] for r in subset)
+        ns_wr  = sum(1 for r in subset if r["nostop_pnl"] > 0) / n_s * 100
+        print(f"\n  {label}")
+        print(f"  {dates[0]} → {dates[-1]}  |  {n_s} trades")
+        print(f"  {'Metric':<28} {'No stop':>10}"
+              + "".join(f"  {'SL'+str(int(sl*100))+'%':>10}" for sl in STOP_LEVELS))
+        print("  " + "─" * (28 + 12 * (1 + len(STOP_LEVELS))))
+
+        sl_tots = {sl: sum(r["stop_pnls"][sl] for r in subset) for sl in STOP_LEVELS}
+        sl_wrs  = {sl: sum(1 for r in subset if r["stop_pnls"][sl] > 0) / n_s * 100
+                   for sl in STOP_LEVELS}
+
+        def pr(metric, base, cols):
+            print(f"  {metric:<28} {base:>10}"
+                  + "".join(f"  {c:>10}" for c in cols))
+
+        pr("Total P&L",
+           f"${ns_tot:>+8,.2f}",
+           [f"${sl_tots[sl]:>+8,.2f}" for sl in STOP_LEVELS])
+        pr("Cash-on-cash",
+           f"{ns_tot/(TRADE_SIZE*n_s)*100:>+8.1f}%",
+           [f"{sl_tots[sl]/(TRADE_SIZE*n_s)*100:>+8.1f}%" for sl in STOP_LEVELS])
+        pr("Win rate",
+           f"{ns_wr:>8.1f}%",
+           [f"{sl_wrs[sl]:>8.1f}%" for sl in STOP_LEVELS])
+
+        best_sl  = max(STOP_LEVELS, key=lambda sl: sl_tots[sl])
+        best_net = sl_tots[best_sl] - ns_tot
+        print(f"\n  Best stop: {int(best_sl*100)}%  "
+              f"adds ${best_net:+,.2f} vs no-stop  "
+              f"(${sl_tots[best_sl]:+,.2f} total)")
+
+    print()
+    print("=" * 80)
+    print("  YEAR-BY-YEAR OUT-OF-SAMPLE CHECK")
+    print(f"  Split at {cutoff}")
+    print("=" * 80)
+    yr_stats("YEAR 2 — earlier / out-of-sample", yr2)
+    yr_stats("YEAR 1 — recent  / in-sample",     yr1)
+
+    print()
+    print("=" * 80)
+    print("  2-YEAR COMBINED")
+    print("=" * 80)
+    n_all   = len(results)
+    ns_all  = sum(r["nostop_pnl"] for r in results)
+    sl_all  = {sl: sum(r["stop_pnls"][sl] for r in results) for sl in STOP_LEVELS}
+    print(f"  {'Metric':<28} {'No stop':>10}"
+          + "".join(f"  {'SL'+str(int(sl*100))+'%':>10}" for sl in STOP_LEVELS))
+    print("  " + "─" * (28 + 12 * (1 + len(STOP_LEVELS))))
+    print(f"  {'Total P&L':<28} ${ns_all:>+8,.2f}"
+          + "".join(f"  ${sl_all[sl]:>+8,.2f}" for sl in STOP_LEVELS))
+    print(f"  {'Cash-on-cash':<28} {ns_all/(TRADE_SIZE*n_all)*100:>+8.1f}%"
+          + "".join(f"  {sl_all[sl]/(TRADE_SIZE*n_all)*100:>+8.1f}%"
+                    for sl in STOP_LEVELS))
+    print(f"  {'Trades':<28} {n_all:>10}")
+    print()
