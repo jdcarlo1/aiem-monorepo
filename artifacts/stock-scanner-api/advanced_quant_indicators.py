@@ -150,41 +150,75 @@ def amihud_illiquidity(returns: pd.Series, dollar_volume: pd.Series,
 # 2. FLOW TOXICITY
 # =====================================================================
 
-def vpin(volume: pd.Series, price: pd.Series, bucket_size: int = None) -> pd.Series:
+def vpin(volume: pd.Series, price: pd.Series, bucket_size: int = None,
+         n_buckets: int = 50) -> pd.Series:
     """
     Volume-synchronized Probability of Informed Trading (VPIN).
     Easley, Lopez de Prado, O'Hara (2012).
 
-    VPIN estimates the fraction of trading volume from informed traders
-    by looking at imbalances between buy-initiated and sell-initiated
-    volume within fixed-volume buckets. High VPIN → toxic flow / flash
-    crash risk; low VPIN → balanced, uninformed two-sided flow.
+    Bars are packed into equal-VOLUME buckets (not equal bar-count windows).
+    Buy/sell initiation uses the tick rule. VPIN at a bar is the mean absolute
+    volume imbalance over the last ``n_buckets`` completed buckets.
+
+    High VPIN → toxic / informed flow; low VPIN → balanced two-sided flow.
 
     Args:
         volume: pandas Series of period volumes.
         price: pandas Series of prices, same index.
-        bucket_size: number of periods per bucket (default: len / 50).
+        bucket_size: accepted for API compatibility; ignored. Volume target is
+            mean(volume) so daily bars produce ~1 bucket per bar (true volume
+            sync still applies when bar sizes differ).
+        n_buckets: rolling window of completed buckets (default 50).
 
     Returns:
-        pandas Series of VPIN values, same index as inputs.
+        pandas Series of VPIN values, same index as inputs (NaN until enough
+        buckets have closed).
     """
-    if bucket_size is None:
-        bucket_size = max(1, len(volume) // 50)
-
-    price_chg = price.diff().fillna(0)
-    buy_vol = volume * (price_chg > 0).astype(float)
-    sell_vol = volume * (price_chg <= 0).astype(float)
+    # Keep signature stable for callers that still pass bucket_size=.
+    _ = bucket_size
 
     n = len(volume)
     vpin_vals = pd.Series(np.nan, index=volume.index)
-    num_buckets = 50
+    if n < 20 or n_buckets < 2:
+        return vpin_vals
 
-    for i in range(bucket_size * num_buckets, n):
-        window_buy = buy_vol.iloc[i - bucket_size * num_buckets:i]
-        window_sell = sell_vol.iloc[i - bucket_size * num_buckets:i]
-        total = (window_buy + window_sell).sum()
-        if total > 0:
-            vpin_vals.iloc[i] = abs(window_buy.sum() - window_sell.sum()) / total
+    vol = volume.astype(float).fillna(0.0).to_numpy()
+    px = price.astype(float).to_numpy()
+    if float(vol.sum()) <= 0:
+        return vpin_vals
+
+    dpx = np.diff(px, prepend=px[0])
+    buy = np.where(dpx > 0, vol, 0.0)
+    sell = np.where(dpx < 0, vol, 0.0)
+    flat = dpx == 0
+    buy[flat] = vol[flat] * 0.5
+    sell[flat] = vol[flat] * 0.5
+
+    # Equal-volume bucket target: mean bar volume → ~1 bucket/bar on uniform
+    # volume, and true volume-sync when bars differ (large bars fill faster).
+    pos = vol[vol > 0]
+    V = float(np.mean(pos)) if pos.size else 0.0
+    if V <= 0:
+        return vpin_vals
+
+    imbalances: list = []
+    acc_b = acc_s = acc_v = 0.0
+    min_window = max(10, min(n_buckets, n // 5))
+    for i in range(n):
+        acc_b += float(buy[i])
+        acc_s += float(sell[i])
+        acc_v += float(vol[i])
+        while acc_v >= V:
+            ratio = V / acc_v
+            b_buy = acc_b * ratio
+            b_sell = acc_s * ratio
+            imbalances.append(abs(b_buy - b_sell) / V)
+            acc_b *= (1.0 - ratio)
+            acc_s *= (1.0 - ratio)
+            acc_v -= V
+            if len(imbalances) >= min_window:
+                w = min(n_buckets, len(imbalances))
+                vpin_vals.iloc[i] = float(np.mean(imbalances[-w:]))
 
     return vpin_vals
 
