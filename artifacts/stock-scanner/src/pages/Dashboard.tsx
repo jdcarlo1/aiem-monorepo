@@ -9650,7 +9650,7 @@ function ZeroDtePaperTab() {
       {/* Config disclaimer */}
       <div style={{ background: "#1e293b", border: "1px solid #ca8a04", borderRadius: 8, padding: "8px 14px", marginBottom: 14, fontSize: 11, color: "#fbbf24" }}>
         ⚙️ <strong>Active config:</strong>&nbsp;
-        Profit target <strong>+50%</strong> of entry premium · Stop loss <strong>−20%</strong> of entry premium · 1 contract per trade.
+        Profit target <strong>+50%</strong> of entry premium · Stop loss <strong>−6%</strong> of entry premium · 1 contract per trade.
         Config source: <code style={{ fontSize: 10 }}>_PAPER_PROFIT_TARGET_PCT / _PAPER_STOP_LOSS_PCT</code> in <code style={{ fontSize: 10 }}>patterns/zero_dte_sweep.py</code>.
         Monitoring: <strong>separate 1-min poll</strong> (APScheduler id=<code style={{ fontSize: 10 }}>zero_dte_paper_monitor</code>) — not the 5-min scan cycle.
         EOD closer: <strong>15:35 ET daily</strong> (id=<code style={{ fontSize: 10 }}>zero_dte_paper_eod</code>).
@@ -17041,7 +17041,7 @@ function BearFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                             `Regime: ${bd.regime_detail.regime}`,
                           ]},
                         { label: "TECHNICAL", pts: bd.technical, max: 25, lines: [
-                            `Move: ${bd.tech_detail.pct_change > 0 ? "+" : ""}${bd.tech_detail.pct_change}%`,
+                            `Close strength: ${bd.tech_detail.close_strength}`,
                             `RVOL: ${bd.tech_detail.rvol}x avg`,
                             `Max IV: ${bd.tech_detail.max_iv}%`,
                           ]},

@@ -45,9 +45,9 @@ _WINDOWS_ET     = [(10, 0, 11, 30), (14, 0, 15, 30)]
 
 # ── Paper trading config ──────────────────────────────────────────────────────
 # ⚠️  PROPOSED DEFAULTS — flagged for approval (per directive note).
-#    profit_target_pct=1.00 → exit when option premium doubles (+100%).
-#    stop_loss_pct=0.50     → exit when option loses half its value (−50%).
-#    These are the most common retail 0DTE paper-trading defaults.
+#    profit_target_pct=0.50 → exit when option premium rises +50%.
+#    stop_loss_pct=0.06     → exit when option loses 6% of entry premium (−6%).
+#    These are the live paper-trading defaults (UI banner must match).
 #    Change these constants to adjust; they are NOT hardcoded in any logic.
 _PAPER_PROFIT_TARGET_PCT: float = 0.50   # +50% gain on entry premium → target exit
 _PAPER_STOP_LOSS_PCT:     float = 0.06   # −6% loss on entry premium  → stop exit

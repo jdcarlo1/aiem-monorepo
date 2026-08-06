@@ -34119,10 +34119,12 @@ def _mkt_compute_indicators(ticker, start_date=None, end_date=None):
                 obv[i] = obv[i-1]
 
         # ── MFI — Money Flow Index (14) ───────────────────────────────────
+        # Sign money flow by typical-price change (standard MFI), NOT close-to-close.
+        # Matches the vectorized backfill path below (tp.diff()).
         mfi = [None] * n
         tp_all = (highs + lows + closes) / 3
-        mf_pos = [tp_all[i] * vols[i] if closes[i] >= closes[i-1] else 0 for i in range(n)]
-        mf_neg = [tp_all[i] * vols[i] if closes[i] <  closes[i-1] else 0 for i in range(n)]
+        mf_pos = [tp_all[i] * vols[i] if i > 0 and tp_all[i] > tp_all[i-1] else 0 for i in range(n)]
+        mf_neg = [tp_all[i] * vols[i] if i > 0 and tp_all[i] < tp_all[i-1] else 0 for i in range(n)]
         for i in range(14, n):
             pos_sum = sum(mf_pos[i-13:i+1])
             neg_sum = sum(mf_neg[i-13:i+1])
@@ -55451,6 +55453,7 @@ def market_overview():
 
     # Cold start with no cache: build a fast Tradier-only snapshot synchronously
     # so Overview is never a blank generating spinner when Yahoo is tripped.
+    # (from merged #28 / main — kept alongside PR26 Neon cache fallback above)
     try:
         SECTORS = [
             ("XLK",  "Technology"),    ("XLF",  "Financials"),
@@ -55497,6 +55500,7 @@ def market_overview():
             return jsonify(out)
     except Exception as _mo_sync_e:
         print(f"[market_overview] sync Tradier fallback: {_mo_sync_e}")
+
 
     return jsonify({
         "sectors": [], "indices": [],
@@ -60749,13 +60753,14 @@ def eod_sweep_track_record():
                     "score": float(r[3] or 0), "grade": r[4],
                     "num_strikes": r[5], "total_prem_m": float(r[6] or 0),
                     "max_vol_oi": float(r[7] or 0), "avg_iv": float(r[8] or 0),
-                    "price_at_signal": float(r[9]) if r[9] else None,
-                    "close_t1": float(r[10]) if r[10] else None,
-                    "close_t3": float(r[11]) if r[11] else None,
-                    "close_t5": float(r[12]) if r[12] else None,
-                    "return_t1": float(r[13]) if r[13] else None,
-                    "return_t3": float(r[14]) if r[14] else None,
-                    "return_t5": float(r[15]) if r[15] else None,
+                    # Use `is not None` — `if r[i]` treats legitimate 0.0 flat returns as null.
+                    "price_at_signal": float(r[9]) if r[9] is not None else None,
+                    "close_t1": float(r[10]) if r[10] is not None else None,
+                    "close_t3": float(r[11]) if r[11] is not None else None,
+                    "close_t5": float(r[12]) if r[12] is not None else None,
+                    "return_t1": float(r[13]) if r[13] is not None else None,
+                    "return_t3": float(r[14]) if r[14] is not None else None,
+                    "return_t5": float(r[15]) if r[15] is not None else None,
                 } for r in recent
             ],
             "generated_at": _dt.now().isoformat(),
@@ -76081,6 +76086,7 @@ def unusual_puts():
                            last_seen  AT TIME ZONE 'UTC'
                     FROM unusual_puts_log
                     WHERE last_seen >= NOW() - INTERVAL '14 days'
+
                       AND closing_flag = FALSE
                       AND vol_oi >= 1.5
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80

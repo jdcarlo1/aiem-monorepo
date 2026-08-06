@@ -55,14 +55,36 @@ def _rsi(closes: list, period: int = 14) -> float:
 
 
 def _macd(closes: list) -> Dict:
-    """MACD(12,26,9). Returns {'macd': float, 'signal': float, 'hist': float}."""
+    """MACD(12,26,9). Returns {'macd': float, 'signal': float, 'hist': float}.
+
+    Builds the full MACD series then takes EMA(9) of that series for signal —
+    not a stub (signal=0 / hist=0.9×macd), which previously understated crosses.
+    """
     if len(closes) < 35:
         return {"macd": 0.0, "signal": 0.0, "hist": 0.0}
-    ema12 = _ema(closes, 12) or 0.0
-    ema26 = _ema(closes, 26) or 0.0
-    macd_line = ema12 - ema26
-    # Signal: 9-period EMA of macd_line (approximate with recent values)
-    return {"macd": round(macd_line, 4), "signal": 0.0, "hist": round(macd_line * 0.9, 4)}
+    k12, k26 = 2.0 / 13.0, 2.0 / 27.0
+    ema12 = sum(closes[:12]) / 12.0
+    ema26 = sum(closes[:26]) / 26.0
+    macd_series: list[float] = []
+    for i, c in enumerate(closes):
+        if i >= 12:
+            ema12 = c * k12 + ema12 * (1 - k12)
+        if i >= 26:
+            ema26 = c * k26 + ema26 * (1 - k26)
+            macd_series.append(ema12 - ema26)
+    if len(macd_series) < 9:
+        macd_line = macd_series[-1] if macd_series else 0.0
+        return {"macd": round(macd_line, 4), "signal": 0.0, "hist": round(macd_line, 4)}
+    k9 = 2.0 / 10.0
+    signal = sum(macd_series[:9]) / 9.0
+    for v in macd_series[9:]:
+        signal = v * k9 + signal * (1 - k9)
+    macd_line = macd_series[-1]
+    return {
+        "macd": round(macd_line, 4),
+        "signal": round(signal, 4),
+        "hist": round(macd_line - signal, 4),
+    }
 
 
 def _momentum_pct(closes: list, n: int) -> Optional[float]:
