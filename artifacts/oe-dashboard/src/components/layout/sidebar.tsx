@@ -7,12 +7,14 @@ import {
   FileCheck,
   TrendingUp,
   AlertCircle,
+  FlaskConical,
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Live Decisions', href: '/', icon: Activity },
   { name: 'Decision Proof', href: '/decisions', icon: FileCheck },
   { name: 'Positions & P&L', href: '/positions', icon: TrendingUp },
+  { name: 'Strategies', href: '/strategies', icon: FlaskConical },
   { name: 'Calibration', href: '/calibration', icon: BarChart3 },
   { name: 'System Status', href: '/status', icon: AlertCircle },
 ];

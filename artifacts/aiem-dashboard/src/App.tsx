@@ -12,6 +12,7 @@ import Login from "@/pages/login";
 import CommandCenter from "@/pages/CommandCenter";
 import Opportunities from "@/pages/Opportunities";
 import PaperTrades from "@/pages/PaperTrades";
+import PatternLab from "@/pages/PatternLab";
 import Decisions from "@/pages/Decisions";
 import Proof from "@/pages/Proof";
 import Risk from "@/pages/Risk";
@@ -37,6 +38,7 @@ function Router() {
         <Route path="/command" component={CommandCenter} />
         <Route path="/opportunities" component={Opportunities} />
         <Route path="/paper-trades" component={PaperTrades} />
+        <Route path="/pattern-lab" component={PatternLab} />
         <Route path="/decisions" component={Decisions} />
         <Route path="/proof" component={Proof} />
         <Route path="/risk" component={Risk} />

@@ -13,6 +13,7 @@ import PositionsPage from '@/pages/positions';
 import WhyTradePage from '@/pages/why-trade';
 import CalibrationPage from '@/pages/calibration';
 import StatusPage from '@/pages/status';
+import StrategiesPage from '@/pages/strategies';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
@@ -60,6 +61,9 @@ function Router() {
       </Route>
       <Route path="/calibration">
         <ProtectedRoute component={CalibrationPage} />
+      </Route>
+      <Route path="/strategies">
+        <ProtectedRoute component={StrategiesPage} />
       </Route>
       <Route path="/status">
         <ProtectedRoute component={StatusPage} />
