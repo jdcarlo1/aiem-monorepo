@@ -36,15 +36,9 @@ on:
   # push (workflow name shown as file path). Keep push so tip commits get a
   # real green run; body exits immediately on push (schedule/dispatch do work).
   push:
-  schedule:
-    # 6:55 AM ET (10:55 UTC) — warmup-only trigger
-    - cron: '55 10 * * 1-5'
-    # 7:00–7:55 AM ET (11:00–11:55 UTC) every 5 min
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 11 * * 1-5'
-    # 8:00–8:55 AM ET (12:00–12:55 UTC) every 5 min
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 12 * * 1-5'
-    # 9:00–9:30 AM ET (13:00–13:30 UTC) every 5 min
-    - cron: '0,5,10,15,20,25,30 13 * * 1-5'
+    branches: [main]
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
 
   workflow_dispatch:
     inputs:

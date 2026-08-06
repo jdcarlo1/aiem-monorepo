@@ -15,11 +15,9 @@ on:
   # push (workflow name shown as file path). Keep push so tip commits get a
   # real green run; body exits immediately on push (schedule/dispatch do work).
   push:
-  schedule:
-    # Every minute, Mon-Fri, 13:00-20:00 UTC (09:00-16:00 ET)
-    - cron: '* 13-19 * * 1-5'
-    # 20:00-20:05 UTC slot covers the 4:00 PM ET close
-    - cron: '0-5 20 * * 1-5'
+    branches: [main]
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
 
   workflow_dispatch:
     inputs:

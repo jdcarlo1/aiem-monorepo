@@ -24,8 +24,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/aiem-deadmans-switch.yml'
-  schedule:
-    - cron: '0,30 10,11,12,13,14,15,16,17,18,19,20,21,22,23 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
   workflow_dispatch:
     inputs:
       dry_run:

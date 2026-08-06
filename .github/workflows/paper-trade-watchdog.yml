@@ -14,13 +14,8 @@ name: Paper Trade Daily Watchdog
 # _aiem_paper_execute_today() still prevents double execution.
 
 on:
-  schedule:
-    # 9:45 AM ET (13:45 UTC) Mon-Fri — 3 min after primary 9:42 cron
-    - cron: '45 13 * * 1-5'
-    # 10:30 AM ET (14:30 UTC) Mon-Fri — second safety net
-    - cron: '30 14 * * 1-5'
-    # 11:15 AM ET (15:15 UTC) Mon-Fri — final catch if server was slow to boot
-    - cron: '15 15 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
 
   workflow_dispatch:
     inputs:

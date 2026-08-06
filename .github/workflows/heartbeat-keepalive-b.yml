@@ -9,11 +9,8 @@ name: Heartbeat Keepalive B
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
-  schedule:
-    # 04:00 UTC (midnight ET) — early morning run, offset from A
-    - cron: '0 4 * * *'
-    # 16:00 UTC (12:00 PM ET) — midday run
-    - cron: '0 16 * * *'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
   workflow_dispatch: {}
 
 concurrency:
