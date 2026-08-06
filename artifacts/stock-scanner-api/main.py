@@ -13608,7 +13608,7 @@ def _run_sc_morning_ranking():
                     conviction += _SC_DOUBLE_BONUS
                 conviction = int(round(max(0.0, min(100.0, conviction))))
 
-                # ============ PRECOIL SCORE (same-day predictor) ============
+                # ---- PRECOIL SCORE (same-day predictor) ----
                 # PreCoil predicts the probability of a SAME-DAY intraday move
                 # by recombining the existing signals into a new formula.
                 #
