@@ -3,7 +3,7 @@ import {
   Terminal, Activity, BarChart2, Layers, ShieldCheck,
   AlertTriangle, Users, Search, ActivitySquare, Calendar,
   Workflow, RefreshCw, Bell, TrendingUp, BrainCircuit, Target,
-  X, LogOut, Wifi, ChevronRight, ClipboardCheck
+  X, LogOut, Wifi, ChevronRight, ClipboardCheck, FlaskConical
 } from "lucide-react";
 import { serverLogout } from "@/lib/auth";
 
@@ -21,6 +21,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/opportunities", label: "Opportunities", icon: Search },
       { href: "/paper-trades", label: "Paper Trades", icon: BarChart2 },
+      { href: "/pattern-lab", label: "Pattern Lab", icon: FlaskConical },
       { href: "/decisions", label: "Decisions", icon: Activity },
       { href: "/risk", label: "Risk", icon: AlertTriangle },
       { href: "/options", label: "Options", icon: Workflow },
