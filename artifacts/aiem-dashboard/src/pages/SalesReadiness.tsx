@@ -254,8 +254,8 @@ export default function SalesReadiness() {
                     <div className="text-white mt-1">{String(!!live.can_place_live_orders)}</div>
                   </div>
                   <div className="border border-border p-3">
-                    <div className="text-muted-foreground">Sale positioning</div>
-                    <div className="text-white mt-1">{live.sale_positioning}</div>
+                    <div className="text-muted-foreground">Active provider</div>
+                    <div className="text-white mt-1">{live.broker_adapter?.active_provider || "paper"}</div>
                   </div>
                   <div className="border border-border p-3">
                     <div className="text-muted-foreground">LIVE_TRADING_ENABLED</div>
@@ -270,14 +270,45 @@ export default function SalesReadiness() {
                   Broker adapter: <span className="text-white">{live.broker_adapter?.status}</span>
                   {" — "}{live.broker_adapter?.note}
                 </div>
-                <div className="mt-2 text-[11px] font-mono text-muted-foreground">
-                  Stub providers: {(live.broker_adapter?.providers_supported_as_stubs || []).join(", ") || "—"}
+              </div>
+
+              <div className="border border-border">
+                <div className="px-3 py-2 border-b border-border text-xs font-mono text-muted-foreground">
+                  PROVIDERS (paper active · stubs ready to hook up later)
+                </div>
+                <div className="divide-y divide-border">
+                  {Object.entries(live.broker_adapter?.providers || {}).map(([pid, st]: any) => (
+                    <div key={pid} className="px-3 py-2.5 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-mono text-white font-bold">{pid}</div>
+                        <div className="text-[11px] font-mono text-muted-foreground mt-1">
+                          {st?.note || st?.hookup_notes || st?.mode || "—"}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono border border-border px-2 py-0.5 text-muted-foreground">
+                        {st?.connected ? "CONNECTED" : pid === "paper" ? "ACTIVE SIM" : "STUB"}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
+
+              {(live.broker_adapter?.how_to_hookup_later || []).length > 0 && (
+                <div className="border border-primary/30 bg-primary/5 p-4">
+                  <div className="text-xs font-mono text-primary font-bold mb-2">HOOK UP LATER</div>
+                  <ol className="text-xs font-mono text-muted-foreground space-y-1 list-decimal pl-4">
+                    {(live.broker_adapter.how_to_hookup_later as string[]).map((step) => (
+                      <li key={step}>{step.replace(/^\d+\.\s*/, "")}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
               <div className="border border-border p-4 text-xs font-mono text-muted-foreground leading-relaxed">
-                Live brokerage is optional and intentionally incomplete for the AIEM research SKU.
-                Enabling it requires dual env locks + an explicit order adapter review. Do not pitch
-                AIEM as a live trading desk until that path is productized separately.
+                Adapter interface is ready (Tradier / Alpaca / IBKR stubs). No live broker is connected.
+                When you are ready, implement the stub&apos;s <span className="text-white">place_order()</span>,
+                arm the dual live locks + <span className="text-white">AIEM_ALLOW_LIVE_ORDERS=1</span>, then
+                flip <span className="text-white">AIEM_BROKER_PROVIDER</span>.
               </div>
             </div>
           )}

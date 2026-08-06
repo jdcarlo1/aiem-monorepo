@@ -33,6 +33,9 @@ API_SURFACE = [
     {"method": "GET", "path": "/stock-api/paper-performance", "sku": "AIEM", "auth": "token"},
     {"method": "GET", "path": "/stock-api/morning-brief", "sku": "AIEM", "auth": "public/read"},
     {"method": "GET", "path": "/stock-api/aiem-sales-readiness", "sku": "AIEM", "auth": "token"},
+    {"method": "GET", "path": "/stock-api/aiem-broker/status", "sku": "AIEM", "auth": "token"},
+    {"method": "POST", "path": "/stock-api/aiem-broker/paper-order", "sku": "AIEM", "auth": "admin",
+     "note": "Paper adapter smoke test only"},
     {"method": "GET", "path": "/stock-api/admin/job-heartbeats", "sku": "AIEM", "auth": "admin"},
     {"method": "GET", "path": "/stock-api/admin/trade-records", "sku": "OE", "auth": "admin",
      "note": "OE SKU — not bundled into AIEM-only sale"},
@@ -179,16 +182,32 @@ def _live_path_status() -> dict:
     except Exception:
         armed = False
         mode = "PAPER_ONLY"
+
+    broker = {}
+    try:
+        from aiem_broker import broker_readiness_report
+        broker = broker_readiness_report()
+    except Exception as e:
+        broker = {"error": str(e)}
+
     return {
         "mode": mode,
         "live_trading_enabled_env": live_enabled,
         "confirmation_phrase_set": phrase_set,
         "dual_lock_armed": armed,
         "broker_adapter": {
-            "status": "not_connected",
-            "providers_supported_as_stubs": ["tradier_data_only", "ibkr_stub", "alpaca_stub"],
-            "order_routing": "blocked",
-            "note": "AIEM sells as research/paper terminal. Live path is optional and hard-locked.",
+            "status": (broker.get("active_status") or {}).get("connected") and "connected" or "hookup_ready_stubs",
+            "active_provider": broker.get("active_provider"),
+            "active_status": broker.get("active_status"),
+            "providers": broker.get("providers"),
+            "providers_supported_as_stubs": ["tradier", "alpaca", "ibkr"],
+            "order_routing": "paper_simulator_default_stubs_not_wired",
+            "how_to_hookup_later": broker.get("how_to_hookup_later"),
+            "live_gate": broker.get("live_gate"),
+            "note": (
+                "Broker adapter layer is ready to hook up later. "
+                "Default provider=paper. Stubs never send live orders."
+            ),
         },
         "can_place_live_orders": False,
         "sale_positioning": "research_paper_terminal",
@@ -272,7 +291,7 @@ def build_sales_readiness(db_url: Optional[str] = None) -> dict:
             60 if reliability.get("green_count", 0) >= 3 else 25
         ),
         "honest_pnl": 100 if paper.get("buyer_trust_ready") else (55 if paper.get("marks_green") else 20),
-        "live_path": 40,  # intentionally incomplete for research SKU
+        "live_path": 65,  # adapter/stubs ready; live orders still hard-blocked (correct for research SKU)
         "commercial_layer": 70,  # docs+roles+API present; RBAC not enforced
     }
     overall = round(sum(pillars.values()) / len(pillars))

@@ -53211,6 +53211,41 @@ def aiem_sales_readiness_endpoint():
         return jsonify({"ok": False, "error": str(_e)}), 500
 
 
+@app.route("/stock-api/aiem-broker/status", methods=["GET"])
+def aiem_broker_status_endpoint():
+    """Broker adapter readiness — paper default; stubs hookup-ready, not live."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from aiem_broker import broker_readiness_report
+        return jsonify({"ok": True, **broker_readiness_report()})
+    except Exception as _e:
+        return jsonify({"ok": False, "error": str(_e)}), 500
+
+
+@app.route("/stock-api/aiem-broker/paper-order", methods=["POST"])
+def aiem_broker_paper_order_endpoint():
+    """Smoke-test the paper adapter only. Never routes to a live broker."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from aiem_broker import OrderRequest, OrderSide, get_broker_adapter
+        body = request.get_json(silent=True) or {}
+        adapter = get_broker_adapter("paper")
+        order = OrderRequest(
+            ticker=str(body.get("ticker") or "").upper(),
+            side=OrderSide.BUY if str(body.get("side") or "buy").lower() in ("buy", "buy_to_open") else OrderSide.SELL,
+            quantity=float(body.get("quantity") or 1),
+            metadata={"ref_price": body.get("ref_price")},
+        )
+        result = adapter.place_order(order)
+        return jsonify({"ok": result.ok, "result": result.to_dict(), "account": adapter.get_account().to_dict()})
+    except Exception as _e:
+        return jsonify({"ok": False, "error": str(_e)}), 500
+
+
 @app.route("/stock-api/admin/paper-fill-audit", methods=["GET", "POST"])
 def admin_paper_fill_audit():
     """
