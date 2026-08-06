@@ -11,10 +11,12 @@ name: AIEM Market-Hours Watchdog
 # All trade logic lives in aiem_backup_runner.py running on the Replit VM.
 
 on:
-  # push: invalid YAML previously caused 0s startup-failure checks on every
-  # push (workflow name shown as file path). Keep push so tip commits get a
-  # real green run; body exits immediately on push (schedule/dispatch do work).
+  # Only validate YAML on pushes to main — firing on every feature-branch
+  # push flooded the Actions queue (jobs sat queued 15–23m then cancelled
+  # with 0 steps), which blocked unrelated PRs (e.g. Insider Radar #34).
+  # Schedule + workflow_dispatch still do the real recovery work.
   push:
+    branches: [main]
   schedule:
     # Every minute, Mon-Fri, 13:00-20:00 UTC (09:00-16:00 ET)
     - cron: '* 13-19 * * 1-5'
