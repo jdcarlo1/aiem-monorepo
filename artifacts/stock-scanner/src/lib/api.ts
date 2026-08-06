@@ -1530,10 +1530,14 @@ export interface InsiderRadarRow extends UnusualCallsLogEntry {
 export interface InsiderRadarResult {
   signals:         InsiderRadarRow[];
   total:           number;
+  shown?:          number;
+  truncated?:      boolean;
   earnings_linked: number;
   high_suspicion:  number;
   rare_tickers:    number;
   as_of:           string;
+  stale?:          boolean;
+  generating?:     boolean;
 }
 
 export function fetchInsiderRadar(bust = false) {

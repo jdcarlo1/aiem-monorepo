@@ -68088,10 +68088,18 @@ def insider_radar():
                 -x["suspicion_score"],
                 -(x["prem"] or 0)
             ))
+
+            # Cap payload size — full 90d $10K+ dump was ~40k rows / ~18MB and
+            # blacked out mobile Safari when Live Radar tried to render every card.
+            _IR_MAX_SIGNALS = 150
+            _full_n = len(results)
+            _shown = results[:_IR_MAX_SIGNALS]
     
             out = {
-                "signals":         results,
-                "total":           len(results),
+                "signals":         _shown,
+                "total":           _full_n,
+                "shown":           len(_shown),
+                "truncated":      _full_n > len(_shown),
                 "earnings_linked": sum(1 for r in results if r["days_to_earnings"] is not None),
                 "high_suspicion":  sum(1 for r in results if r["suspicion_score"] >= 65),
                 "rare_tickers":    sum(1 for r in results if r["ticker_appearances"] <= 3),
@@ -68133,8 +68141,21 @@ def insider_radar():
     if bust or not getattr(app, "_ir_running", False):
         _ir_thr.Thread(target=_bg_ir, daemon=True).start()
     if _cache:
+        # Harden stale/oversized cache responses so a bloated historical
+        # scan_result_cache cannot black out clients while a refresh runs.
+        _sigs = list((_cache or {}).get("signals") or [])
+        _IR_MAX_SIGNALS = 150
+        if len(_sigs) > _IR_MAX_SIGNALS:
+            _cache = {
+                **_cache,
+                "signals": _sigs[:_IR_MAX_SIGNALS],
+                "total": _cache.get("total") or len(_sigs),
+                "shown": _IR_MAX_SIGNALS,
+                "truncated": True,
+            }
         return jsonify({**_cache, "stale": True, "generating": True})
-    return jsonify({"signals": [], "total": 0, "generating": True,
+    return jsonify({"signals": [], "total": 0, "shown": 0, "truncated": False,
+                    "generating": True,
                     "earnings_linked": 0, "high_suspicion": 0, "rare_tickers": 0})
 
 

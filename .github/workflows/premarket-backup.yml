@@ -32,9 +32,8 @@ name: AIEM Premarket Backup
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
-  # push: invalid YAML previously caused 0s startup-failure checks on every
-  # push (workflow name shown as file path). Keep push so tip commits get a
-  # real green run; body exits immediately on push (schedule/dispatch do work).
+  # Only validate YAML on pushes to main — every-branch push flooded Actions
+  # and cancelled required PR checks before runners picked them up.
   push:
     branches: [main]
   # schedule disabled — free-tier Actions quota (see PR)
