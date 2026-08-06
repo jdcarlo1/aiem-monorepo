@@ -48,6 +48,25 @@ def test_morning_scan_uses_neon_real_columns():
     ast.parse(MAIN.read_text())
 
 
+def test_morning_scan_isolates_sources_and_has_polygon_fallback():
+    """2026-08-06 harden: one bad source must not abort Loop B."""
+    chunk = _scan_fn_source()
+    body = chunk.split('"""', 2)[-1] if chunk.count('"""') >= 2 else chunk
+    assert "source_errors" in body
+    assert "_aiem_indep_tool_stock_universe" in body
+    assert "fallback_used" in body
+    # Each source should be in its own try (at least 3 try blocks in body)
+    assert body.count("try:") >= 3
+
+
+def test_morning_scan_catchup_window_extends_to_1600_et():
+    """Redeploy mid-afternoon must still be able to heal an empty day."""
+    src = MAIN.read_text()
+    # Catchup gate uses 16*60 (4:00 PM ET), not the old noon cutoff.
+    assert "9 * 60 + 7 <= _hour_min_et < 16 * 60" in src
+    assert "09:07–16:00 ET" in src or "09:07-16:00 ET" in src
+
+
 def test_fixed_sql_runs_on_neon_when_available():
     """Live DB check — skip if DATABASE_URL / neon url unavailable."""
     url = os.environ.get("DATABASE_URL") or ""

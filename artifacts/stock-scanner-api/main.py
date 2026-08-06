@@ -9190,9 +9190,11 @@ try:
             # never replay missed windows — if the process restarted after 9:07 AM
             # ET (e.g. from nightly os._exit(0) + slow Replit restart, or a VM
             # memory-pressure kill), that day's run is silently skipped forever.
-            # Recovery window: 9:07 AM – 12:00 PM ET (D24 fix).
+            # Recovery window: 9:07 AM – 4:00 PM ET (extended 2026-08-06 after
+            # noon-cutoff left a failed day unrecoverable when redeploy landed
+            # mid-afternoon). Still refuses after 16:00 ET (data staleness).
             _hour_min_et = _hour_et * 60 + _now_et.minute
-            if _dow < 5 and 9 * 60 + 7 <= _hour_min_et < 12 * 60:
+            if _dow < 5 and 9 * 60 + 7 <= _hour_min_et < 16 * 60:
                 _need_ms = True
                 try:
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms, \
@@ -9220,13 +9222,12 @@ try:
                             print("[startup_catchup] aiem_morning_scan not yet in globals — skipping")
                     except Exception as _e_ms:
                         print(f"[startup_catchup] aiem_morning_scan catch-up error: {_e_ms}")
-            elif _dow < 5 and _hour_min_et >= 12 * 60:
+            elif _dow < 5 and _hour_min_et >= 16 * 60:
                 # ── Late restart: morning scan catchup window has closed ──────
-                # Recovery window is 9:07 AM – 12:00 PM ET only.  Past noon the
-                # 9:07 AM CronTrigger will never replay.  Previously this branch
-                # was completely silent — now we check if the scan was missed
-                # and write an explicit SKIPPED audit record so no run is ever
-                # lost without a trace.
+                # Recovery window is 9:07 AM – 4:00 PM ET.  Past 16:00 the
+                # 9:07 AM CronTrigger will never replay.  Check if the scan was
+                # missed and write an explicit SKIPPED audit record so no run is
+                # ever lost without a trace.
                 _ms_missed_late = False
                 try:
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms2, \
@@ -9244,7 +9245,7 @@ try:
                     print(
                         f"[startup_catchup] LATE RESTART: aiem_morning_scan missed for "
                         f"{_today_et} and time={_now_et.strftime('%H:%M')} ET — "
-                        f"catchup window (09:07–12:00 ET) has closed; "
+                        f"catchup window (09:07–16:00 ET) has closed; "
                         f"writing SKIPPED audit record"
                     )
                     try:
@@ -9258,9 +9259,9 @@ try:
                         _sched_audit_ms.write_audit(
                             _DB_URL, _sched_time_ms, None, "SKIPPED",
                             f"server restarted at {_now_et.strftime('%H:%M')} ET; "
-                            f"catchup window (09:07–12:00 ET) has closed; "
+                            f"catchup window (09:07–16:00 ET) has closed; "
                             f"9:07 AM scheduled run was missed; "
-                            f"replay not attempted (past noon — data staleness risk)",
+                            f"replay not attempted (past 16:00 — data staleness risk)",
                             "startup_catchup", None, None,
                         )
                     except Exception as _sa_ms_e:
@@ -28132,82 +28133,103 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
 
     2026-08-05 fix: prior SELECT used phantom columns that are not in Neon DDL, which crashed
     aiem_morning_scan every day with `column "score" does not exist` since at least Jul 30.
+
+    2026-08-06 harden: each source is isolated — one bad SELECT must not abort Loop B.
+    If blended sources yield 0 candidates (or only soft failures), fall back to a
+    Polygon-only universe from polygon_market_daily so morning predictions still save.
     """
     import datetime as _sdt
+    rvol_rows, conv_rows, sweep_rows = {}, {}, {}
+    source_errors = []
+
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
-            _cu.execute("""
-                SELECT p.ticker, p.rvol, p.price, p.open_price, p.volume
-                FROM polygon_rvol_scan p
-                WHERE p.scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
-                  AND p.rvol >= %s
-                  AND p.price BETWEEN 2 AND %s
-                  AND p.volume * p.price >= 500000
-                ORDER BY p.rvol DESC LIMIT 80
-            """, (min_rvol, max_price))
-            rvol_rows = {r[0]: {"rvol": float(r[1]), "price": float(r[2]),
-                                 "change_pct": round(
-                                     (float(r[2]) - float(r[3] or r[2])) /
-                                     max(float(r[3] or r[2]), 0.01) * 100, 2),
-                                 "dollar_vol_m": round(
-                                     float(r[4] or 0) * float(r[2]) / 1e6, 2)}
-                         for r in _cu.fetchall()}
+            # ── Source 1: Polygon RVOL (required core) ────────────────────────
+            try:
+                _cu.execute("""
+                    SELECT p.ticker, p.rvol, p.price, p.open_price, p.volume
+                    FROM polygon_rvol_scan p
+                    WHERE p.scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
+                      AND p.rvol >= %s
+                      AND p.price BETWEEN 2 AND %s
+                      AND p.volume * p.price >= 500000
+                    ORDER BY p.rvol DESC LIMIT 80
+                """, (min_rvol, max_price))
+                rvol_rows = {r[0]: {"rvol": float(r[1]), "price": float(r[2]),
+                                     "change_pct": round(
+                                         (float(r[2]) - float(r[3] or r[2])) /
+                                         max(float(r[3] or r[2]), 0.01) * 100, 2),
+                                     "dollar_vol_m": round(
+                                         float(r[4] or 0) * float(r[2]) / 1e6, 2)}
+                             for r in _cu.fetchall()}
+            except Exception as _rvol_e:
+                _c.rollback()
+                source_errors.append(f"polygon_rvol_scan: {_rvol_e}")
+                print(f"[aiem_morning] RVOL source failed (non-fatal): {_rvol_e}")
 
+            # ── Source 2: conviction stack (Neon real columns only) ───────────
             # Real Neon schema (see _init_conviction_stack_watchlist):
             # total_pts, conviction_pct, label, layers jsonb, meta jsonb.
-            # Freshness: only last 5 calendar days — stale June/July snaps must not
-            # pollute today's morning auto-picks.
-            _cu.execute("""
-                SELECT ticker,
-                       total_pts,
-                       (COALESCE(conviction_pct, 0) >= 70
-                        OR COALESCE(total_pts, 0) >= 6) AS high_conviction,
-                       (SELECT COUNT(*) FROM jsonb_each(COALESCE(layers, '{}'::jsonb)))
-                           AS scanner_count,
-                       COALESCE((meta->>'sweep_prem')::float, 0) / 1e6 AS sweep_premium_m,
-                       NULLIF((meta->>'float_m')::float, 0) AS float_m,
-                       (SELECT COUNT(*) FROM jsonb_each(COALESCE(layers, '{}'::jsonb))) >= 3
-                           AS multi_layer
-                FROM conviction_stack_watchlist
-                WHERE snap_date >= CURRENT_DATE - INTERVAL '5 days'
-                  AND total_pts >= 4
-                ORDER BY snap_date DESC, total_pts DESC
-                LIMIT 60
-            """)
-            conv_rows = {}
-            for r in _cu.fetchall():
-                conv_rows[r[0]] = {
-                    "conviction_score": float(r[1] or 0),
-                    # No confirmed_2d column in Neon — multi-layer stack is the proxy.
-                    "confirmed_2d": bool(r[6]),
-                    "high_conviction": bool(r[2]),
-                    "scanner_count": int(r[3] or 0),
-                    "sweep_premium_m": float(r[4] or 0),
-                    "float_m": float(r[5]) if r[5] is not None else None,
-                }
+            try:
+                _cu.execute("""
+                    SELECT ticker,
+                           total_pts,
+                           (COALESCE(conviction_pct, 0) >= 70
+                            OR COALESCE(total_pts, 0) >= 6) AS high_conviction,
+                           (SELECT COUNT(*) FROM jsonb_each(COALESCE(layers, '{}'::jsonb)))
+                               AS scanner_count,
+                           COALESCE((meta->>'sweep_prem')::float, 0) / 1e6 AS sweep_premium_m,
+                           NULLIF((meta->>'float_m')::float, 0) AS float_m,
+                           (SELECT COUNT(*) FROM jsonb_each(COALESCE(layers, '{}'::jsonb))) >= 3
+                               AS multi_layer
+                    FROM conviction_stack_watchlist
+                    WHERE snap_date >= CURRENT_DATE - INTERVAL '5 days'
+                      AND total_pts >= 4
+                    ORDER BY snap_date DESC, total_pts DESC
+                    LIMIT 60
+                """)
+                for r in _cu.fetchall():
+                    conv_rows[r[0]] = {
+                        "conviction_score": float(r[1] or 0),
+                        # No confirmed_2d column in Neon — multi-layer stack is the proxy.
+                        "confirmed_2d": bool(r[6]),
+                        "high_conviction": bool(r[2]),
+                        "scanner_count": int(r[3] or 0),
+                        "sweep_premium_m": float(r[4] or 0),
+                        "float_m": float(r[5]) if r[5] is not None else None,
+                    }
+            except Exception as _conv_e:
+                _c.rollback()
+                source_errors.append(f"conviction_stack_watchlist: {_conv_e}")
+                print(f"[aiem_morning] conviction source failed (non-fatal): {_conv_e}")
 
+            # ── Source 3: unusual CALL flow ───────────────────────────────────
             # Live CALL flow lives in unusual_calls_log (call_sweep_log has 0 rows and
             # different column names: vol_oi_ratio/premium/sent_at).
-            _cu.execute("""
-                SELECT ticker,
-                       MAX(vol_oi)::float AS max_voi,
-                       MAX(prem)::float / 1e3 AS prem_k,
-                       COUNT(*)::int AS sweep_count
-                FROM unusual_calls_log
-                WHERE first_seen >= NOW() - INTERVAL '2 days'
-                  AND vol_oi >= 2
-                  AND prem >= 100000
-                GROUP BY ticker
-                ORDER BY MAX(vol_oi) DESC
-                LIMIT 60
-            """)
-            sweep_rows = {}
-            for r in _cu.fetchall():
-                sweep_rows[r[0]] = {
-                    "max_vol_oi": float(r[1] or 0),
-                    "premium_k": round(float(r[2] or 0),1),
-                    "sweep_count": int(r[3] or 0)
-                }
+            try:
+                _cu.execute("""
+                    SELECT ticker,
+                           MAX(vol_oi)::float AS max_voi,
+                           MAX(prem)::float / 1e3 AS prem_k,
+                           COUNT(*)::int AS sweep_count
+                    FROM unusual_calls_log
+                    WHERE first_seen >= NOW() - INTERVAL '2 days'
+                      AND vol_oi >= 2
+                      AND prem >= 100000
+                    GROUP BY ticker
+                    ORDER BY MAX(vol_oi) DESC
+                    LIMIT 60
+                """)
+                for r in _cu.fetchall():
+                    sweep_rows[r[0]] = {
+                        "max_vol_oi": float(r[1] or 0),
+                        "premium_k": round(float(r[2] or 0),1),
+                        "sweep_count": int(r[3] or 0)
+                    }
+            except Exception as _sw_e:
+                _c.rollback()
+                source_errors.append(f"unusual_calls_log: {_sw_e}")
+                print(f"[aiem_morning] sweep source failed (non-fatal): {_sw_e}")
 
         all_tickers = set(rvol_rows) | set(conv_rows) | set(sweep_rows)
         candidates = []
@@ -28225,7 +28247,11 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
                 (1.0 if c.get("high_conviction") else 0)
             )
             price = r.get("price") or 0
-            if price < 1.5 or price > max_price:
+            # Conviction/sweep-only names may lack rvol price — allow if we can
+            # still rank them (price gate applied when price is known).
+            if price and (price < 1.5 or price > max_price):
+                continue
+            if not price and not c and not s:
                 continue
             candidates.append({
                 "ticker": ticker,
@@ -28243,6 +28269,61 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
                 "float_m": c.get("float_m"),
             })
         candidates.sort(key=lambda x: x["composite_score"], reverse=True)
+
+        # ── Polygon-only fallback when blended path is empty ──────────────────
+        # Ensures Loop B still produces morning predictions if conviction SQL
+        # breaks again or RVOL table is empty for the day.
+        fallback_used = False
+        if not candidates:
+            try:
+                poly = _aiem_indep_tool_stock_universe(
+                    min_rvol=2.0, max_price=max_price, limit=80,
+                    max_rvol=15.0, min_gap=5.0, max_gap=25.0, min_price=1.5,
+                )
+                if poly.get("error"):
+                    source_errors.append(f"polygon_fallback: {poly['error']}")
+                else:
+                    fallback_used = True
+                    for i, p in enumerate(poly.get("candidates") or []):
+                        gap = float(p.get("gap_pct") or 0)
+                        rvol = float(p.get("rvol") or 0)
+                        cs = float(p.get("close_strength") or 0.5)
+                        composite = (
+                            min(rvol / 5.0, 3.0) +
+                            (3.5 if 15 <= gap < 25 else 2.0 if 10 <= gap < 15 else 1.0 if gap >= 5 else 0) +
+                            cs * 1.5
+                        )
+                        candidates.append({
+                            "ticker": p["ticker"],
+                            "composite_score": round(composite, 2),
+                            "sources_confirming": 1,
+                            "price": float(p.get("close") or 0),
+                            "rvol": rvol,
+                            "change_pct": gap,
+                            "dollar_vol_m": None,
+                            "conviction_score": None,
+                            "confirmed_2d": False,
+                            "high_conviction": False,
+                            "sweep_vol_oi": None,
+                            "sweep_premium_k": None,
+                            "float_m": None,
+                            "fallback_source": "polygon_market_daily",
+                        })
+                    candidates.sort(key=lambda x: x["composite_score"], reverse=True)
+                    print(f"[aiem_morning] Polygon-only fallback produced "
+                          f"{len(candidates)} candidates")
+            except Exception as _fb_e:
+                source_errors.append(f"polygon_fallback: {_fb_e}")
+                print(f"[aiem_morning] Polygon fallback failed: {_fb_e}")
+
+        if not candidates and source_errors:
+            return {
+                "error": (
+                    "all Loop B sources failed or empty: " + "; ".join(source_errors)
+                )[:500],
+                "source_errors": source_errors,
+            }
+
         try:
             learned_ctx = _get_aiem_research_context()
         except Exception:
@@ -28254,8 +28335,11 @@ def _aiem_tool_scan_market_for_setups(min_rvol=3.0, max_price=80.0):
             "signal_source_counts": {
                 "polygon_rvol": len(rvol_rows),
                 "conviction_stack": len(conv_rows),
-                "call_sweeps": len(sweep_rows)
+                "call_sweeps": len(sweep_rows),
+                "polygon_fallback": len(candidates) if fallback_used else 0,
             },
+            "source_errors": source_errors,
+            "fallback_used": fallback_used,
             "learned_model_context": learned_ctx,
             "instruction": (
                 "Review top_candidates. Apply learned_model_context weights. "
@@ -46547,6 +46631,12 @@ def _run_aiem_morning_scan():
                 record_job_failure("aiem_morning_scan", _err_msg)
                 _tg_send(f"⚠️ [aiem_morning] scan universe error: {_err_msg}")
                 return
+            if universe.get("fallback_used"):
+                print("[aiem_morning] using Polygon-only fallback universe "
+                      f"(source_errors={universe.get('source_errors')})")
+            elif universe.get("source_errors"):
+                print(f"[aiem_morning] partial source errors (continuing): "
+                      f"{universe.get('source_errors')}")
             candidates = universe.get("top_candidates", [])
             if not candidates:
                 _no_cand_reason = "no candidates returned from scan"
