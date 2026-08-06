@@ -329,6 +329,41 @@ def try_claim(business_date: datetime.date, execution_id: str,
                       f"{date_str} execution_id={execution_id} trigger={trigger_source}")
                 return True
 
+        # Step 2e — reclaim FAILED so watchdog / scheduled / admin can retry.
+        # mark_failed() documents that try_claim must steal FAILED, but the UPDATE
+        # path was missing — Aug 5 2026 stayed FAILED after "connection already
+        # closed" and every later claim was denied. Cap recovery_attempts at 5.
+        cur.execute("""
+            UPDATE paper_trade_job_ledger
+            SET status          = 'CLAIMED',
+                execution_id    = %s,
+                trigger_source  = %s,
+                claimed_at      = NOW(),
+                started_at      = NULL,
+                completed_at    = NULL,
+                error_text      = NULL,
+                recovery_attempts = COALESCE(recovery_attempts, 0) + 1
+            WHERE business_date = %s
+              AND status        = 'FAILED'
+              AND COALESCE(recovery_attempts, 0) < 5
+              AND (picks_count IS NULL OR picks_count = 0)
+            RETURNING id, recovery_attempts
+        """, (execution_id, trigger_source, date_str))
+        row_failed = cur.fetchone()
+        if row_failed:
+            conn.commit()
+            _log_evidence({
+                "event": "LEDGER_CLAIMED",
+                "via": "RECLAIM_FAILED",
+                "business_date": date_str,
+                "execution_id": execution_id,
+                "trigger_source": trigger_source,
+                "recovery_attempt": row_failed[1],
+            })
+            print(f"[paper_recovery] CLAIMED (reclaim FAILED) {date_str} "
+                  f"attempt=#{row_failed[1]} trigger={trigger_source}")
+            return True
+
         cur.execute("""
             SELECT status, execution_id, trigger_source, claimed_at, completed_at
             FROM paper_trade_job_ledger WHERE business_date = %s
