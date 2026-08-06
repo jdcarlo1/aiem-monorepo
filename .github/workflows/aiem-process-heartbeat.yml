@@ -6,13 +6,8 @@ name: AIEM Process External Heartbeat
 # Architecturally independent of the Replit VM and all in-process watchdogs.
 
 on:
-  schedule:
-    # Every 5 min, Mon-Fri, 10:45-14:00 UTC (6:45-10:00 AM ET)
-    - cron: '45,50,55 10 * * 1-5'
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 11 * * 1-5'
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 12 * * 1-5'
-    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 13 * * 1-5'
-    - cron: '0,5 14 * * 1-5'
+  # schedule disabled — free-tier Actions quota (see PR)
+  # Free GitHub private: 2k min/mo; these crons starved PR checks
   workflow_dispatch:
     inputs:
       dry_run:
