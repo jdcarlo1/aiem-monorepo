@@ -4,11 +4,18 @@ import { DataFooter } from "@/components/data-footer";
 
 type ActivePosition = {
   symbol: string;
-  shares: number;
+  shares?: number;
+  contracts?: number;
   side: string;
+  direction?: string;
   entry: number;
+  entry_premium?: number;
   stop: number;
   target: number;
+  strike?: number;
+  option_symbol?: string;
+  mark_premium?: number;
+  unrealized_pnl?: number;
 } | null;
 
 type PatternSnap = {
@@ -21,19 +28,35 @@ type PatternSnap = {
   win_rate_pct: number;
   profit_rate_pct: number;
   active_position: ActivePosition;
+  signal_state?: { status?: string; note?: string; direction?: string };
+  pm_direction?: string | null;
+  orb_high?: number | null;
+  orb_low?: number | null;
+  rules?: Record<string, unknown>;
 };
 
 type Snapshot = {
   gap_fill?: PatternSnap;
   orb?: PatternSnap;
+  f3?: PatternSnap;
   error?: string;
 };
 
-function PatternCard({ snap, title }: { snap?: PatternSnap; title: string }) {
+function PatternCard({
+  snap,
+  title,
+  optionsMode = false,
+}: {
+  snap?: PatternSnap;
+  title: string;
+  optionsMode?: boolean;
+}) {
   const pos = snap?.active_position;
   const profit = snap?.profit_rate_pct ?? 0;
   const profitColor =
     profit > 0 ? "text-success" : profit < 0 ? "text-destructive" : "text-muted-foreground";
+  const qty = pos?.contracts ?? pos?.shares;
+  const dir = pos?.direction || pos?.side;
 
   return (
     <div className="border border-border bg-card flex flex-col h-full">
@@ -92,34 +115,91 @@ function PatternCard({ snap, title }: { snap?: PatternSnap; title: string }) {
           </div>
         </div>
 
+        {optionsMode ? (
+          <div className="border border-border bg-black/20 p-3 font-mono text-[11px] text-muted-foreground space-y-1">
+            <div>
+              PM{" "}
+              <span className="text-white">{snap?.pm_direction || "—"}</span>
+              {" · "}ORB H{" "}
+              <span className="text-white">
+                {snap?.orb_high != null ? `$${Number(snap.orb_high).toFixed(2)}` : "—"}
+              </span>
+              {" / "}L{" "}
+              <span className="text-white">
+                {snap?.orb_low != null ? `$${Number(snap.orb_low).toFixed(2)}` : "—"}
+              </span>
+            </div>
+            <div>
+              SIGNAL{" "}
+              <span className="text-primary">{snap?.signal_state?.status || "—"}</span>
+              {snap?.signal_state?.note ? (
+                <span className="block text-muted-foreground mt-1">{snap.signal_state.note}</span>
+              ) : null}
+            </div>
+            <div className="text-[10px] uppercase tracking-wide pt-1">
+              $200 notional · ATM 0DTE long · exit 16:00 · no stop/target
+            </div>
+          </div>
+        ) : null}
+
         <div className="border border-border bg-black/20 p-3">
           <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2 flex items-center gap-2">
             <Activity size={12} /> Active Position
           </div>
           {pos ? (
             <div className="grid grid-cols-2 gap-2 font-mono text-sm">
-              <div className="flex items-center gap-2">
-                {pos.side === "LONG" ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                {dir === "CALL" || dir === "LONG" ? (
                   <TrendingUp size={14} className="text-success" />
                 ) : (
                   <TrendingDown size={14} className="text-destructive" />
                 )}
-                <span className={pos.side === "LONG" ? "text-success" : "text-destructive"}>
-                  {pos.side}
+                <span
+                  className={
+                    dir === "CALL" || dir === "LONG" ? "text-success" : "text-destructive"
+                  }
+                >
+                  {dir}
                 </span>
-                <span className="text-white">{pos.shares} sh</span>
-                <span className="text-muted-foreground">{pos.symbol}</span>
+                <span className="text-white">
+                  {qty != null ? `${qty}${optionsMode ? " ctr" : " sh"}` : ""}
+                </span>
+                <span className="text-muted-foreground">
+                  {pos.option_symbol || pos.symbol}
+                </span>
               </div>
               <div className="text-right text-muted-foreground text-xs space-y-0.5">
                 <div>
-                  ENTRY <span className="text-white">${Number(pos.entry).toFixed(2)}</span>
+                  ENTRY{" "}
+                  <span className="text-white">
+                    ${Number(pos.entry_premium ?? pos.entry).toFixed(optionsMode ? 3 : 2)}
+                  </span>
                 </div>
-                <div>
-                  STOP <span className="text-destructive">${Number(pos.stop).toFixed(2)}</span>
-                </div>
-                <div>
-                  TARGET <span className="text-success">${Number(pos.target).toFixed(2)}</span>
-                </div>
+                {optionsMode ? (
+                  <>
+                    {pos.strike != null ? (
+                      <div>
+                        STRIKE <span className="text-white">${Number(pos.strike).toFixed(0)}</span>
+                      </div>
+                    ) : null}
+                    {pos.mark_premium != null ? (
+                      <div>
+                        MARK{" "}
+                        <span className="text-white">${Number(pos.mark_premium).toFixed(3)}</span>
+                      </div>
+                    ) : null}
+                    <div>EXIT <span className="text-success">16:00 ET</span></div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      STOP <span className="text-destructive">${Number(pos.stop).toFixed(2)}</span>
+                    </div>
+                    <div>
+                      TARGET <span className="text-success">${Number(pos.target).toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -146,7 +226,8 @@ export default function PatternLab() {
             Pattern Lab
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            Independent Gap Fill &amp; ORB paper ledgers — $10k each, 1.5% risk; ORB target 3.0R
+            Gap Fill &amp; ORB equity paper ($10k / 1.5% / ORB 3.0R) · F3 SPY 0DTE ATM options
+            ($200 notional, PM-aligned breakout, exit 16:00)
           </p>
         </div>
         <div className="font-mono text-xs text-muted-foreground text-right">
@@ -161,9 +242,10 @@ export default function PatternLab() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
         <PatternCard snap={data?.gap_fill} title="Gap Fill" />
         <PatternCard snap={data?.orb} title="Opening Range Breakout" />
+        <PatternCard snap={data?.f3} title="F3 SPY 0DTE" optionsMode />
       </div>
 
       <DataFooter lastUpdated={lastUpdated} source="/stock-api/pattern-lab/snapshot" />
