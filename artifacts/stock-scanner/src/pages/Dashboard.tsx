@@ -9186,6 +9186,7 @@ function ConvictionTrackTab() {
         </div>
         <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 3 }}>
           Every EXTREME + HIGH score logged at scan time · price tracked at T+1 / T+3 / T+5 close · {data?.total ?? 0} signals logged
+          {data?.latest_snap_date ? ` · latest ${data.latest_snap_date}` : ""}
         </div>
       </div>
 
@@ -10609,7 +10610,8 @@ function ShortCallRecordTab() {
         <div>
           <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em" }}>⚡ SHORT CALLS RECORD</div>
           <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
-            Every daily AI short-call pick logged · WIN = stock closed ≥ breakeven price at expiry
+            Scanner-ranked short calls (unusual calls + DP/VOI — not OpenAI) · WIN = stock ≥ breakeven at expiry
+            {(data as any)?.track_reset_at ? ` · fresh track from ${(data as any).track_reset_at}` : ""}
           </div>
         </div>
         <button onClick={() => load()} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
@@ -10687,8 +10689,10 @@ function ShortCallRecordTab() {
       {/* Pick rows */}
       {loading && <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>LOADING RECORD…</div>}
       {!loading && picks.length === 0 && (
-        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>
-          No short-call picks logged yet. They auto-save every weekday at 10:15 AM ET when you open the ⚡ AI SHORT CALLS tab.
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32, lineHeight: 1.7 }}>
+          Fresh track — old OpenAI-era picks were archived.<br />
+          Scanner-ranked short calls auto-save weekdays at 10:15 AM ET (and when ⚡ AI SHORT CALLS regenerates).<br />
+          First graded win rates appear after T+1 / expiry fills in.
         </div>
       )}
       {picks.map(p => (
@@ -12877,10 +12881,10 @@ function SignalIntelTab() {
 }
 
 function GasBoardTab() {
-  const byokToken = localStorage.getItem("aiem_byok_token") || "";
   const BB_CARD  = "#0d1726";
   const BB_BORD  = "#1c3350";
 
+  const [byokToken,   setByokToken]     = useState(() => localStorage.getItem("aiem_byok_token") || "");
   const [tickerInput, setTickerInput]   = useState("");
   const [riskOver,    setRiskOver]      = useState("balanced");
   const [styleOver,   setStyleOver]     = useState("mixed");
@@ -12891,7 +12895,12 @@ function GasBoardTab() {
   const [useWl,       setUseWl]         = useState(false);
 
   const run = async () => {
-    if (!byokToken) { setErr("Enter your API key in Settings → API Keys first."); return; }
+    const tok = byokToken.trim();
+    if (!tok) {
+      setErr("Paste your subscriber token below (from your welcome email). Gas Board does not need an OpenAI key.");
+      return;
+    }
+    localStorage.setItem("aiem_byok_token", tok);
     setLoading(true); setErr(""); setResult(null);
     const rawTickers = tickerInput.split(/[,\s]+/).map(t => t.trim().toUpperCase()).filter(Boolean);
     try {
@@ -12899,7 +12908,7 @@ function GasBoardTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          subscriber_token:  byokToken,
+          subscriber_token:  tok,
           tickers:           useWl ? [] : rawTickers,
           risk_override:     riskOver,
           style_override:    styleOver,
@@ -12907,8 +12916,9 @@ function GasBoardTab() {
         }),
       });
       const data: GasBoardResult = await res.json();
-      if (!res.ok || data.error) { setErr(data.error || `Server error ${res.status}`); }
-      else { setResult(data); }
+      if (!res.ok || data.error) {
+        setErr(data.error || (data as { message?: string }).message || `Server error ${res.status}`);
+      } else { setResult(data); }
     } catch (e: any) { setErr(e.message || "Network error"); }
     finally { setLoading(false); }
   };
@@ -12929,13 +12939,25 @@ function GasBoardTab() {
           ⚡ GAS BOARD — LIVE PROBABILITY ENGINE
         </div>
         <div style={{ fontSize: 12, color: "#5a7fa0", marginTop: 3 }}>
-          Scores tickers against your saved profile · powered by polygon RVOL + call sweep data
+          Scores tickers against your saved profile · powered by polygon RVOL + call sweep data.
+          Uses your <b style={{ color: "#8fb0d0" }}>subscriber token</b> only — no OpenAI key required here.
         </div>
       </div>
 
       {/* Controls */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", marginBottom: 18,
                     background: "#0a1220", border: `1px solid ${BB_BORD}`, borderRadius: 10, padding: "12px 14px" }}>
+        <div style={{ flex: "1 1 280px" }}>
+          <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>SUBSCRIBER TOKEN (welcome email)</div>
+          <input
+            value={byokToken}
+            onChange={e => { setByokToken(e.target.value); localStorage.setItem("aiem_byok_token", e.target.value.trim()); }}
+            placeholder="sub_… paste from welcome email"
+            style={{ width: "100%", padding: "8px 10px", background: "#0f1e35",
+                     border: `1px solid ${BB_BORD}`, borderRadius: 6, color: "#fff",
+                     fontSize: 13, boxSizing: "border-box" }}
+          />
+        </div>
         <div style={{ flex: "1 1 220px" }}>
           <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>TICKERS (comma-separated)</div>
           <input
@@ -13099,9 +13121,9 @@ function GasBoardTab() {
         <div style={{ textAlign: "center", color: "#3a5070", padding: "50px 20px", fontSize: 13 }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>⚡</div>
           Enter tickers above (or enable "Use my watchlist") and click <b style={{ color: "#5a7fa0" }}>Run</b> to score them against your profile.
-          {!byokToken && (
+          {!byokToken.trim() && (
             <div style={{ marginTop: 12, color: "#ff6b6b", fontSize: 12 }}>
-              You need an API key — go to Settings → API Keys first.
+              Paste your subscriber token above (from your welcome email). OpenAI key is only needed for Quant Agent.
             </div>
           )}
         </div>
@@ -13253,18 +13275,21 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answer}</ReactMarkdown>
         </div>
       )}
-      {session.status === "error" && session.error === "__byok_required__" && (
+      {session.status === "error" && (session.error === "__byok_required__" || session.error === "__subscriber_token_required__") && (
         <div style={{ background: "#1a1000", border: "1px solid #7c5a00", borderRadius: 8, padding: "12px 14px" }}>
-          <div style={{ color: "#fbbf24", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>🔑 OpenAI API key required</div>
+          <div style={{ color: "#fbbf24", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+            {session.error === "__subscriber_token_required__" ? "🔑 Subscriber token required" : "🔑 OpenAI API key required"}
+          </div>
           <div style={{ color: "#d6b96a", fontSize: 12, lineHeight: 1.6 }}>
-            The Quant Agent runs on your own OpenAI account — the platform never covers this cost.
-            <br />Open <strong>Settings</strong> (⚙️ icon above) → <strong>API Keys</strong> and paste your <code style={{ background: "#2a1a00", padding: "1px 5px", borderRadius: 3 }}>sk-…</code> key to activate it.
+            Quant Agent uses a lot of tool/data calls — it runs on <strong>your</strong> OpenAI account so the platform never covers that cost.
+            <br />Open <strong>Settings</strong> (⚙️) → <strong>API Keys</strong>: paste your welcome-email <code style={{ background: "#2a1a00", padding: "1px 5px", borderRadius: 3 }}>sub_…</code> token
+            {session.error === "__byok_required__" && <> and your <code style={{ background: "#2a1a00", padding: "1px 5px", borderRadius: 3 }}>sk-…</code> OpenAI key</>}, then Save.
           </div>
         </div>
       )}
-      {session.status === "error" && session.error !== "__byok_required__" && (
+      {session.status === "error" && session.error !== "__byok_required__" && session.error !== "__subscriber_token_required__" && (
         <div style={{ color: "#ff6b6b", fontSize: 13 }}>
-          Session failed — please try again.
+          {session.error || "Session failed — please try again."}
         </div>
       )}
       {realTrace.length > 0 && (
@@ -13644,10 +13669,14 @@ function QuantAgentTab() {
 
   async function loadHistory() {
     try {
-      const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat/history`);
-      if (!res.ok) return;
+      const tok = localStorage.getItem("aiem_byok_token") || "";
+      if (!tok.trim()) { if (mountedRef.current) setHistory([]); return; }
+      const res = await fetch(
+        `${API_BASE_QA}stock-api/aiem/chat/history?subscriber_token=${encodeURIComponent(tok.trim())}`
+      );
+      if (!res.ok) { if (mountedRef.current) setHistory([]); return; }
       const data = await res.json();
-      if (mountedRef.current) setHistory(data);
+      if (mountedRef.current) setHistory(Array.isArray(data) ? data : []);
     } catch { /* non-fatal */ }
   }
 
@@ -13767,8 +13796,14 @@ function QuantAgentTab() {
 
     const body: Record<string, unknown> = { question: q || "Analyze this chart/screenshot." };
     if (capturedImage) body.image_data_url = capturedImage;
-    const _tok = localStorage.getItem("aiem_byok_token") || "";
-    if (_tok) body.subscriber_token = _tok;
+    const _tok = (localStorage.getItem("aiem_byok_token") || "").trim();
+    if (!_tok) {
+      clearTimers();
+      setActiveJob({ job_id: "", question: q, status: "error", error: "__subscriber_token_required__" });
+      setSubmitting(false);
+      return;
+    }
+    body.subscriber_token = _tok;
 
     try {
       const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat/stream`, {
@@ -13777,16 +13812,21 @@ function QuantAgentTab() {
         body: JSON.stringify(body),
       });
 
+      if (res.status === 401) {
+        clearTimers();
+        setActiveJob({ job_id: "", question: q, status: "error", error: "__subscriber_token_required__" });
+        return;
+      }
       if (res.status === 402) {
         clearTimers();
         setActiveJob({ job_id: "", question: q, status: "error", error: "__byok_required__" });
         return;
       }
       if (!res.ok) {
-        const data: { error?: string } = await res.json().catch(() => ({}));
+        const data: { error?: string; message?: string } = await res.json().catch(() => ({}));
         clearTimers();
         setActiveJob({ job_id: "", question: q, status: "error",
-                       error: data.error || `Server error (${res.status}). Please try again.` });
+                       error: data.message || data.error || `Server error (${res.status}). Please try again.` });
         return;
       }
 
@@ -14168,8 +14208,20 @@ function QuantAgentTab() {
                     if (byokOAIKey.trim()) body.openai_key = byokOAIKey.trim();
                     const r = await fetch("/stock-api/user/keys", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                     const d = await r.json();
-                    if (r.ok) { setByokMsg({ ok: true, text: "Keys saved." }); setByokOAIKey(""); setByokStatus({ openai_key_set: !!byokOAIKey.trim() || !!byokStatus?.openai_key_set }); }
-                    else setByokMsg({ ok: false, text: d.error || "Save failed" });
+                    if (r.ok) {
+                      const statusRes = await fetch(`/stock-api/user/keys?subscriber_token=${encodeURIComponent(byokToken)}`);
+                      const st = statusRes.ok ? await statusRes.json() : d;
+                      setByokStatus({ openai_key_set: !!st.openai_key_set });
+                      setByokMsg({
+                        ok: true,
+                        text: byokOAIKey.trim()
+                          ? "Keys saved. Quant Agent is ready."
+                          : (d.message || "Subscriber token valid. Paste your OpenAI sk-… key and Save to enable Quant Agent."),
+                      });
+                      setByokOAIKey("");
+                      loadHistory();
+                    }
+                    else setByokMsg({ ok: false, text: d.message || d.error || "Save failed" });
                   } catch (e: any) { setByokMsg({ ok: false, text: String(e) }); }
                   finally { setByokSaving(false); }
                 }} style={{ background: byokSaving || !byokToken ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 6, padding: "7px 16px", cursor: byokSaving || !byokToken ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
@@ -19867,7 +19919,11 @@ export default function Dashboard() {
                     </div>
                     {scanDate && (
                       <span className="text-slate-500 text-xs">
-                        {stale ? "⚠ no recent scan · " : ""}Last scan: {scanDate}
+                        {stale ? "⚠ scan behind market · " : ""}Last scan: {scanDate}
+                        {(data as any)?.market_date && (data as any).market_date !== scanDate
+                          ? ` · market ${(data as any).market_date}`
+                          : ""}
+                        {data?.count != null ? ` · ${data.count} ranked` : ""}
                       </span>
                     )}
                   </div>
@@ -19875,6 +19931,7 @@ export default function Dashboard() {
                     Patterns: hammer, marubozu, engulfing, piercing line, harami, morning star / doji star,
                     three white soldiers, three inside/outside up, abandoned baby. Confluence: volume above
                     20-day avg, price near 20-day low (support), RSI(14) &lt; 40 (oversold).
+                    Micro-range bars (&lt;0.5% H–L) are filtered out.
                   </div>
                 </div>
 
