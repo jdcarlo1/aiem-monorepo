@@ -14,10 +14,15 @@
 | Source isolation (one bad SQL ≠ kill loop) | **Added 2026-08-06** in this PR |
 | Polygon-only fallback if blended sources empty | **Added 2026-08-06** |
 | Catchup window if redeploy mid-day | Extended to **16:00 ET** (was noon) |
+| Catchup waits for module load (no silent skip) | **Added** |
+| 9:45 ET watchdog if `aiem_predictions` empty | **Added** |
+| Morning brief uses `unusual_calls_log` (not broken sweep cols) | **Added** |
 | **Production Publish/redeploy** | **REQUIRED** — without this, tomorrow still dies on old binary |
 
 **Action:** Merge this PR → Replit **Publish** stock-api VM **before 9:07 AM ET Friday**.  
-If publish lands after 9:07 but before 16:00 ET, startup catchup will auto-run the scan.
+If publish lands after 9:07 but before 16:00 ET, startup catchup will auto-run the scan (and waits for full module load). Watchdog at 9:45 ET is a second safety net.
+
+See also: `docs/verification/aiem-morning-loop-friday-fix-2026-08-06.md`
 
 ---
 

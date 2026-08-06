@@ -67,6 +67,26 @@ def test_morning_scan_catchup_window_extends_to_1600_et():
     assert "09:07–16:00 ET" in src or "09:07-16:00 ET" in src
 
 
+def test_morning_scan_catchup_waits_for_module_load():
+    src = MAIN.read_text()
+    assert "_launch_ms_catchup" in src
+    assert "aiem_morning_scan still not in globals" in src
+    assert "aiem_morning_scan_watchdog" in src
+
+
+def test_morning_brief_uses_unusual_calls_not_phantom_sweep_cols():
+    src = MAIN.read_text()
+    start = src.find("def _build_morning_brief")
+    end = src.find("\n@app.route(\"/stock-api/morning-brief\"", start)
+    assert start > 0 and end > start
+    chunk = src[start:end]
+    assert "FROM unusual_calls_log" in chunk
+    assert "FROM call_sweep_log" not in chunk
+    assert "Pre-market data is loading" in chunk
+    assert "loading" in chunk  # loading flag / no-cache path
+    assert "aiem_predictions" in chunk
+
+
 def test_fixed_sql_runs_on_neon_when_available():
     """Live DB check — skip if DATABASE_URL / neon url unavailable."""
     url = os.environ.get("DATABASE_URL") or ""

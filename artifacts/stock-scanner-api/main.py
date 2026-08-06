@@ -7126,6 +7126,43 @@ try:
         id="aiem_morning_scan",
         replace_existing=True,
     )
+    # Watchdog: if 9:07 Loop B left aiem_predictions empty (SQL crash, empty
+    # universe, or redeploy race), re-fire once at 9:45 so the day is not blank.
+    def _run_aiem_morning_watchdog():
+        try:
+            import datetime as _wd_dt
+            try:
+                from zoneinfo import ZoneInfo as _ZI_wd
+                _today = _wd_dt.datetime.now(_ZI_wd("America/New_York")).date()
+            except Exception:
+                _today = _wd_dt.date.today()
+            if not _is_trading_day(_today):
+                return
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_wd, _c_wd.cursor() as _cu_wd:
+                _cu_wd.execute("""
+                    SELECT COUNT(*) FROM aiem_predictions
+                    WHERE prediction_date = %s
+                """, (_today,))
+                _n = int((_cu_wd.fetchone() or [0])[0] or 0)
+            if _n > 0:
+                print(f"[aiem_morning_watchdog] ok — {_n} predictions already saved")
+                return
+            print("[aiem_morning_watchdog] aiem_predictions empty — re-firing Loop B")
+            _wait_for_module_load(timeout_s=120)
+            import threading as _wd_thr
+            _wd_thr.Thread(target=_run_aiem_morning_scan, daemon=True).start()
+            try:
+                _tg_send("⚠️ [aiem_morning_watchdog] today_predictions was 0 at 9:45 ET — re-ran Loop B")
+            except Exception:
+                pass
+        except Exception as _wd_e:
+            print(f"[aiem_morning_watchdog] error: {_wd_e}")
+    _scheduler.add_job(
+        _run_aiem_morning_watchdog,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        id="aiem_morning_scan_watchdog",
+        replace_existing=True,
+    )
     # Workstream D - AIEM independent Polygon-only grader: 8:50 AM ET Mon-Fri.
     # Closes matured aiem_independent_picks positions before the day's new
     # independent scan opens fresh ones. Runs before the 9:20 scan below.
@@ -9211,17 +9248,65 @@ try:
                 if _need_ms:
                     print(f"[startup_catchup] aiem_morning_scan missed for {_today_et} "
                           f"(now {_now_et.strftime('%H:%M')} ET) — running catch-up")
+                    def _launch_ms_catchup():
+                        import time as _ms_w
+                        # Wait for full module load — _run_aiem_morning_scan is
+                        # defined late; skipping when absent left Aug 6 empty
+                        # after a mid-day redeploy raced startup.
+                        for _i in range(30):
+                            _ms_fn = globals().get("_run_aiem_morning_scan")
+                            if _ms_fn is not None and globals().get("_MODULE_FULLY_LOADED"):
+                                import threading as _ms_thr
+                                _ms_thr.Thread(target=_ms_fn, daemon=True).start()
+                                print("[startup_catchup] aiem_morning_scan catch-up thread launched")
+                                return
+                            _ms_w.sleep(10)
+                        print("[startup_catchup] aiem_morning_scan still not in globals "
+                              "after wait — catch-up aborted")
                     try:
-                        _ms_fn = globals().get("_run_aiem_morning_scan")
-                        if _ms_fn is not None:
-                            import threading as _ms_thr
-                            _ms_thr.Thread(target=_ms_fn, daemon=True).start()
-                            # record_job_success moved inside _morning_thread — fires only after >0 rows saved
-                            print("[startup_catchup] aiem_morning_scan catch-up thread launched")
-                        else:
-                            print("[startup_catchup] aiem_morning_scan not yet in globals — skipping")
+                        import threading as _ms_wait_thr
+                        _ms_wait_thr.Thread(target=_launch_ms_catchup, daemon=True).start()
                     except Exception as _e_ms:
                         print(f"[startup_catchup] aiem_morning_scan catch-up error: {_e_ms}")
+
+            # ── AIEM v3 discovery catch-up (feeds aiem_v3_discovery paper path) ─
+            # Premarket job is 8:00 AM ET. If process was down then, 9:42 execute
+            # can still live-scan, but prefer warming discovery_memory earlier.
+            if _dow < 5 and 8 * 60 <= _hour_min_et < 16 * 60:
+                _need_v3 = True
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_v3, \
+                            _c_v3.cursor() as _cur_v3:
+                        _cur_v3.execute("""
+                            SELECT 1 FROM aiem_discovery_memory
+                            WHERE discovery_date =
+                                  (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                            LIMIT 1
+                        """)
+                        if _cur_v3.fetchone():
+                            _need_v3 = False
+                except Exception as _exc:
+                    print(f"[silent_except:v3_disc_ck] {type(_exc).__name__}: {_exc}")
+                if _need_v3:
+                    print(f"[startup_catchup] v3_discovery_premarket missed for {_today_et} "
+                          f"— warming aiem_discovery_memory")
+                    def _launch_v3_catchup():
+                        try:
+                            import aiem_v3_discovery as _v3d_cu
+                            _res = _v3d_cu.run_discovery(_DB_URL, top_n=30)
+                            print(f"[startup_catchup] v3 discovery catch-up: {len(_res or [])} candidates")
+                            if _res:
+                                import aiem_v3_technical as _v3t_cu
+                                _v3t_cu.run_technical_analysis(
+                                    [r["ticker"] for r in _res], _DB_URL
+                                )
+                        except Exception as _v3_cu_e:
+                            print(f"[startup_catchup] v3 discovery catch-up error: {_v3_cu_e}")
+                    try:
+                        import threading as _v3_wait_thr
+                        _v3_wait_thr.Thread(target=_launch_v3_catchup, daemon=True).start()
+                    except Exception as _e_v3:
+                        print(f"[startup_catchup] v3 discovery thread error: {_e_v3}")
             elif _dow < 5 and _hour_min_et >= 16 * 60:
                 # ── Late restart: morning scan catchup window has closed ──────
                 # Recovery window is 9:07 AM – 4:00 PM ET.  Past 16:00 the
@@ -57069,11 +57154,21 @@ def _build_morning_brief(force: bool = False) -> dict:
     except Exception:
         _today = _dt_mb.utcnow().strftime("%Y-%m-%d")
 
-    if (not force) and _MORNING_BRIEF_CACHE.get("date") == _today and _MORNING_BRIEF_CACHE.get("brief"):
+    # Never serve a cached "loading" placeholder — that froze the Aug 6 brief
+    # empty for the rest of the day after a bad sweep query.
+    _cached_brief = (_MORNING_BRIEF_CACHE.get("brief") or "")
+    if (
+        (not force)
+        and _MORNING_BRIEF_CACHE.get("date") == _today
+        and _cached_brief
+        and "Pre-market data is loading" not in _cached_brief
+    ):
         return {**_MORNING_BRIEF_CACHE, "cached": True}
 
     top_flow: list = []
-    # Prefer in-memory / cached bull-flow style rows from call_sweep_log
+    # Live CALL flow is unusual_calls_log (call_sweep_log uses different
+    # columns — premium/stock_price/sent_at — and is often empty). Prior
+    # SELECT on prem/price/last_seen always threw → empty brief forever.
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=3,
                                options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
@@ -57083,8 +57178,9 @@ def _build_morning_brief(force: bool = False) -> dict:
                        COUNT(*)::int AS n_sweeps,
                        MAX(price)::float AS price,
                        MIN(expiry::text) AS expiry
-                FROM call_sweep_log
-                WHERE last_seen >= NOW() - INTERVAL '2 days'
+                FROM unusual_calls_log
+                WHERE first_seen >= NOW() - INTERVAL '4 days'
+                  AND prem >= 50000
                 GROUP BY ticker
                 ORDER BY SUM(prem) DESC
                 LIMIT 8
@@ -57093,37 +57189,101 @@ def _build_morning_brief(force: bool = False) -> dict:
                 top_flow.append({
                     "ticker": row[0],
                     "premium_m": float(row[1] or 0),
-                    "call_put_ratio": 3.0,  # sweeps are call-side by definition
+                    "call_put_ratio": 3.0,
                     "price": float(row[3] or 0),
                     "expiry": row[4] or "near-term",
+                    "source": "unusual_calls_log",
                 })
     except Exception as _mb_sw_e:
-        print(f"[morning-brief] sweep query: {_mb_sw_e}")
+        print(f"[morning-brief] unusual_calls query: {_mb_sw_e}")
 
+    # Secondary: today's Loop B predictions (when morning scan succeeded)
+    loop_b_lines = ""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=3,
+                               options="-c statement_timeout=3000") as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, rank, confidence_score, signal_basis, predicted_move
+                FROM aiem_predictions
+                WHERE prediction_date =
+                      (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                ORDER BY COALESCE(rank, 999), COALESCE(confidence_score, 0) DESC
+                LIMIT 8
+            """)
+            preds = cur.fetchall() or []
+            if preds:
+                loop_b_lines = "\n".join(
+                    f"{int(r[1] or i+1)}. {r[0]} — conf={float(r[2] or 0):.1f}/10 "
+                    f"({r[3] or 'Loop B'}) → {r[4] or 'breakout'}"
+                    for i, r in enumerate(preds)
+                )
+                if not top_flow:
+                    for r in preds:
+                        top_flow.append({
+                            "ticker": r[0],
+                            "premium_m": 0.0,
+                            "call_put_ratio": 0.0,
+                            "price": 0.0,
+                            "expiry": "Loop B prediction",
+                            "source": "aiem_predictions",
+                        })
+    except Exception as _mb_lb_e:
+        print(f"[morning-brief] aiem_predictions query: {_mb_lb_e}")
+
+    # Tertiary: RVOL movers if still empty
     if not top_flow:
-        out = {
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=3,
+                                   options="-c statement_timeout=3000") as conn, conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ticker, rvol, price
+                    FROM polygon_rvol_scan
+                    WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
+                      AND rvol >= 2.5 AND price BETWEEN 2 AND 200
+                    ORDER BY rvol DESC
+                    LIMIT 8
+                """)
+                for row in cur.fetchall():
+                    top_flow.append({
+                        "ticker": row[0],
+                        "premium_m": 0.0,
+                        "call_put_ratio": float(row[1] or 0),
+                        "price": float(row[2] or 0),
+                        "expiry": f"rvol={float(row[1] or 0):.1f}x",
+                        "source": "polygon_rvol_scan",
+                    })
+        except Exception as _mb_rv_e:
+            print(f"[morning-brief] rvol query: {_mb_rv_e}")
+
+    if not top_flow and not loop_b_lines:
+        # Do NOT cache the placeholder — next GET should retry once data lands.
+        return {
             "brief": "Pre-market data is loading. Check back after market open for today's top setups.",
             "date": _today,
             "tickers": [],
             "generated_at": _dt_mb.now(_tz_mb.utc).isoformat(),
             "cached": False,
+            "loading": True,
         }
-        _MORNING_BRIEF_CACHE.update({k: out[k] for k in ("date", "brief", "tickers", "generated_at")})
-        return out
 
     flow_lines = "\n".join(
         f"{i+1}. {r.get('ticker')} — ${float(r.get('premium_m') or 0):.1f}M call premium, "
-        f"{float(r.get('call_put_ratio') or 0):.1f}× C/P ratio, price ${float(r.get('price') or 0):.2f}, "
-        f"expiry {r.get('expiry') or 'near-term'}"
+        f"{float(r.get('call_put_ratio') or 0):.1f}× C/P (or rvol), price ${float(r.get('price') or 0):.2f}, "
+        f"expiry {r.get('expiry') or 'near-term'} [{r.get('source') or 'flow'}]"
         for i, r in enumerate(top_flow[:5])
     )
     tickers = [str(r.get("ticker") or "") for r in top_flow[:5] if r.get("ticker")]
     date_str = _dt_mb.now().strftime("%A, %B %d, %Y")
+    loop_b_block = (
+        f"\n\nAIEM Loop B morning predictions:\n{loop_b_lines}\n"
+        if loop_b_lines else ""
+    )
     prompt = (
         "You are a veteran Wall Street analyst writing the morning flow brief for a premium "
         "trading desk. Your readers are experienced active traders who want sharp, actionable "
         "intelligence — not generic advice.\n\n"
-        f"{date_str} — Today's Unusual Options Flow:\n{flow_lines}\n\n"
+        f"{date_str} — Today's Unusual Options Flow:\n{flow_lines}"
+        f"{loop_b_block}\n\n"
         "Write a morning brief in 3 parts (no headers, no bullet points, flowing paragraphs):\n\n"
         "First paragraph: Set the macro tone in 1-2 sentences — what does today's options flow "
         "collectively signal about market sentiment?\n\n"
@@ -57155,9 +57315,10 @@ def _build_morning_brief(force: bool = False) -> dict:
     if not brief_text:
         names = ", ".join(tickers) if tickers else "no names"
         brief_text = (
-            f"Options flow is concentrated in {names}. "
-            f"Top premium names: {flow_lines.replace(chr(10), ' | ')}. "
-            "Treat this as a data snapshot — AI narrative unavailable until Anthropic keys are configured."
+            f"Options flow / morning movers concentrated in {names}. "
+            f"Top names: {flow_lines.replace(chr(10), ' | ')}. "
+            + (f"Loop B: {loop_b_lines.replace(chr(10), ' | ')}. " if loop_b_lines else "")
+            + "Treat this as a data snapshot — AI narrative unavailable until Anthropic keys are configured."
         )
 
     out = {
@@ -57166,6 +57327,7 @@ def _build_morning_brief(force: bool = False) -> dict:
         "tickers": tickers,
         "generated_at": _dt_mb.now(_tz_mb.utc).isoformat(),
         "cached": False,
+        "loading": False,
     }
     _MORNING_BRIEF_CACHE.update({k: out[k] for k in ("date", "brief", "tickers", "generated_at")})
     return out
