@@ -25,6 +25,8 @@
 - [DPL Phase 3 — Reproducibility Replay](options-dpl-phase3.md) — D17-R1 DONE; SEQ=56: 195P/8F; freeze baseline restored; C44_legacy_entry_documented in _A8_L1_META_EXCL (SEQ=52+53 only); 8 FAILs=known blockers
 - [DPL Phase 1 — Immutable Audit Record](dpl-phase1-immutable-audit.md) — oe_decision_audit; trigger allows DELETE/UPDATE on is_test_record=TRUE only; integrity gate in _post_write_integrity_check; SEQ=2 PASS=44
 - [AIEM full verification audit](aiem-full-verification-audit.md) — 162 items audited: 121 PASS/27 PROXY/5 CONDITIONAL/8 UNSUPPORTED/1 FAIL; only validated signal=gap_volume; 152 scheduled jobs; aiem_tool_registry cols=tool_name/tool_type/owning_module_or_phase/required_inputs/produced_outputs; d3_governance_events does NOT exist (use d3_governance_decisions)
+- [AIEM communication protocol](aiem-communication-protocol.md) — no inbox; code/DB/admin/script only; restart = message; never run AIEM’s 24/7 or backtests as Cursor agent job (Joel confirmed via stocksai screenshots 2026-08-05)
+- [Backtest delegation rule](backtest-delegation-rule.md) — route backtests/research to AIEM; Cursor agent wires scripts/workflows only
 - [Standing verification protocol](standing-verification-protocol.md) — 5 permanent rules; Rule 5 (raw grep/sed for code-location claims) added 2026-07-17; narrative/described snippets rejected outright
 - [verified_run.sh canonical hash](verified-run-canonical.md) — re-baselined 2026-07-27 (c058d12); current canonical=dce94f6e…; old 97589232… is stale, not drift
 - [Dual timezone timestamp rule](dual-timezone-timestamp-rule.md) — all permanent records must show UTC and ET side by side; e.g. 2026-07-28T00:05Z UTC / 2026-07-27 20:05 ET; late July = EDT (UTC−4)
