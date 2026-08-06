@@ -798,6 +798,7 @@ export interface ConvictionOutcomeResult {
     high:    { d1: ConvictionOutcomeStats; d3: ConvictionOutcomeStats; d5: ConvictionOutcomeStats };
   };
   total: number;
+  latest_snap_date?: string | null;
 }
 export function fetchConvictionOutcomes() {
   return fetchJson<ConvictionOutcomeResult>(`/conviction-outcomes`);
@@ -2615,6 +2616,7 @@ export interface CandlestickConfluenceResult {
   signals: CandlestickConfluenceSignal[];
   count: number;
   scan_date: string | null;
+  market_date?: string | null;
   stale: boolean;
 }
 

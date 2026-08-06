@@ -9186,6 +9186,7 @@ function ConvictionTrackTab() {
         </div>
         <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 3 }}>
           Every EXTREME + HIGH score logged at scan time · price tracked at T+1 / T+3 / T+5 close · {data?.total ?? 0} signals logged
+          {data?.latest_snap_date ? ` · latest ${data.latest_snap_date}` : ""}
         </div>
       </div>
 
@@ -19915,7 +19916,11 @@ export default function Dashboard() {
                     </div>
                     {scanDate && (
                       <span className="text-slate-500 text-xs">
-                        {stale ? "⚠ no recent scan · " : ""}Last scan: {scanDate}
+                        {stale ? "⚠ scan behind market · " : ""}Last scan: {scanDate}
+                        {(data as any)?.market_date && (data as any).market_date !== scanDate
+                          ? ` · market ${(data as any).market_date}`
+                          : ""}
+                        {data?.count != null ? ` · ${data.count} ranked` : ""}
                       </span>
                     )}
                   </div>
@@ -19923,6 +19928,7 @@ export default function Dashboard() {
                     Patterns: hammer, marubozu, engulfing, piercing line, harami, morning star / doji star,
                     three white soldiers, three inside/outside up, abandoned baby. Confluence: volume above
                     20-day avg, price near 20-day low (support), RSI(14) &lt; 40 (oversold).
+                    Micro-range bars (&lt;0.5% H–L) are filtered out.
                   </div>
                 </div>
 

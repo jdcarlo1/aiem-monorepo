@@ -10199,21 +10199,23 @@ def _save_and_send_conviction_snapshot() -> None:
         print(f"[conviction_snapshot] error: {_err}\n{traceback.format_exc()}")
 
 
-def _fill_conviction_outcomes() -> None:
+def _fill_conviction_outcomes(lookback_days: int = 90, limit: int = 800) -> dict:
     """
-    4:32 PM ET Mon-Fri - fetch next-day closes for past conviction snapshots.
-    Fills D+1, D+3, D+5 % change vs entry price so win rates are always current.
+    Fill D+1 / D+3 / D+5 closes for HIGH/EXTREME conviction_calls_snapshot rows.
+    Uses Tradier daily history from each ticker's earliest pending snap (not a
+    short trailing window). Lookback default 90d — the old 14d window left the
+    track record stuck on 2026-06-16 while snapshots continued through Aug.
     """
     import psycopg2 as _pg
     import pytz as _pytz
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt, timedelta as _td, date as _date
+    from collections import defaultdict as _dd
 
     try:
         db_url = os.environ["DATABASE_URL"]
         today  = _dt.now(_pytz.timezone("US/Eastern")).date()
 
-        # Find snapshots missing outcome data (past days only, within 14 calendar days)
-        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+        with _pg.connect(db_url, connect_timeout=12) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT s.snap_date, s.ticker, s.price, s.conviction, s.score
                 FROM conviction_calls_snapshot s
@@ -10222,28 +10224,29 @@ def _fill_conviction_outcomes() -> None:
                 WHERE s.snap_date < %s
                   AND s.snap_date >= %s
                   AND s.conviction IN ('EXTREME', 'HIGH')
+                  AND s.price IS NOT NULL AND s.price > 0
                   AND (o.id IS NULL
-                       OR (o.d1_pct  IS NULL AND s.snap_date <= %s)
-                       OR (o.d3_pct  IS NULL AND s.snap_date <= %s)
-                       OR (o.d5_pct  IS NULL AND s.snap_date <= %s))
-                ORDER BY s.snap_date DESC
+                       OR (o.d1_pct IS NULL AND s.snap_date <= %s)
+                       OR (o.d3_pct IS NULL AND s.snap_date <= %s)
+                       OR (o.d5_pct IS NULL AND s.snap_date <= %s))
+                ORDER BY s.snap_date ASC
+                LIMIT %s
             """, (today,
-                  today - _td(days=14),
+                  today - _td(days=int(lookback_days)),
                   today - _td(days=1),
-                  today - _td(days=3),
-                  today - _td(days=5)))
+                  today - _td(days=4),
+                  today - _td(days=7),
+                  int(limit)))
             rows = cur.fetchall()
 
         if not rows:
             print("[conviction_outcomes] nothing to fill today")
-            return
+            return {"updated": 0, "pending": 0}
 
-        # Group by ticker to batch yfinance calls
-        from collections import defaultdict as _dd
         by_ticker = _dd(list)
         for snap_date, ticker, entry_price, conviction, score in rows:
-            by_ticker[ticker].append({
-                "snap_date": snap_date, "entry_price": entry_price,
+            by_ticker[str(ticker).upper()].append({
+                "snap_date": snap_date, "entry_price": float(entry_price),
                 "conviction": conviction, "score": score,
             })
 
@@ -10251,36 +10254,54 @@ def _fill_conviction_outcomes() -> None:
         updates = []
         for ticker, picks in by_ticker.items():
             try:
-                hist = _td_history(ticker, days=20)
-                if hist.empty:
+                min_snap = min(p["snap_date"] for p in picks)
+                if hasattr(min_snap, "date") and not isinstance(min_snap, _date):
+                    min_snap = min_snap.date()
+                start = (min_snap - _td(days=5)).isoformat()
+                hist = _td_history(ticker, start_date=start)
+                if hist is None or getattr(hist, "empty", True):
                     continue
                 closes = {}
-                for row in hist.itertuples():
-                    d = row.Index.date() if hasattr(row.Index, "date") else row.Index
-                    closes[str(d)] = float(row.Close)
+                for idx, row in hist.iterrows():
+                    d = idx.date() if hasattr(idx, "date") else idx
+                    if isinstance(d, _dt):
+                        d = d.date()
+                    try:
+                        closes[d] = float(row["Close"])
+                    except Exception:
+                        continue
                 sorted_dates = sorted(closes.keys())
+                if not sorted_dates:
+                    continue
 
                 for pick in picks:
                     snap_d = pick["snap_date"]
-                    entry  = pick["entry_price"]
+                    if hasattr(snap_d, "date") and not isinstance(snap_d, _date):
+                        snap_d = snap_d.date()
+                    entry = pick["entry_price"]
                     if not entry:
                         continue
-                    future = [d for d in sorted_dates if d > str(snap_d)]
+                    future = [d for d in sorted_dates if d > snap_d]
                     d1p = closes[future[0]] if len(future) >= 1 else None
                     d3p = closes[future[2]] if len(future) >= 3 else None
                     d5p = closes[future[4]] if len(future) >= 5 else None
-                    pct = lambda p: round((p - entry) / entry * 100, 2) if p else None
+                    if d1p is None and d3p is None and d5p is None:
+                        continue
+
+                    def _pct(p, _e=entry):
+                        return round((p - _e) / _e * 100, 2) if p is not None else None
+
                     updates.append((
                         snap_d, ticker, pick["conviction"], pick["score"], entry,
-                        d1p, pct(d1p), d3p, pct(d3p), d5p, pct(d5p),
+                        d1p, _pct(d1p), d3p, _pct(d3p), d5p, _pct(d5p),
                     ))
             except Exception as _te:
                 print(f"[conviction_outcomes] {ticker} error: {_te}")
 
         if not updates:
-            return
+            return {"updated": 0, "pending": len(rows)}
 
-        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+        with _pg.connect(db_url, connect_timeout=12) as conn, conn.cursor() as cur:
             for u in updates:
                 cur.execute("""
                     INSERT INTO conviction_calls_outcomes
@@ -10288,6 +10309,9 @@ def _fill_conviction_outcomes() -> None:
                          d1_price, d1_pct, d3_price, d3_pct, d5_price, d5_pct)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (snap_date, ticker) DO UPDATE SET
+                        score      = COALESCE(EXCLUDED.score, conviction_calls_outcomes.score),
+                        entry_price= COALESCE(EXCLUDED.entry_price, conviction_calls_outcomes.entry_price),
+                        conviction = COALESCE(EXCLUDED.conviction, conviction_calls_outcomes.conviction),
                         d1_price=COALESCE(EXCLUDED.d1_price, conviction_calls_outcomes.d1_price),
                         d1_pct  =COALESCE(EXCLUDED.d1_pct,   conviction_calls_outcomes.d1_pct),
                         d3_price=COALESCE(EXCLUDED.d3_price, conviction_calls_outcomes.d3_price),
@@ -10297,11 +10321,37 @@ def _fill_conviction_outcomes() -> None:
                         updated_at=NOW()
                 """, u)
             conn.commit()
-        print(f"[conviction_outcomes] wrote {len(updates)} outcome rows")
+            cur.execute("""
+                SELECT COUNT(*) FROM conviction_calls_snapshot s
+                LEFT JOIN conviction_calls_outcomes o
+                  ON o.snap_date = s.snap_date AND o.ticker = s.ticker
+                WHERE s.snap_date < (now() AT TIME ZONE 'America/New_York')::date
+                  AND s.snap_date >= (now() AT TIME ZONE 'America/New_York')::date - INTERVAL '90 days'
+                  AND s.conviction IN ('EXTREME', 'HIGH')
+                  AND (o.id IS NULL OR o.d1_pct IS NULL)
+            """)
+            pending = int((cur.fetchone() or [0])[0] or 0)
+        print(f"[conviction_outcomes] wrote {len(updates)} outcome rows; still_pending_d1≈{pending}")
+        return {"updated": len(updates), "pending": pending}
 
     except Exception as e:
         import traceback
         print(f"[conviction_outcomes] error: {e}\n{traceback.format_exc()}")
+        return {"updated": 0, "pending": -1, "error": str(e)}
+
+
+def _backfill_conviction_outcomes(max_batches: int = 10, batch_size: int = 800) -> dict:
+    """Catch up conviction track outcomes across multiple batches."""
+    total = 0
+    last = {}
+    for i in range(int(max_batches)):
+        last = _fill_conviction_outcomes(lookback_days=120, limit=batch_size) or {}
+        total += int(last.get("updated") or 0)
+        if int(last.get("updated") or 0) == 0:
+            break
+        print(f"[conviction_outcomes] backfill batch {i+1} total_updated={total}")
+    last["total_updated"] = total
+    return last
 
 
 _whale_hc_alerted: dict = {}   # {date_str: set(ticker)} - prevents repeat SMS same day
@@ -22928,51 +22978,168 @@ def _log_eod_sweep_signals(signals: list, today_only: bool = True):
         print(f"[eod_sweep_log] save error: {e}")
 
 
-def _update_eod_sweep_outcomes():
-    """Fill in T+1/T+3/T+5 closing prices for past EOD sweep signals."""
+def _eod_sweep_closes_after_signal(ticker: str, sig_date, hist_df=None):
+    """
+    Return (close_t1, close_t3, close_t5) trading-day closes after sig_date.
+    Uses Tradier daily history starting at the signal date (not a short trailing
+    window — that bug left ~1500 sweeps ungraded / mis-indexed).
+    """
+    import datetime as _dt_es
+
+    if hasattr(sig_date, "date") and not isinstance(sig_date, _dt_es.date):
+        sig_d = sig_date.date()
+    elif isinstance(sig_date, _dt_es.date):
+        sig_d = sig_date
+    else:
+        sig_d = _dt_es.date.fromisoformat(str(sig_date)[:10])
+
+    hist = hist_df
+    if hist is None or getattr(hist, "empty", True):
+        # Pull from a few calendar days before signal through today
+        _start = (sig_d - _dt_es.timedelta(days=5)).isoformat()
+        hist = _td_history(str(ticker).upper(), start_date=_start)
+    if hist is None or getattr(hist, "empty", True):
+        return (None, None, None)
+
+    # Normalize index → sorted unique trading dates aligned to Close series
+    _closes = {}
+    for _idx, _row in hist.iterrows():
+        _d = _idx.date() if hasattr(_idx, "date") else _idx
+        if isinstance(_d, _dt_es.datetime):
+            _d = _d.date()
+        try:
+            _closes[_d] = float(_row["Close"])
+        except Exception:
+            continue
+    dates = sorted(_closes.keys())
+    if not dates:
+        return (None, None, None)
+
+    # Anchor on the signal session (exact date, else last session on/before it)
+    if sig_d in _closes:
+        idx = dates.index(sig_d)
+    else:
+        prior = [d for d in dates if d <= sig_d]
+        if not prior:
+            return (None, None, None)
+        idx = dates.index(prior[-1])
+
+    def _gc(n):
+        i = idx + n
+        return _closes[dates[i]] if i < len(dates) else None
+
+    return (_gc(1), _gc(3), _gc(5))
+
+
+def _update_eod_sweep_outcomes(limit: int = 500, recompute_all: bool = False):
+    """
+    Fill T+1 / T+3 / T+5 closes + returns on eod_sweep_log for Sweep Track Record.
+    Batches by ticker (one Tradier history pull per name). Partial fills kept via
+    COALESCE so a T+1 write is not wiped when T+5 is still pending.
+    """
     try:
-        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        import datetime as _dt_uo
+        with _psycopg2.connect(_DB_URL, connect_timeout=12) as conn, conn.cursor() as cur:
+            if recompute_all:
+                cur.execute("""
+                    SELECT id, ticker, signal_date, price_at_signal
+                    FROM eod_sweep_log
+                    WHERE signal_date < (now() AT TIME ZONE 'America/New_York')::date
+                      AND price_at_signal IS NOT NULL
+                    ORDER BY signal_date ASC
+                    LIMIT %s
+                """, (int(limit),))
+            else:
+                cur.execute("""
+                    SELECT id, ticker, signal_date, price_at_signal
+                    FROM eod_sweep_log
+                    WHERE (close_t1 IS NULL OR close_t3 IS NULL OR close_t5 IS NULL)
+                      AND signal_date < (now() AT TIME ZONE 'America/New_York')::date
+                      AND price_at_signal IS NOT NULL
+                    ORDER BY signal_date ASC
+                    LIMIT %s
+                """, (int(limit),))
+            rows = cur.fetchall()
+            if not rows:
+                print("[eod_sweep_outcomes] nothing pending")
+                return {"updated": 0, "pending_rows": 0, "tickers": 0}
+
+            by_ticker: dict = {}
+            for row_id, ticker, sig_date, sig_price in rows:
+                by_ticker.setdefault(str(ticker).upper(), []).append(
+                    (row_id, sig_date, sig_price)
+                )
+
+            updated = 0
+            for ticker, items in by_ticker.items():
+                try:
+                    min_sig = min(
+                        (sd.date() if hasattr(sd, "date") and not isinstance(sd, _dt_uo.date) else sd
+                         for _, sd, _ in items),
+                    )
+                    if not isinstance(min_sig, _dt_uo.date):
+                        min_sig = _dt_uo.date.fromisoformat(str(min_sig)[:10])
+                    start = (min_sig - _dt_uo.timedelta(days=5)).isoformat()
+                    hist = _td_history(ticker, start_date=start)
+                    if hist is None or getattr(hist, "empty", True):
+                        continue
+                    for row_id, sig_date, sig_price in items:
+                        t1, t3, t5 = _eod_sweep_closes_after_signal(
+                            ticker, sig_date, hist_df=hist
+                        )
+                        sp = float(sig_price or 0)
+                        if sp <= 0:
+                            continue
+                        if t1 is None and t3 is None and t5 is None:
+                            continue
+
+                        def _ret(t):
+                            return round((t - sp) / sp * 100, 2) if t is not None else None
+
+                        # Only write fields we resolved; never NULL-out a prior fill
+                        cur.execute("""
+                            UPDATE eod_sweep_log SET
+                                close_t1  = COALESCE(%s, close_t1),
+                                close_t3  = COALESCE(%s, close_t3),
+                                close_t5  = COALESCE(%s, close_t5),
+                                return_t1 = COALESCE(%s, return_t1),
+                                return_t3 = COALESCE(%s, return_t3),
+                                return_t5 = COALESCE(%s, return_t5),
+                                outcome_updated_at = NOW()
+                            WHERE id = %s
+                        """, (t1, t3, t5, _ret(t1), _ret(t3), _ret(t5), row_id))
+                        updated += 1
+                except Exception as _te:
+                    print(f"[eod_sweep_outcomes] {ticker}: {_te}")
+            conn.commit()
+
             cur.execute("""
-                SELECT id, ticker, signal_date, price_at_signal
-                FROM eod_sweep_log
+                SELECT COUNT(*) FROM eod_sweep_log
                 WHERE (close_t1 IS NULL OR close_t3 IS NULL OR close_t5 IS NULL)
                   AND signal_date < (now() AT TIME ZONE 'America/New_York')::date
                   AND price_at_signal IS NOT NULL
-                ORDER BY signal_date DESC LIMIT 80
             """)
-            rows = cur.fetchall()
-            updated = 0
-            for row_id, ticker, sig_date, sig_price in rows:
-                try:
-                    hist = _td_history(ticker, days=15)
-                    if hist is None or hist.empty:
-                        continue
-                    hist.index = [d.date() if hasattr(d, 'date') else d for d in hist.index]
-                    dates = sorted(hist.index)
-                    try:
-                        idx = next(i for i, d in enumerate(dates) if d >= sig_date)
-                    except StopIteration:
-                        continue
-                    def gc(n, _dates=dates, _hist=hist):
-                        i = idx + n
-                        return float(_hist.iloc[i]['Close']) if i < len(_dates) else None
-                    t1, t3, t5 = gc(1), gc(3), gc(5)
-                    def ret(t, _sp=float(sig_price)):
-                        return round((t - _sp) / _sp * 100, 2) if t and _sp else None
-                    cur.execute("""
-                        UPDATE eod_sweep_log
-                        SET close_t1=%s, close_t3=%s, close_t5=%s,
-                            return_t1=%s, return_t3=%s, return_t5=%s,
-                            outcome_updated_at=NOW()
-                        WHERE id=%s
-                    """, (t1, t3, t5, ret(t1), ret(t3), ret(t5), row_id))
-                    updated += 1
-                except Exception as _exc:
-                    print(f"[silent_except:L12326] {type(_exc).__name__}: {_exc}")
-            conn.commit()
-        print(f"[eod_sweep_outcomes] updated {updated} signals")
+            still = int((cur.fetchone() or [0])[0] or 0)
+        print(f"[eod_sweep_outcomes] updated={updated} tickers={len(by_ticker)} still_pending={still}")
+        return {"updated": updated, "pending_rows": still, "tickers": len(by_ticker)}
     except Exception as e:
         print(f"[eod_sweep_outcomes] error: {e}")
+        return {"updated": 0, "pending_rows": -1, "tickers": 0, "error": str(e)}
+
+
+def _backfill_eod_sweep_outcomes(batch_size: int = 600, max_batches: int = 8) -> dict:
+    """Run multiple outcome batches until caught up or batch budget exhausted."""
+    total_upd = 0
+    last = {}
+    for i in range(int(max_batches)):
+        last = _update_eod_sweep_outcomes(limit=batch_size, recompute_all=False) or {}
+        total_upd += int(last.get("updated") or 0)
+        pending = int(last.get("pending_rows") or 0)
+        if pending <= 0 or int(last.get("updated") or 0) == 0:
+            break
+        print(f"[eod_sweep_outcomes] backfill batch {i+1}: pending={pending}")
+    last["total_updated"] = total_upd
+    return last
 
 
 # ── Micro-cap unusual call options scan ───────────────────────────────────────
@@ -35022,6 +35189,23 @@ def _init_candlestick_confluence_table():
     _c.close()
 
 
+def _cc_signal_bar_tradable(latest, min_range_pct: float = 0.005) -> bool:
+    """
+    Reject micro-range bars that satisfy formulaic pattern rules but are not
+    real candles (e.g. T-bill ETFs printing a 2¢ 'marubozu'). Requires the
+    signal bar's high-low range to be at least `min_range_pct` of close (0.5%).
+    """
+    try:
+        close = float(latest["close"])
+        high = float(latest["high"])
+        low = float(latest["low"])
+        if close <= 0:
+            return False
+        return ((high - low) / close) >= float(min_range_pct)
+    except Exception:
+        return False
+
+
 def _scan_candlestick_confluence(min_price=2.0, min_volume=100000, end_date=None,
                                    top_n=100, lookback_bars=45):
     """FULLY ISOLATED daily full-market scan (own table/tab/Telegram alert
@@ -35031,7 +35215,11 @@ def _scan_candlestick_confluence(min_price=2.0, min_volume=100000, end_date=None
     which of the 3 confluence filters (volume confirmation, support
     proximity, RSI<40 oversold) also pass on that same bar. Purely
     descriptive — no win-rate number is attached to matches from this
-    project's own data until AIEM runs a real statistical backtest."""
+    project's own data until AIEM runs a real statistical backtest.
+
+    History pull uses ROW_NUMBER() PARTITION BY ticker — a prior global LIMIT
+    on ORDER BY ticker starved every name after ~C and left the tab ~99% A–C.
+    """
     import psycopg2
     import pandas as _cc_pd
     from collections import defaultdict
@@ -35057,30 +35245,41 @@ def _scan_candlestick_confluence(min_price=2.0, min_volume=100000, end_date=None
         if not universe:
             return {"status": "error", "error": f"No tickers for {target_date}."}
 
-        BATCH = 500
+        BATCH = 400
         all_raw = []
-        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        with psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=30) as conn, conn.cursor() as cur:
             for i in range(0, len(universe), BATCH):
                 batch = universe[i:i + BATCH]
-                ph = ",".join(["%s"] * len(batch))
-                cur.execute(f"""
+                # Per-ticker lookback — NEVER a global LIMIT on ORDER BY ticker
+                # (that previously returned only ~50 of 500 tickers, all A–C).
+                cur.execute("""
                     SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume
-                    FROM polygon_market_daily
-                    WHERE ticker IN ({ph}) AND scan_date <= %s AND close_price > 0
-                    ORDER BY ticker, scan_date DESC
-                    LIMIT {BATCH * lookback_bars}
-                """, batch + [target_date])
+                    FROM (
+                        SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY ticker ORDER BY scan_date DESC
+                               ) AS rn
+                        FROM polygon_market_daily
+                        WHERE ticker = ANY(%s)
+                          AND scan_date <= %s
+                          AND close_price > 0
+                    ) x
+                    WHERE rn <= %s
+                    ORDER BY ticker, scan_date ASC
+                """, (batch, target_date, lookback_bars))
                 all_raw.extend(cur.fetchall())
 
         by_ticker = defaultdict(list)
         for row in all_raw:
-            by_ticker[row[0]].append(row[1:])  # (date, open, high, low, close, volume) DESC
+            by_ticker[row[0]].append(row[1:])  # (date, open, high, low, close, volume)
 
         results = []
+        skipped_noise = 0
         for t, rows in by_ticker.items():
             if len(rows) < _CANDLE_CONFLUENCE_MIN_BARS:
                 continue
-            asc = list(reversed(rows[:lookback_bars]))  # oldest first
+            # Ascending by date (query orders ASC; sort defensively)
+            asc = sorted(rows, key=lambda r: r[0])[-lookback_bars:]
             df = _cc_pd.DataFrame(asc, columns=["date", "open", "high", "low", "close", "volume"])
             for col in ("open", "high", "low", "close", "volume"):
                 df[col] = df[col].astype(float)
@@ -35091,6 +35290,9 @@ def _scan_candlestick_confluence(min_price=2.0, min_volume=100000, end_date=None
             latest = df.iloc[-1]
             found = [p for p in _CANDLE_CONFLUENCE_PATTERN_COLS if bool(latest.get(p, False))]
             if not found:
+                continue
+            if not _cc_signal_bar_tradable(latest):
+                skipped_noise += 1
                 continue
 
             vol_confirmed = bool(latest.get("vol_confirmed", False))
@@ -35121,11 +35323,14 @@ def _scan_candlestick_confluence(min_price=2.0, min_volume=100000, end_date=None
             "status": "ok",
             "scan_date": str(target_date),
             "tickers_scanned": len(universe),
+            "tickers_with_history": len(by_ticker),
             "matches": len(results),
+            "skipped_micro_range": skipped_noise,
             "results": results_top,
             "interpretation": (
                 f"Found {len(results)} stocks with at least one bullish candlestick pattern "
-                f"on their latest bar as of {target_date}, out of {len(universe):,} scanned. "
+                f"on their latest bar as of {target_date}, out of {len(universe):,} scanned "
+                f"({len(by_ticker):,} with ≥{_CANDLE_CONFLUENCE_MIN_BARS} bars of history). "
                 f"Confluence filters (volume/support/RSI) are shown per stock but this is a "
                 f"descriptive scan only — no win-rate claim is made for this project's own "
                 f"market data until AIEM statistically validates it."
@@ -35649,27 +35854,52 @@ def _mkt_tool_test_candlestick_indicator_combo(pattern: str = "bullish_marubozu"
 def candlestick_confluence_endpoint():
     """Isolated tab data source — reads the daily-scan DB table ONLY (never
     triggers a live scan on request), matching the tab-graceful-fallback
-    convention used by every other signal tab."""
+    convention used by every other signal tab.
+    Pass ?rescan=1 (admin token) to refresh the latest market day in-process."""
     try:
         import psycopg2 as _cce_pg
-        with _cce_pg.connect(os.environ["DATABASE_URL"], connect_timeout=3,
-                              options="-c statement_timeout=5000") as _c, _c.cursor() as _cur:
+        from datetime import date as _cce_date
+
+        if str(request.args.get("rescan") or "").strip() in ("1", "true"):
+            _tok = request.headers.get("X-Admin-Token", "")
+            if _tok and _tok == os.environ.get("ADMIN_TOKEN", ""):
+                _res = _scan_candlestick_confluence(min_price=2.0, min_volume=200000, top_n=100)
+                if _res.get("status") == "ok":
+                    _persist_candlestick_confluence_matches(_res["scan_date"], _res.get("results") or [])
+
+        with _cce_pg.connect(os.environ["DATABASE_URL"], connect_timeout=5,
+                              options="-c statement_timeout=8000") as _c, _c.cursor() as _cur:
+            # Prefer the most recent scan_date's full ranked list (not a mix of 14 days)
+            _cur.execute("""
+                SELECT MAX(scan_date)::text FROM candlestick_confluence_signals
+            """)
+            _latest = (_cur.fetchone() or [None])[0]
+            if not _latest:
+                return jsonify({"signals": [], "count": 0, "scan_date": None, "stale": True})
             _cur.execute("""
                 SELECT scan_date::text, ticker, close_price, volume, patterns_detected,
                        vol_confirmed, at_support, rsi_oversold, rsi_value, confluence_count
                 FROM candlestick_confluence_signals
-                WHERE scan_date >= CURRENT_DATE - 14
-                ORDER BY scan_date DESC, confluence_count DESC, (close_price * volume) DESC
+                WHERE scan_date = %s
+                ORDER BY confluence_count DESC, (close_price * volume) DESC
                 LIMIT 200
-            """)
+            """, (_latest,))
             cols = [d[0] for d in _cur.description]
             signals = [dict(zip(cols, r)) for r in _cur.fetchall()]
-        scan_date = signals[0]["scan_date"] if signals else None
+            _cur.execute("SELECT MAX(scan_date)::text FROM polygon_market_daily")
+            _pmd = (_cur.fetchone() or [None])[0]
+        # Stale if empty or more than 1 trading session behind market daily
+        _stale = False
+        if not signals:
+            _stale = True
+        elif _pmd and _latest and _pmd > _latest:
+            _stale = True
         return jsonify({
             "signals": signals,
             "count": len(signals),
-            "scan_date": scan_date,
-            "stale": len(signals) == 0,
+            "scan_date": _latest,
+            "market_date": _pmd,
+            "stale": _stale,
         })
     except Exception as _e:
         app.logger.error(f"[candlestick-confluence] {_e}")
@@ -60207,31 +60437,38 @@ def eod_sweep_track_record():
     """
     EOD sweep track record - win rates by session (eod/morning/preclose) and
     by grade (EXTREME/HIGH/ELEVATED) at T+1, T+3, T+5 trading days.
+    Pass ?backfill=1 to grade pending T+n closes before returning.
     """
     from datetime import datetime as _dt
+    _backfill_meta = None
+    if str(request.args.get("backfill") or "").strip().lower() in ("1", "true", "yes"):
+        try:
+            _backfill_meta = _backfill_eod_sweep_outcomes(batch_size=600, max_batches=6)
+        except Exception as _bf_e:
+            _backfill_meta = {"error": str(_bf_e)}
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT
                     COUNT(*) as total,
-                    COUNT(close_t1)                                        as n_t1,
-                    SUM(CASE WHEN return_t1 > 0 THEN 1 ELSE 0 END)        as wins_t1,
-                    AVG(CASE WHEN return_t1 IS NOT NULL THEN return_t1 END) as avg_r1,
-                    COUNT(close_t3)                                        as n_t3,
-                    SUM(CASE WHEN return_t3 > 0 THEN 1 ELSE 0 END)        as wins_t3,
-                    AVG(CASE WHEN return_t3 IS NOT NULL THEN return_t3 END) as avg_r3,
-                    COUNT(close_t5)                                        as n_t5,
-                    SUM(CASE WHEN return_t5 > 0 THEN 1 ELSE 0 END)        as wins_t5,
-                    AVG(CASE WHEN return_t5 IS NOT NULL THEN return_t5 END) as avg_r5
+                    COUNT(return_t1) AS n_t1,
+                    COUNT(*) FILTER (WHERE return_t1 > 0) AS wins_t1,
+                    AVG(return_t1) AS avg_r1,
+                    COUNT(return_t3) AS n_t3,
+                    COUNT(*) FILTER (WHERE return_t3 > 0) AS wins_t3,
+                    AVG(return_t3) AS avg_r3,
+                    COUNT(return_t5) AS n_t5,
+                    COUNT(*) FILTER (WHERE return_t5 > 0) AS wins_t5,
+                    AVG(return_t5) AS avg_r5
                 FROM eod_sweep_log
             """)
             overall = cur.fetchone()
 
             cur.execute("""
                 SELECT session, COUNT(*) as total,
-                    COUNT(close_t1), SUM(CASE WHEN return_t1 > 0 THEN 1 ELSE 0 END), AVG(return_t1),
-                    COUNT(close_t3), SUM(CASE WHEN return_t3 > 0 THEN 1 ELSE 0 END), AVG(return_t3),
-                    COUNT(close_t5), SUM(CASE WHEN return_t5 > 0 THEN 1 ELSE 0 END), AVG(return_t5)
+                    COUNT(return_t1), COUNT(*) FILTER (WHERE return_t1 > 0), AVG(return_t1),
+                    COUNT(return_t3), COUNT(*) FILTER (WHERE return_t3 > 0), AVG(return_t3),
+                    COUNT(return_t5), COUNT(*) FILTER (WHERE return_t5 > 0), AVG(return_t5)
                 FROM eod_sweep_log
                 GROUP BY session ORDER BY
                     CASE session WHEN 'eod' THEN 1 WHEN 'preclose' THEN 2 ELSE 3 END
@@ -60240,9 +60477,9 @@ def eod_sweep_track_record():
 
             cur.execute("""
                 SELECT grade, COUNT(*) as total,
-                    COUNT(close_t1), SUM(CASE WHEN return_t1 > 0 THEN 1 ELSE 0 END), AVG(return_t1),
-                    COUNT(close_t3), SUM(CASE WHEN return_t3 > 0 THEN 1 ELSE 0 END), AVG(return_t3),
-                    COUNT(close_t5), SUM(CASE WHEN return_t5 > 0 THEN 1 ELSE 0 END), AVG(return_t5)
+                    COUNT(return_t1), COUNT(*) FILTER (WHERE return_t1 > 0), AVG(return_t1),
+                    COUNT(return_t3), COUNT(*) FILTER (WHERE return_t3 > 0), AVG(return_t3),
+                    COUNT(return_t5), COUNT(*) FILTER (WHERE return_t5 > 0), AVG(return_t5)
                 FROM eod_sweep_log
                 GROUP BY grade ORDER BY
                     CASE grade WHEN 'EXTREME' THEN 1 WHEN 'HIGH' THEN 2 ELSE 3 END
@@ -60310,6 +60547,8 @@ def eod_sweep_track_record():
             ],
             "generated_at": _dt.now().isoformat(),
         }
+        if _backfill_meta is not None:
+            result["backfill"] = _backfill_meta
         return jsonify(result)
     except Exception as e:
         import traceback
@@ -60562,19 +60801,33 @@ def conviction_history():
 def conviction_outcomes_api():
     """
     Win rate tracker for HIGH CONVICTION picks (EXTREME + HIGH only).
-    Returns overall + per-conviction-level stats + individual pick history.
+    Joins live snapshots → outcomes so the signal log is never stuck on a
+    month-old outcomes-only table. Pass ?backfill=1 to grade pending rows first.
     """
     import psycopg2 as _pg
+    _backfill_meta = None
+    if str(request.args.get("backfill") or "").strip().lower() in ("1", "true", "yes"):
+        try:
+            _backfill_meta = _backfill_conviction_outcomes(max_batches=6, batch_size=800)
+        except Exception as _bf_e:
+            _backfill_meta = {"error": str(_bf_e)}
+
     try:
         db_url = os.environ["DATABASE_URL"]
-        with _pg.connect(db_url) as conn, conn.cursor() as cur:
+        with _pg.connect(db_url, connect_timeout=12) as conn, conn.cursor() as cur:
+            # Prefer snapshot spine (fresh daily log) LEFT JOIN graded outcomes
             cur.execute("""
-                SELECT snap_date, ticker, conviction, score, entry_price,
-                       d1_price, d1_pct, d3_price, d3_pct,
-                       d5_price, d5_pct, updated_at
-                FROM conviction_calls_outcomes
-                WHERE conviction IN ('EXTREME', 'HIGH')
-                ORDER BY snap_date DESC, score DESC
+                SELECT s.snap_date, s.ticker, s.conviction, s.score,
+                       COALESCE(o.entry_price, s.price) AS entry_price,
+                       o.d1_price, o.d1_pct, o.d3_price, o.d3_pct,
+                       o.d5_price, o.d5_pct,
+                       COALESCE(o.updated_at, s.saved_at) AS updated_at
+                FROM conviction_calls_snapshot s
+                LEFT JOIN conviction_calls_outcomes o
+                    ON o.snap_date = s.snap_date AND o.ticker = s.ticker
+                WHERE s.conviction IN ('EXTREME', 'HIGH')
+                  AND s.snap_date >= CURRENT_DATE - INTERVAL '120 days'
+                ORDER BY s.snap_date DESC, s.score DESC NULLS LAST
                 LIMIT 300
             """)
             rows = cur.fetchall()
@@ -60608,8 +60861,9 @@ def conviction_outcomes_api():
 
         extreme = [r for r in records if r["conviction"] == "EXTREME"]
         high    = [r for r in records if r["conviction"] == "HIGH"]
+        max_date = records[0]["snap_date"] if records else None
 
-        return jsonify({
+        payload = {
             "picks": records,
             "stats": {
                 "overall": {
@@ -60629,7 +60883,11 @@ def conviction_outcomes_api():
                 },
             },
             "total": len(records),
-        })
+            "latest_snap_date": max_date,
+        }
+        if _backfill_meta is not None:
+            payload["backfill"] = _backfill_meta
+        return jsonify(payload)
     except Exception as e:
         import traceback
         print(f"[conviction_outcomes] api error: {e}\n{traceback.format_exc()}")
@@ -70538,13 +70796,49 @@ def admin_test_block_halt():
     })
 
 
+def _persist_candlestick_confluence_matches(scan_date, matches: list) -> int:
+    """Upsert scan matches into candlestick_confluence_signals. Always runs
+    (even when Telegram already fired) so a corrected re-scan can replace the
+    prior A–C-biased day. Returns rows written."""
+    import psycopg2 as _cca_pg2
+    if not matches:
+        return 0
+    n = 0
+    with _cca_pg2.connect(os.environ["DATABASE_URL"], connect_timeout=15) as _cc_conn:
+        with _cc_conn.cursor() as _cc_cur:
+            # Drop prior rows for this scan_date so removed false matches
+            # (micro-range / wrong universe) don't linger after a re-scan.
+            _cc_cur.execute(
+                "DELETE FROM candlestick_confluence_signals WHERE scan_date = %s",
+                (scan_date,),
+            )
+            for _m in matches:
+                _cc_cur.execute("""
+                    INSERT INTO candlestick_confluence_signals
+                        (scan_date, ticker, close_price, volume, patterns_detected,
+                         vol_confirmed, at_support, rsi_oversold, rsi_value, confluence_count)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                        close_price=EXCLUDED.close_price, volume=EXCLUDED.volume,
+                        patterns_detected=EXCLUDED.patterns_detected,
+                        vol_confirmed=EXCLUDED.vol_confirmed, at_support=EXCLUDED.at_support,
+                        rsi_oversold=EXCLUDED.rsi_oversold, rsi_value=EXCLUDED.rsi_value,
+                        confluence_count=EXCLUDED.confluence_count
+                """, (scan_date, _m["ticker"], _m["close"], _m["volume"],
+                      _m["patterns_detected"], _m["vol_confirmed"], _m["at_support"],
+                      _m["rsi_oversold"], _m["rsi_value"], _m["confluence_count"]))
+                n += 1
+        _cc_conn.commit()
+    return n
+
+
 def _send_candlestick_confluence_alert() -> None:
     """8:55 AM ET Mon-Fri: FULLY ISOLATED full-market candlestick pattern +
     confluence scan (own DB table, own tab, own Telegram alert — never read
     by any live scoring/ranking loop). Writes every match to
     candlestick_confluence_signals (the tab's data source) AND logs to
-    signal_fire_log for future AIEM backtesting. Dedups on scan_date so an
-    app restart after the scheduled slot never re-sends the same day."""
+    signal_fire_log for future AIEM backtesting. Telegram dedups on scan_date;
+    DB always refreshes so a re-scan can fix a bad day."""
     import psycopg2 as _cca_pg2
     try:
         _res = _scan_candlestick_confluence(min_price=2.0, min_volume=200000, top_n=100)
@@ -70554,6 +70848,10 @@ def _send_candlestick_confluence_alert() -> None:
 
         _scan_date = _res["scan_date"]
         _matches = _res.get("results", [])
+        _saved = _persist_candlestick_confluence_matches(_scan_date, _matches)
+        print(f"[candlestick_confluence] saved {_saved} rows for {_scan_date} "
+              f"(scanned={_res.get('tickers_scanned')} hist={_res.get('tickers_with_history')} "
+              f"raw_matches={_res.get('matches')} noise_skip={_res.get('skipped_micro_range')})")
 
         _ensure_signal_fire_log()
         with _cca_pg2.connect(os.environ["DATABASE_URL"]) as _cc_conn:
@@ -70564,26 +70862,8 @@ def _send_candlestick_confluence_alert() -> None:
                 )
                 _already_sent = _cc_cur.fetchone()[0] > 0
 
-                if not _already_sent:
-                    for _m in _matches:
-                        _cc_cur.execute("""
-                            INSERT INTO candlestick_confluence_signals
-                                (scan_date, ticker, close_price, volume, patterns_detected,
-                                 vol_confirmed, at_support, rsi_oversold, rsi_value, confluence_count)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            ON CONFLICT (scan_date, ticker) DO UPDATE SET
-                                close_price=EXCLUDED.close_price, volume=EXCLUDED.volume,
-                                patterns_detected=EXCLUDED.patterns_detected,
-                                vol_confirmed=EXCLUDED.vol_confirmed, at_support=EXCLUDED.at_support,
-                                rsi_oversold=EXCLUDED.rsi_oversold, rsi_value=EXCLUDED.rsi_value,
-                                confluence_count=EXCLUDED.confluence_count
-                        """, (_scan_date, _m["ticker"], _m["close"], _m["volume"],
-                              _m["patterns_detected"], _m["vol_confirmed"], _m["at_support"],
-                              _m["rsi_oversold"], _m["rsi_value"], _m["confluence_count"]))
-            _cc_conn.commit()
-
         if _already_sent:
-            print(f"[candlestick_confluence] already sent for {_scan_date} — skipping duplicate Telegram alert")
+            print(f"[candlestick_confluence] already alerted for {_scan_date} — DB refreshed, Telegram skipped")
             return
 
         if not _matches:
