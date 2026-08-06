@@ -1431,6 +1431,139 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
         print(f"[td_intraday] error {ticker}: {_e_ti}")
         return _ti_pd.DataFrame()
 
+
+def _grade_eod_accum_pick(ticker: str, entry_price, pick_date) -> dict | None:
+    """
+    Grade one EOD accumulation pick against the next trading session.
+    Uses Tradier daily OHLC (works for historical backfill). When the next
+    session is today, refines morning_high from 9:30–10:00 intraday bars.
+    Returns None if next session bars are not available yet (still pending).
+    """
+    import datetime as _dt_g
+    import pandas as _pd_g
+
+    _ef = float(entry_price or 0)
+    if _ef <= 0 or not ticker:
+        return None
+    if hasattr(pick_date, "isoformat"):
+        _pick_d = pick_date if isinstance(pick_date, _dt_g.date) and not isinstance(pick_date, _dt_g.datetime) else pick_date
+        if isinstance(_pick_d, _dt_g.datetime):
+            _pick_d = _pick_d.date()
+    else:
+        _pick_d = _dt_g.date.fromisoformat(str(pick_date)[:10])
+
+    _hist = _td_history(str(ticker).upper(), start_date=_pick_d.isoformat())
+    if _hist is None or getattr(_hist, "empty", True) or len(_hist) < 1:
+        return None
+
+    _next_open = _next_high = None
+    _next_day = None
+    for _idx, _row in _hist.iterrows():
+        _d = _idx.date() if hasattr(_idx, "date") else _idx
+        if isinstance(_d, _dt_g.datetime):
+            _d = _d.date()
+        if _d <= _pick_d:
+            continue
+        try:
+            _next_open = float(_row["Open"])
+            _next_high = float(_row["High"])
+            _next_day = _d
+            break
+        except Exception:
+            continue
+    if _next_open is None or _next_day is None:
+        return None  # next session not in history yet
+
+    # Prefer true first-30m high when grading today's open
+    try:
+        _today = _et_today() if callable(globals().get("_et_today")) else _dt_g.date.today()
+        if _next_day == _today:
+            _intra = _td_intraday(str(ticker).upper(), "1min")
+            if _intra is not None and not _intra.empty:
+                _et = __import__("pytz").timezone("America/New_York")
+                if _intra.index.tzinfo is None:
+                    _intra.index = _intra.index.tz_localize(_et)
+                else:
+                    _intra.index = _intra.index.tz_convert(_et)
+                _am = _intra[(_intra.index.time >= _dt_g.time(9, 30)) &
+                             (_intra.index.time < _dt_g.time(10, 0))]
+                if not _am.empty:
+                    _next_high = float(_am["High"].max())
+                    if _next_open <= 0:
+                        _next_open = float(_intra["Open"].iloc[0])
+    except Exception as _ie:
+        print(f"[eod_accum_grade] intraday refine {ticker}: {_ie}")
+
+    if _next_high is None or _next_high <= 0:
+        _next_high = _next_open
+    _open_chg = round((_next_open - _ef) / _ef * 100, 2)
+    _high_chg = round((_next_high - _ef) / _ef * 100, 2)
+    return {
+        "next_open": _next_open,
+        "next_open_chg_pct": _open_chg,
+        "morning_high": _next_high,
+        "morning_high_chg_pct": _high_chg,
+        "gapped_up": bool(_next_open > _ef),
+        "outcome_session": _next_day.isoformat(),
+    }
+
+
+def _backfill_eod_accum_outcomes(lookback_days: int = 120) -> tuple:
+    """
+    Grade every eod_accum_pick lacking an outcome (within lookback).
+    Returns (saved_count, still_pending_count, error_count).
+    """
+    import datetime as _dt_bf
+    import psycopg2 as _pg_bf
+
+    _saved = _pending = _errors = 0
+    with _pg_bf.connect(_DB_URL, connect_timeout=10) as _c_r, _c_r.cursor() as _cu_r:
+        _cu_r.execute("""
+            SELECT p.scan_date, p.ticker, p.close_price, p.accum_score, p.news_type
+            FROM eod_accum_picks p
+            LEFT JOIN eod_accum_outcomes o
+              ON o.pick_date = p.scan_date AND o.ticker = p.ticker
+            WHERE o.ticker IS NULL
+              AND p.scan_date >= (CURRENT_DATE - (%s || ' days')::interval)
+            ORDER BY p.scan_date ASC, p.ticker ASC
+        """, (str(int(lookback_days)),))
+        _picks = _cu_r.fetchall()
+
+    if not _picks:
+        return (0, 0, 0)
+
+    with _pg_bf.connect(_DB_URL, connect_timeout=10) as _c_w, _c_w.cursor() as _cu_w:
+        for _scan_date, _sym, _entry, _score, _ntype in _picks:
+            try:
+                _g = _grade_eod_accum_pick(_sym, _entry, _scan_date)
+                if not _g:
+                    _pending += 1
+                    continue
+                _ef = float(_entry or 0)
+                _pick_date = _scan_date.isoformat() if hasattr(_scan_date, "isoformat") else str(_scan_date)[:10]
+                _cu_w.execute("""
+                    INSERT INTO eod_accum_outcomes
+                        (pick_date, ticker, entry_price, next_open, next_open_chg_pct,
+                         morning_high, morning_high_chg_pct, gapped_up, news_type, accum_score)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (pick_date, ticker) DO UPDATE SET
+                        next_open=EXCLUDED.next_open,
+                        next_open_chg_pct=EXCLUDED.next_open_chg_pct,
+                        morning_high=EXCLUDED.morning_high,
+                        morning_high_chg_pct=EXCLUDED.morning_high_chg_pct,
+                        gapped_up=EXCLUDED.gapped_up,
+                        fetched_at=NOW()
+                """, (_pick_date, _sym, _ef, _g["next_open"], _g["next_open_chg_pct"],
+                      _g["morning_high"], _g["morning_high_chg_pct"], _g["gapped_up"],
+                      _ntype, float(_score or 0)))
+                _saved += 1
+            except Exception as _te:
+                _errors += 1
+                print(f"[eod_accum_outcomes] {_sym} {_scan_date}: {_te}")
+        _c_w.commit()
+    return (_saved, _pending, _errors)
+
+
 # ── Tradier option chain helpers ──────────────────────────────────────────────
 # Drop-in replacements for yf.Ticker(t).options / .option_chain(exp).
 # _td_expiries(t)     → list["YYYY-MM-DD"] (like yf.Ticker.options)
@@ -7852,72 +7985,17 @@ try:
     # ── EOD Accumulation outcome fetcher: 10:00 AM ET ─────────────────────
     def _run_eod_accum_outcomes():
         """
-        Runs at 10:00 AM ET Mon-Fri.
-        Checks what happened to yesterday's EOD accum picks:
-          - Did they gap up at the open?
-          - What was the max gain in the first 30 minutes?
-        Writes results to eod_accum_outcomes for track-record comparison.
+        Runs at 10:08 AM ET Mon-Fri.
+        Grades ALL ungraded eod_accum_picks (not only yesterday) using daily
+        Tradier OHLC for the next session after pick_date:
+          - next_open / gap vs entry close
+          - morning_high ≈ next session High (or 9:30–10:00 intraday when
+            that session is today)
+        Writes eod_accum_outcomes for /eod-accum-track success tracking.
         """
         try:
-            import datetime as _dt_eao
-            import yfinance as _yf_eao
-            import psycopg2 as _pg_eao
-            import pytz as _pytz_eao
-            _et_eao = _pytz_eao.timezone("America/New_York")
-            _today  = _et_today()
-            # Most recent prior trading day
-            _pick_day = _today - _dt_eao.timedelta(days=1)
-            while _pick_day.weekday() >= 5:
-                _pick_day -= _dt_eao.timedelta(days=1)
-            _pick_date = _pick_day.isoformat()
-
-            with _pg_eao.connect(_DB_URL) as _c_r, _c_r.cursor() as _cu_r:
-                _cu_r.execute("""
-                    SELECT ticker, close_price, accum_score, news_type
-                    FROM eod_accum_picks WHERE scan_date = %s
-                """, (_pick_date,))
-                _picks = _cu_r.fetchall()
-
-            if not _picks:
-                print(f"[eod_accum_outcomes] no picks for {_pick_date}, skipping")
-                return
-
-            _saved = 0
-            with _pg_eao.connect(_DB_URL) as _c_w, _c_w.cursor() as _cu_w:
-                for _sym, _entry, _score, _ntype in _picks:
-                    try:
-                        _hist = _td_intraday(_sym, "1min")
-                        if _hist.empty or len(_hist) < 3: continue
-                        _hist.index = _hist.index.tz_convert(_et_eao)
-                        # Next open: very first bar
-                        _next_open = float(_hist["Open"].iloc[0])
-                        # Morning high: max of 9:30-10:00 AM bars
-                        _am_bars   = _hist[(_hist.index.time >= _dt_eao.time(9, 30)) &
-                                           (_hist.index.time <  _dt_eao.time(10, 0))]
-                        _morn_high = float(_am_bars["High"].max()) if not _am_bars.empty else _next_open
-                        _ef = float(_entry or 0)
-                        if _ef <= 0: continue
-                        _open_chg = round((_next_open - _ef) / _ef * 100, 2)
-                        _high_chg = round((_morn_high - _ef) / _ef * 100, 2)
-                        _cu_w.execute("""
-                            INSERT INTO eod_accum_outcomes
-                                (pick_date, ticker, entry_price, next_open, next_open_chg_pct,
-                                 morning_high, morning_high_chg_pct, gapped_up, news_type, accum_score)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            ON CONFLICT (pick_date, ticker) DO UPDATE SET
-                                next_open=EXCLUDED.next_open,
-                                next_open_chg_pct=EXCLUDED.next_open_chg_pct,
-                                morning_high=EXCLUDED.morning_high,
-                                morning_high_chg_pct=EXCLUDED.morning_high_chg_pct,
-                                gapped_up=EXCLUDED.gapped_up,
-                                fetched_at=NOW()
-                        """, (_pick_date, _sym, _ef, _next_open, _open_chg,
-                              _morn_high, _high_chg, _next_open > _ef, _ntype, float(_score or 0)))
-                        _saved += 1
-                    except Exception as _te:
-                        print(f"[eod_accum_outcomes] {_sym}: {_te}")
-                _c_w.commit()
-            print(f"[eod_accum_outcomes] saved {_saved}/{len(_picks)} for {_pick_date}")
+            _saved, _pending, _err = _backfill_eod_accum_outcomes(lookback_days=120)
+            print(f"[eod_accum_outcomes] saved={_saved} still_pending={_pending} errors={_err}")
         except Exception as _e_eao:
             print(f"[eod_accum_outcomes] error: {_e_eao}")
 
@@ -19230,7 +19308,9 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
       sweep                 → DB: call_sweep_log premium >= 50000, last 2 days
       unusual_calls         → DB: unusual_calls_log prem >= 75000, last 2 days
       gap_volume            → LIVE (Tradier): price>=2.0, gap_pct>=1.0, rvol_adj>=2.0
-      aiem_ai               → DB: ai_trade_log conviction HIGH/EXTREME + BULLISH, last 1d
+      aiem_ai               → DB: ai_trade_log conviction HIGH/EXTREME + BULLISH, last 2d
+      scanner_ai_trades     → DB: ai_trade_log BULLISH HIGH/EXTREME/MEDIUM last 2d
+                              (primary Paper Money source — scanner-ranked, not OpenAI)
       multi_signal          → PASS_THROUGH: snapshot-based, historical; no per-ticker bar
       oi_buildup            → DB: oi_daily_snapshot OI growth >=20%, last 4 days
       washout_ignition      → PASS_THROUGH: discovery gate means it can never reach exec
@@ -19343,6 +19423,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     _rv_valid_sweep    : set = set()
     _rv_valid_ucalls   : set = set()
     _rv_valid_aiem_ai  : set = set()
+    _rv_valid_scanner_ai : set = set()
     _rv_valid_oi       : set = set()
 
     _rv_valid_v3       : set = set()
@@ -19352,6 +19433,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         "sweep":           [p["ticker"] for p in picks if p.get("source") == "sweep"],
         "unusual_calls":   [p["ticker"] for p in picks if p.get("source") == "unusual_calls"],
         "aiem_ai":         [p["ticker"] for p in picks if p.get("source") == "aiem_ai"],
+        "scanner_ai_trades": [p["ticker"] for p in picks if p.get("source") == "scanner_ai_trades"],
         "oi_buildup":      [p["ticker"] for p in picks if p.get("source") == "oi_buildup"],
 
         "aiem_v3_discovery": [p["ticker"] for p in picks if p.get("source") == "aiem_v3_discovery"],
@@ -19383,16 +19465,43 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                     """, (_rv_db_sources["unusual_calls"],))
                     _rv_valid_ucalls = {r[0] for r in _rv_cur2.fetchall()}
 
-                # Stage 5: ai_trade_log conviction HIGH/EXTREME + BULLISH, last 1 day
+                # Stage 5: ai_trade_log conviction HIGH/EXTREME + BULLISH, last 2 days
                 if _rv_db_sources["aiem_ai"]:
                     _rv_cur2.execute("""
                         SELECT DISTINCT ticker FROM ai_trade_log
                         WHERE ticker = ANY(%s)
-                          AND trade_date >= CURRENT_DATE - INTERVAL '1 day'
+                          AND trade_date >= CURRENT_DATE - INTERVAL '2 days'
                           AND conviction IN ('HIGH', 'EXTREME')
                           AND direction = 'BULLISH'
                     """, (_rv_db_sources["aiem_ai"],))
                     _rv_valid_aiem_ai = {r[0] for r in _rv_cur2.fetchall()}
+
+                # Primary paper source: scanner-ranked AI trades (incl MEDIUM)
+                if _rv_db_sources["scanner_ai_trades"]:
+                    _rv_cur2.execute("""
+                        SELECT DISTINCT ticker FROM ai_trade_log
+                        WHERE ticker = ANY(%s)
+                          AND trade_date >= CURRENT_DATE - INTERVAL '2 days'
+                          AND conviction IN ('HIGH', 'EXTREME', 'MEDIUM')
+                          AND direction = 'BULLISH'
+                    """, (_rv_db_sources["scanner_ai_trades"],))
+                    _rv_valid_scanner_ai = {r[0] for r in _rv_cur2.fetchall()}
+                    # Also accept live-ranked names that may not yet be in ai_trade_log
+                    # if they still appear in today's unusual_calls / layer9 (fail-open subset)
+                    _missing = [t for t in _rv_db_sources["scanner_ai_trades"]
+                                if t not in _rv_valid_scanner_ai]
+                    if _missing:
+                        try:
+                            _rv_cur2.execute("""
+                                SELECT DISTINCT ticker FROM unusual_calls_log
+                                WHERE ticker = ANY(%s)
+                                  AND last_seen >= NOW() - INTERVAL '2 days'
+                                  AND prem >= 50000
+                            """, (_missing,))
+                            for (_mt,) in _rv_cur2.fetchall():
+                                _rv_valid_scanner_ai.add(_mt)
+                        except Exception:
+                            pass
 
                 # Stage 7: oi_daily_snapshot OI growth >= 20%, last 4 days
                 if _rv_db_sources["oi_buildup"]:
@@ -19452,6 +19561,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
             for _rv_t2 in _rv_db_sources["sweep"]:            _rv_valid_sweep.add(_rv_t2)
             for _rv_t2 in _rv_db_sources["unusual_calls"]:    _rv_valid_ucalls.add(_rv_t2)
             for _rv_t2 in _rv_db_sources["aiem_ai"]:          _rv_valid_aiem_ai.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["scanner_ai_trades"]: _rv_valid_scanner_ai.add(_rv_t2)
             for _rv_t2 in _rv_db_sources["oi_buildup"]:       _rv_valid_oi.add(_rv_t2)
 
             for _rv_t2 in _rv_db_sources["aiem_v3_discovery"]: _rv_valid_v3.add(_rv_t2)
@@ -19485,7 +19595,9 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     _rv_db_meta = {
         "sweep":           (_rv_valid_sweep,    "premium>=50000 last 2d (call_sweep_log)"),
         "unusual_calls":   (_rv_valid_ucalls,   "prem>=75000 last 2d (unusual_calls_log)"),
-        "aiem_ai":         (_rv_valid_aiem_ai,  "conviction HIGH/EXTREME + BULLISH last 1d (ai_trade_log)"),
+        "aiem_ai":         (_rv_valid_aiem_ai,  "conviction HIGH/EXTREME + BULLISH last 2d (ai_trade_log)"),
+        "scanner_ai_trades": (_rv_valid_scanner_ai,
+                              "scanner-ranked BULLISH HIGH/EXTREME/MEDIUM last 2d (ai_trade_log) or UC flow"),
         "oi_buildup":      (_rv_valid_oi,       "OI growth>=20% last 4d (oi_daily_snapshot)"),
 
         "aiem_v3_discovery": (_rv_valid_v3,     "decision BUY/SMALL_BUY + confidence>=0.42 today (aiem_decision_history)"),
@@ -49042,6 +49154,237 @@ def _init_paper_execution_log():
 _DEFERRED_INITS.append(lambda: _init_paper_execution_log())
 
 
+def _build_scanner_pool_for_paper(cursor) -> list:
+    """
+    Lightweight candidate pool for paper when ai_trade_log / ait_cache is thin.
+    Joins unusual_calls + layer9_scores + composite_score_history — same
+    indicator family as AI Trades deterministic ranking (no OpenAI).
+    """
+    pool_map = {}
+
+    def _ensure(tk):
+        t = (tk or "").upper().strip()
+        if not t or len(t) > 6:
+            return None
+        if t not in pool_map:
+            pool_map[t] = {"ticker": t}
+        return pool_map[t]
+
+    try:
+        cursor.execute("""
+            SELECT DISTINCT ON (ticker)
+                   ticker, price, strike, expiry, vol_oi, prem
+            FROM unusual_calls_log
+            WHERE last_seen >= NOW() - INTERVAL '2 days'
+              AND prem >= 50000
+            ORDER BY ticker, prem DESC
+            LIMIT 40
+        """)
+        for tk, price, strike, expiry, voi, prem in cursor.fetchall():
+            v = _ensure(tk)
+            if not v:
+                continue
+            v["price"] = float(price or 0)
+            v["uc_strike"] = float(strike) if strike is not None else None
+            v["uc_expiry"] = str(expiry) if expiry else None
+            v["uc_vol_oi"] = float(voi or 0)
+            v["uc_prem_m"] = float(prem or 0) / 1_000_000.0
+    except Exception as _uce:
+        print(f"[paper_scanner_pool] unusual_calls: {_uce}")
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+
+    try:
+        cursor.execute("""
+            SELECT DISTINCT ON (ticker)
+                   ticker, statistical_score, regime, jump_detected, vpin_raw
+            FROM layer9_scores
+            WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
+               OR computed_at >= NOW() - INTERVAL '3 days'
+            ORDER BY ticker, computed_at DESC NULLS LAST
+            LIMIT 80
+        """)
+        for tk, sc, reg, jump, vpin in cursor.fetchall():
+            v = _ensure(tk)
+            if not v:
+                continue
+            v["stat9_score"] = float(sc or 50)
+            v["stat9_regime"] = str(reg or "unknown")
+            v["stat9_jump"] = bool(jump)
+            if vpin is not None:
+                v["stat9_vpin"] = float(vpin)
+    except Exception as _l9e:
+        print(f"[paper_scanner_pool] layer9: {_l9e}")
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+
+    try:
+        cursor.execute("""
+            SELECT DISTINCT ON (ticker) ticker, score, price
+            FROM composite_score_history
+            WHERE scan_date >= CURRENT_DATE - INTERVAL '14 days'
+            ORDER BY ticker, scan_date DESC
+            LIMIT 80
+        """)
+        for tk, score, price in cursor.fetchall():
+            v = _ensure(tk)
+            if not v:
+                continue
+            v["composite_score"] = float(score or 0)
+            if float(v.get("price") or 0) <= 0 and price:
+                v["price"] = float(price)
+    except Exception as _cse:
+        print(f"[paper_scanner_pool] composite: {_cse}")
+        try:
+            cursor.connection.rollback()
+        except Exception:
+            pass
+
+    return list(pool_map.values())
+
+
+def _inject_scanner_ai_trades_for_paper(_add, cursor) -> int:
+    """
+    Primary Paper Money source: scanner-ranked AI Trades (indicators / Layer 9 /
+    unusual calls / composite) — NOT OpenAI ticker selection.
+    Source label: scanner_ai_trades (scores high enough to dominate fillers).
+    Returns number of tickers injected.
+    """
+    injected = set()
+
+    def _score_conv(conv, rank_score=None):
+        c = (conv or "").upper()
+        if c == "EXTREME":
+            return 26.0
+        if c == "HIGH":
+            return 22.0
+        if c == "MEDIUM":
+            return 18.0
+        # fall back to rank_score band
+        try:
+            rs = float(rank_score or 0)
+            if rs >= 70:
+                return 22.0
+            if rs >= 55:
+                return 20.0
+            if rs >= 40:
+                return 17.0
+        except Exception:
+            pass
+        return 16.0
+
+    # 1) Live AI Trades cache (same deterministic worker output)
+    try:
+        _cache = getattr(app, "_ait_cache", None) or {}
+        for tr in (_cache.get("trades") or [])[:10]:
+            tk = (tr.get("ticker") or "").upper()
+            if not tk:
+                continue
+            setup = str(tr.get("setup_type") or "")
+            is_call = "CALL" in setup.upper() or tr.get("entry_strike")
+            _add(
+                tk,
+                _score_conv(tr.get("conviction"), tr.get("rank_score")),
+                "CALL_OPTION" if is_call else "STOCK",
+                "scanner_ai_trades",
+                (tr.get("thesis") or "scanner-ranked AI trade")[:180],
+                strike=float(tr["entry_strike"]) if tr.get("entry_strike") is not None else None,
+                expiry=tr.get("expiry"),
+                direction=str(tr.get("direction") or "BULLISH").upper(),
+            )
+            injected.add(tk)
+        for sp in (_cache.get("stock_picks") or [])[:5]:
+            tk = (sp.get("ticker") or "").upper()
+            if not tk:
+                continue
+            _add(
+                tk,
+                _score_conv("HIGH", sp.get("rank_score")),
+                "STOCK",
+                "scanner_ai_trades",
+                (sp.get("thesis") or "scanner-ranked stock buy")[:180],
+                direction="BULLISH",
+            )
+            injected.add(tk)
+    except Exception as _ce:
+        print(f"[paper_scanner_ai] cache inject skipped: {_ce}")
+
+    # 2) Persisted ai_trade_log (deterministic saves) — include MEDIUM
+    try:
+        cursor.execute("""
+            SELECT ticker, direction, setup_type, conviction, price_at_signal,
+                   entry_strike, expiry, thesis
+            FROM ai_trade_log
+            WHERE trade_date >= CURRENT_DATE - INTERVAL '2 days'
+              AND direction = 'BULLISH'
+              AND conviction IN ('HIGH', 'EXTREME', 'MEDIUM')
+            ORDER BY
+              CASE conviction WHEN 'EXTREME' THEN 3 WHEN 'HIGH' THEN 2 ELSE 1 END DESC,
+              id DESC
+            LIMIT 12
+        """)
+        for _t, _dir, _setup, _conv, _pr, _strk, _exp, _thesis in cursor.fetchall():
+            _type = "CALL_OPTION" if "CALL" in (_setup or "").upper() else "STOCK"
+            _add(
+                _t,
+                _score_conv(_conv),
+                _type,
+                "scanner_ai_trades",
+                (_thesis or f"{_conv} {_setup or ''} scanner-ranked")[:180],
+                strike=float(_strk) if (_type == "CALL_OPTION" and _strk is not None) else None,
+                expiry=_exp if _type == "CALL_OPTION" else None,
+                direction=str(_dir or "BULLISH").upper(),
+            )
+            injected.add((_t or "").upper())
+    except Exception as _dbe:
+        print(f"[paper_scanner_ai] ai_trade_log inject skipped: {_dbe}")
+
+    # 3) Build from indicators if still sparse
+    if len(injected) < 3:
+        try:
+            pool = _build_scanner_pool_for_paper(cursor)
+            trades = _deterministic_ai_trades_from_pool(pool, n=5)
+            for tr in trades:
+                tk = (tr.get("ticker") or "").upper()
+                if not tk:
+                    continue
+                _add(
+                    tk,
+                    _score_conv(tr.get("conviction"), tr.get("rank_score")),
+                    "CALL_OPTION",
+                    "scanner_ai_trades",
+                    (tr.get("thesis") or "live scanner rank")[:180],
+                    strike=float(tr["entry_strike"]) if tr.get("entry_strike") is not None else None,
+                    expiry=tr.get("expiry"),
+                    direction="BULLISH",
+                )
+                injected.add(tk)
+            rich = {v["ticker"]: v for v in pool}
+            for sp in _deterministic_stock_buys_from_rich(rich, n=3):
+                tk = (sp.get("ticker") or "").upper()
+                if not tk:
+                    continue
+                _add(
+                    tk,
+                    _score_conv("HIGH", sp.get("rank_score")),
+                    "STOCK",
+                    "scanner_ai_trades",
+                    (sp.get("thesis") or "live scanner stock")[:180],
+                    direction="BULLISH",
+                )
+                injected.add(tk)
+            print(f"[paper_scanner_ai] live-ranked {len(trades)} calls from {len(pool)} pool names")
+        except Exception as _lre:
+            print(f"[paper_scanner_ai] live rank skipped: {_lre}")
+
+    print(f"[paper_scanner_ai] injected {len(injected)} scanner_ai_trades tickers")
+    return len(injected)
+
+
 def _aiem_paper_pick_candidates(
     *,
     db_url             = None,   # replaces _DB_URL; falls back to module global
@@ -49214,6 +49557,14 @@ def _aiem_paper_pick_candidates(
         with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
 
+            # ── 0. PRIMARY: scanner-ranked AI Trades (indicators, not OpenAI) ─
+            # User directive: Paper Money comes from AI Trades ranked by Stock
+            # Scanner / Layer 9 / unusual calls / composite — not gpt selection.
+            try:
+                _inject_scanner_ai_trades_for_paper(_add, _cu)
+            except Exception as _sai_e:
+                print(f"[aiem_paper] scanner_ai_trades primary source failed: {_sai_e}")
+
             # ── 1. Conviction stack (highest conviction tickers) ──────────────
             _cu.execute("""
                 SELECT ticker, total_pts, label
@@ -49327,21 +49678,22 @@ def _aiem_paper_pick_candidates(
             except Exception as _wre:
                 print(f"[aiem_paper] washout_reclaim source skipped: {_wre}")
 
-            # ── 5. Recent AIEM AI trade picks (high conviction) ───────────────
+            # ── 5. Legacy aiem_ai alias (kept for revalidation / drift logs) ──
+            # Prefer scanner_ai_trades above; this only fills gaps with HIGH/EXTREME.
             _cu.execute("""
                 SELECT ticker, direction, setup_type, conviction, price_at_signal,
                        entry_strike, expiry
                 FROM ai_trade_log
-                WHERE trade_date >= CURRENT_DATE - INTERVAL '1 day'
+                WHERE trade_date >= CURRENT_DATE - INTERVAL '2 days'
                   AND conviction IN ('HIGH','EXTREME')
                   AND direction = 'BULLISH'
                 ORDER BY id DESC LIMIT 8
             """)
             for _t, _dir, _setup, _conv, _pr, _strk, _exp in _cu.fetchall():
-                _score = 15.0 if _conv == "EXTREME" else 10.0
+                _score = 15.0 if _conv == "EXTREME" else 12.0
                 _type = "CALL_OPTION" if "CALL" in (_setup or "").upper() else "STOCK"
                 _add(_t, _score, _type, "aiem_ai",
-                     f"{_conv} {_setup or ''}",
+                     f"{_conv} {_setup or ''} (legacy alias)",
                      strike=float(_strk) if (_type == "CALL_OPTION" and _strk is not None) else None,
                      expiry=_exp if _type == "CALL_OPTION" else None)
 
@@ -56067,23 +56419,12 @@ def _ai_trades_worker():
     """Background worker: generate AI trade setups and store in app._ait_cache."""
     import sys
     from datetime import datetime as _dt, date as _date, timedelta as _timedelta
-    from openai import OpenAI
 
     if getattr(app, "_ait_generating", False):
         return
     app._ait_generating = True
-    print("[ai_trades_bg] starting generation…", file=sys.stderr, flush=True)
-
-    try:
-        oai = OpenAI(
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-            timeout=90.0,
-        )
-    except Exception as e:
-        print(f"[ai_trades_bg] OpenAI init error: {e}", file=sys.stderr, flush=True)
-        app._ait_generating = False
-        return
+    print("[ai_trades_bg] starting generation (scanner-ranked, OpenAI not required)…",
+          file=sys.stderr, flush=True)
 
     tickers_data = {}
 
@@ -56742,6 +57083,7 @@ def _ai_trades_worker():
         import sys as _sys_empty
         print("[ai_trades_bg] no scanner-ranked trades — aborting (cache kept)",
               file=_sys_empty.stderr)
+        app._ait_generating = False
         return
 
     try:
@@ -66193,10 +66535,19 @@ def eod_accum_track():
     EOD Accumulation Track Record.
     Returns all historical picks joined with next-morning outcomes, plus summary stats
     broken down by news_type (none/soft/hard) so users can compare strategy performance.
+    Pass ?backfill=1 to grade any still-ungraded picks before returning (Tradier daily).
     """
     import datetime as _dt_tr
     import psycopg2 as _pg_tr
     import psycopg2.extras as _ext_tr
+
+    _backfill_meta = None
+    if str(request.args.get("backfill") or "").strip().lower() in ("1", "true", "yes"):
+        try:
+            _s, _p, _e = _backfill_eod_accum_outcomes(lookback_days=120)
+            _backfill_meta = {"saved": _s, "still_pending": _p, "errors": _e}
+        except Exception as _bf_e:
+            _backfill_meta = {"error": str(_bf_e)}
 
     try:
         with _pg_tr.connect(_DB_URL) as _c, _c.cursor(cursor_factory=_ext_tr.RealDictCursor) as _cu:
@@ -66225,6 +66576,13 @@ def eod_accum_track():
                 LIMIT 200
             """)
             _rows = [dict(r) for r in _cu.fetchall()]
+            _cu.execute("""
+                SELECT COUNT(*) FROM eod_accum_picks p
+                LEFT JOIN eod_accum_outcomes o
+                  ON o.pick_date = p.scan_date AND o.ticker = p.ticker
+                WHERE o.ticker IS NULL
+            """)
+            _ungraded = int((_cu.fetchone() or [0])[0] or 0)
 
         # Convert date objects to strings
         for _r in _rows:
@@ -66256,10 +66614,14 @@ def eod_accum_track():
             "pure": _stats([r for r in _rows if r.get("news_type") == "none"]),
             "soft": _stats([r for r in _rows if r.get("news_type") == "soft"]),
             "hard": _stats([r for r in _rows if r.get("news_type") == "hard"]),
+            "ungraded_remaining": _ungraded,
         }
 
-        return jsonify({"picks": _rows, "summary": _summary,
-                        "as_of": _dt_tr.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")})
+        _payload = {"picks": _rows, "summary": _summary,
+                    "as_of": _dt_tr.datetime.now().strftime("%Y-%m-%d %I:%M %p ET")}
+        if _backfill_meta is not None:
+            _payload["backfill"] = _backfill_meta
+        return jsonify(_payload)
 
     except Exception as _e_tr:
         print(f"[eod_accum_track] error: {_e_tr}")
