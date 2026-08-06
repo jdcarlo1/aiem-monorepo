@@ -10610,7 +10610,8 @@ function ShortCallRecordTab() {
         <div>
           <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em" }}>⚡ SHORT CALLS RECORD</div>
           <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
-            Every daily AI short-call pick logged · WIN = stock closed ≥ breakeven price at expiry
+            Scanner-ranked short calls (unusual calls + DP/VOI — not OpenAI) · WIN = stock ≥ breakeven at expiry
+            {(data as any)?.track_reset_at ? ` · fresh track from ${(data as any).track_reset_at}` : ""}
           </div>
         </div>
         <button onClick={() => load()} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
@@ -10688,8 +10689,10 @@ function ShortCallRecordTab() {
       {/* Pick rows */}
       {loading && <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>LOADING RECORD…</div>}
       {!loading && picks.length === 0 && (
-        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>
-          No short-call picks logged yet. They auto-save every weekday at 10:15 AM ET when you open the ⚡ AI SHORT CALLS tab.
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32, lineHeight: 1.7 }}>
+          Fresh track — old OpenAI-era picks were archived.<br />
+          Scanner-ranked short calls auto-save weekdays at 10:15 AM ET (and when ⚡ AI SHORT CALLS regenerates).<br />
+          First graded win rates appear after T+1 / expiry fills in.
         </div>
       )}
       {picks.map(p => (

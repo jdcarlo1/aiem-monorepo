@@ -61093,16 +61093,29 @@ def _deterministic_short_call_picks(hits: list, n: int = 5) -> list:
             aligned_why.append(f"prem=${float(h['prem'])/1e6:.1f}M")
         if not aligned_why:
             aligned_why.append(f"VOI={h.get('vol_oi')}x prem=${h.get('prem', 0):,}")
+        strike = h.get("strike")
+        price = float(h.get("price") or 0)
+        # Approx option mid for breakeven when chain mid unavailable:
+        # use 1.5% of spot, floored at $0.10 — enough for expiry WIN metric.
+        try:
+            opt_mid = max(0.10, price * 0.015) if price > 0 else None
+            breakeven = (
+                round(float(strike) + opt_mid, 2)
+                if strike is not None and opt_mid is not None else None
+            )
+        except Exception:
+            breakeven = None
         picks.append({
             "ticker": tk,
             "rec_type": "BUY_CALL",
-            "strike": h.get("strike"),
+            "strike": strike,
             "expiry": h.get("expiry"),
             "days_out": h.get("days_out"),
             "stock_price": h.get("price"),
             "otm_pct": h.get("otm_pct"),
             "vol_oi": h.get("vol_oi"),
             "prem": h.get("prem"),
+            "breakeven": breakeven,
             "conviction": "HIGH" if (score >= 80 or float(h.get("prem") or 0) >= 1_000_000) else "MEDIUM",
             "urgency": h.get("urgency"),
             "thesis": (
@@ -61846,9 +61859,9 @@ def ai_short_calls():
 
     def _bg_aisc():
         import sys as _sys
-        from openai import OpenAI as _OAI
         try:
             # Phase 1: fast DB preload so next request sees stale picks immediately
+            # (scanner-ranked only — OpenAI client not required / not used)
             _db_picks_bg = _load_db_picks()
             if _db_picks_bg and not getattr(app, "_aisc_cache", None):
                 app._aisc_cache    = {**_db_picks_bg, "stale": True}
@@ -62313,8 +62326,11 @@ def ai_short_calls():
                 print(f"[silent_except:aisc_tg] {type(_aisc_tge).__name__}: {_aisc_tge}", file=_sys.stderr)
             try:
                 import threading as _scl_thr
-                _scl_thr.Thread(target=_save_ai_short_calls_to_log,
-                                args=(picks, _dt.now().strftime("%Y-%m-%d")), daemon=True).start()
+                _scl_thr.Thread(
+                    target=_save_ai_short_calls_to_log,
+                    args=(picks, _et_today_iso()),
+                    daemon=True,
+                ).start()
             except Exception as _sle:
                 print(f"[ai_short_calls] log save error: {_sle}", file=_sys.stderr)
         except Exception as _e:
@@ -63387,7 +63403,12 @@ def ai_early_movers():
 
 @app.route("/stock-api/ai-short-calls-log", methods=["GET"])
 def ai_short_calls_log():
-    """Return full AI short-calls history with daily win rates (breakeven-based)."""
+    """Return AI short-calls history with daily win rates (breakeven-based).
+
+    Track was reset 2026-08-06: pre-scanner (OpenAI-era) rows archived to
+    ai_short_calls_log_archive_pre_scanner_20260806. Live table only holds
+    scanner-ranked picks going forward.
+    """
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -63446,6 +63467,15 @@ def ai_short_calls_log():
                 "count": len(picks),
                 "win_rates": win_rates,
                 "by_date": day_stats,
+                "track_cohort": "scanner_signals",
+                "track_reset_at": "2026-08-06",
+                "note": (
+                    "Fresh track — pre-scanner OpenAI-era picks archived. "
+                    "New rows come from scanner-ranked unusual calls (not OpenAI) "
+                    "via the 10:15 AM ET auto job / AI Short Calls tab."
+                    if not picks else
+                    "Scanner-ranked short-call track (post 2026-08-06 reset)."
+                ),
             })
     except Exception as e:
         return jsonify({"error": str(e), "picks": [], "count": 0,
