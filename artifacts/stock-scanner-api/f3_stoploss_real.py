@@ -24,8 +24,8 @@ TRADIER_TOKEN   = (os.environ.get("TRADIER_API_TOKEN_2") or
                    os.environ.get("TRADIER_API_TOKEN", ""))
 TRADE_SIZE      = 200
 BACKTEST_DAYS   = 730
-API_DELAY       = 0.4
-STOP_LEVELS     = [0.45, 0.60]   # winners from year-1 sweep
+API_DELAY       = 0.25
+STOP_LEVELS     = [0.65, 0.70, 0.75, 0.80]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
