@@ -12,4 +12,4 @@ Wired 2026-08-06 per user directive (real option pricing rules).
 - Snapshot field: `f3` on `GET /stock-api/pattern-lab/snapshot` (no main.py route change)
 
 ## Rules
-Premarket direction → ORB 9:30–9:44 → breakout with PM → ATM long call/put @ $200 notional → exit 16:00. No stop/target. Real Tradier premiums when available; breakout without premium stays `WAITING_PREMIUM` (no synthetic entry).
+Premarket direction → ORB 9:30–9:44 → breakout with PM → ATM long call/put @ $200 notional → **−65% premium stop** (auto sell), else exit 16:00. No profit target. Real Tradier premiums when available; breakout without premium stays `WAITING_PREMIUM` (no synthetic entry).

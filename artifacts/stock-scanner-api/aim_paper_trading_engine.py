@@ -147,7 +147,7 @@ class AIMPaperTradingEngine:
     """
     Runs Gap Fill, ORB, and F3 SPY 0DTE as independent paper ledgers.
     Gap Fill / ORB: $10k each, 1.5% risk equity. F3: $200 notional ATM 0DTE
-    long call/put with premarket-aligned breakout, exit 16:00.
+    long call/put with premarket-aligned breakout, −65% premium stop, else exit 16:00.
     """
 
     def __init__(self, symbol: str = "SPY", initial_capital_usd: float = 10000.0):

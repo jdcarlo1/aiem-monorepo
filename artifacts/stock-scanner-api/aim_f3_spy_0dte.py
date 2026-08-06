@@ -6,8 +6,9 @@ Rules (from Directive F3 real-options backtest):
   2. Opening range 9:30–9:44 ET
   3. After 9:45: breakout in SAME direction as premarket
   4. Buy ATM CALL (up) or ATM PUT (down) — long options only
-  5. Exit at 16:00 ET — no stop, no target
-  6. Size: contracts = 200 / (entry_premium * 100)
+  5. Hard stop: sell if premium falls 65% from entry (mark ≤ 35% of entry)
+  6. Else exit at 16:00 ET — no profit target
+  7. Size: contracts = 200 / (entry_premium * 100)
 
 Live premiums: Tradier options chain mid/last when available; otherwise
 entry is deferred (WAITING_PREMIUM). No synthetic leverage formula.
@@ -27,6 +28,7 @@ log = logging.getLogger("aim_f3")
 
 ET = ZoneInfo("America/New_York")
 TRADE_NOTIONAL_USD = 200.0
+STOP_LOSS_PCT = 0.65  # sell when premium has lost 65% from entry
 ORB_END = "09:44"
 ENTRY_FROM = "09:45"
 SESSION_END = "16:00"
@@ -207,7 +209,8 @@ class F3OptionsLedger:
                 "premarket_filter": True,
                 "orb": "09:30-09:44 ET",
                 "entry": "breakout with PM direction → ATM long call/put",
-                "exit": "16:00 ET, no stop/target",
+                "exit": "16:00 ET or -65% premium stop; no profit target",
+                "stop_loss_pct": STOP_LOSS_PCT,
                 "notional_usd": self.trade_notional_usd,
             },
             "account_balance_usd": round(self.account_balance_usd, 2),
@@ -343,24 +346,31 @@ class F3OptionsLedger:
                 "orb_low": self._orb_low,
             }
 
-        # Manage open position — mark / EOD exit
+        # Manage open position — mark / 65% stop / EOD exit
         if self.active_position:
             spot = float(latest["close"])
             is_call = self.active_position["direction"] == "CALL"
             exp = date.fromisoformat(day_key)
             mark = fetch_atm_premium(self.underlying, spot, is_call, exp)
+            entry_prem = float(self.active_position["entry_premium"])
+            stop_prem = float(self.active_position.get("stop") or entry_prem * (1.0 - STOP_LOSS_PCT))
             if mark and mark["premium"] > 0:
                 mark_val = mark["premium"] * 100.0 * float(self.active_position["contracts"])
                 self.net_liquidation_usd = self.account_balance_usd + mark_val
                 self.active_position["mark_premium"] = mark["premium"]
                 floating = mark_val - (
-                    float(self.active_position["entry_premium"])
-                    * 100.0
-                    * float(self.active_position["contracts"])
+                    entry_prem * 100.0 * float(self.active_position["contracts"])
                 )
                 self.active_position["unrealized_pnl"] = round(floating, 2)
+                # 65% stop loss on premium (auto sell)
+                if mark["premium"] <= stop_prem:
+                    thin = False
+                    if mark.get("n_tx") is not None:
+                        thin = int(mark["n_tx"]) <= THIN_EXIT_TX_THRESHOLD
+                    self._close(float(mark["premium"]), "STOP_65PCT", {"thin_exit": thin})
+                    return
             if bar_time >= SESSION_END:
-                exit_prem = (mark or {}).get("premium") or self.active_position.get("mark_premium") or self.active_position["entry_premium"]
+                exit_prem = (mark or {}).get("premium") or self.active_position.get("mark_premium") or entry_prem
                 thin = False
                 if mark and mark.get("n_tx") is not None:
                     thin = int(mark["n_tx"]) <= THIN_EXIT_TX_THRESHOLD
@@ -412,6 +422,7 @@ class F3OptionsLedger:
         if contracts <= 0:
             return
 
+        stop_premium = quote["premium"] * (1.0 - STOP_LOSS_PCT)
         self.active_position = {
             "symbol": quote["option_symbol"],
             "option_symbol": quote["option_symbol"],
@@ -421,8 +432,8 @@ class F3OptionsLedger:
             "direction": "CALL" if is_call else "PUT",
             "entry": quote["premium"],
             "entry_premium": quote["premium"],
-            "stop": 0.0,   # none — UI shows 0
-            "target": 0.0,  # none — exit 16:00
+            "stop": round(stop_premium, 4),  # 65% premium stop
+            "target": 0.0,  # none — time exit 16:00
             "strike": quote["strike"],
             "spy_entry": spot,
             "premium_source": quote["source"],

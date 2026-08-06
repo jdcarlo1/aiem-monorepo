@@ -24,6 +24,7 @@ type F3Snap = {
     symbol?: string;
     entry?: number;
     entry_premium?: number;
+    stop?: number;
     strike?: number;
     mark_premium?: number;
     unrealized_pnl?: number;
@@ -104,8 +105,8 @@ export default function StrategiesPage() {
         <div className="p-4 space-y-4">
           <p className="font-mono text-xs text-muted-foreground leading-relaxed">
             Premarket direction → ORB 9:30–9:44 → breakout with PM → buy ATM CALL/PUT
-            ($200 notional) → exit 16:00 ET. No stop. No target. Real Tradier premiums
-            when available (no synthetic leverage).
+            ($200 notional) → auto-sell at −65% premium stop, else exit 16:00 ET.
+            No profit target. Real Tradier premiums when available (no synthetic leverage).
           </p>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -210,7 +211,13 @@ export default function StrategiesPage() {
                     </div>
                   ) : null}
                   <div>
-                    EXIT <span className="text-chart-2">16:00 ET</span>
+                    STOP{' '}
+                    <span className="text-destructive">
+                      ${Number(pos.stop ?? 0).toFixed(3)} (−65%)
+                    </span>
+                  </div>
+                  <div>
+                    ELSE EXIT <span className="text-chart-2">16:00 ET</span>
                   </div>
                 </div>
               </div>

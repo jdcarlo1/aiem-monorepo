@@ -137,7 +137,7 @@ function PatternCard({
               ) : null}
             </div>
             <div className="text-[10px] uppercase tracking-wide pt-1">
-              $200 notional · ATM 0DTE long · exit 16:00 · no stop/target
+              $200 notional · ATM 0DTE long · −65% premium stop · else exit 16:00
             </div>
           </div>
         ) : null}
@@ -188,7 +188,13 @@ function PatternCard({
                         <span className="text-white">${Number(pos.mark_premium).toFixed(3)}</span>
                       </div>
                     ) : null}
-                    <div>EXIT <span className="text-success">16:00 ET</span></div>
+                    <div>
+                      STOP{" "}
+                      <span className="text-destructive">
+                        ${Number(pos.stop).toFixed(3)} (−65%)
+                      </span>
+                    </div>
+                    <div>ELSE EXIT <span className="text-success">16:00 ET</span></div>
                   </>
                 ) : (
                   <>
