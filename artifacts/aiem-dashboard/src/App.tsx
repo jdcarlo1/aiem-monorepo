@@ -29,6 +29,7 @@ import Audit from "@/pages/Audit";
 import TraceExplorer from "@/pages/TraceExplorer";
 import Module4Gate from "@/pages/Module4Gate";
 import Dashboard from "@/pages/Dashboard";
+import PatternLab from "@/pages/PatternLab";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +41,7 @@ function Router() {
         <Route path="/command" component={CommandCenter} />
         <Route path="/opportunities" component={Opportunities} />
         <Route path="/paper-trades" component={PaperTrades} />
+        <Route path="/pattern-lab" component={PatternLab} />
         <Route path="/decisions" component={Decisions} />
         <Route path="/proof" component={Proof} />
         <Route path="/risk" component={Risk} />
