@@ -32,7 +32,14 @@ def _et_today() -> date:
 
 def _connect():
     import psycopg2
-    return psycopg2.connect(DATABASE_URL, connect_timeout=2, options="-c statement_timeout=3000")
+    # Neon pooler rejects statement_timeout in startup options — set after connect.
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = '15000'")
+    except Exception:
+        pass
+    return conn
 
 
 def init_signal_outcomes_table():
@@ -156,24 +163,39 @@ def update_signal_outcome_prices():
         cur = conn.cursor()
         cutoff = (today - timedelta(days=45)).isoformat()
 
+        # Pick rows missing ANY horizon that is already due. Old query used only
+        # `t3_price IS NULL`, so once T+3 filled the row was never revisited for
+        # T+5 / T+10 — leaving t10_win permanently NULL across the table.
         cur.execute("""
-            SELECT id, ticker, signal_date, price_at_signal
+            SELECT id, ticker, signal_date, price_at_signal,
+                   t3_price, t5_price, t10_price
             FROM signal_outcomes
             WHERE signal_date >= %s
               AND call_put_ratio >= 2
-              AND t3_price IS NULL
+              AND (
+                    t3_price IS NULL
+                 OR t5_price IS NULL
+                 OR t10_price IS NULL
+              )
             ORDER BY signal_date ASC
             LIMIT 500
         """, (cutoff,))
         rows = cur.fetchall()
 
         updated = 0
-        for row_id, ticker, sig_date, price_at_signal in rows:
+        for row_id, ticker, sig_date, price_at_signal, cur_t3, cur_t5, cur_t10 in rows:
             t3  = _add_trading_days(sig_date, 3)
             t5  = _add_trading_days(sig_date, 5)
             t10 = _add_trading_days(sig_date, 10)
 
+            # Skip until at least T+3 is due
             if today < t3:
+                continue
+            # Skip if every due horizon is already filled
+            need_t3 = cur_t3 is None
+            need_t5 = cur_t5 is None and today >= t5
+            need_t10 = cur_t10 is None and today >= t10
+            if not (need_t3 or need_t5 or need_t10):
                 continue
 
             try:
@@ -207,9 +229,9 @@ def update_signal_outcome_prices():
                 if not base:
                     continue
 
-                t3_p  = _closest_close(hist, t3)
-                t5_p  = _closest_close(hist, t5)  if today >= t5  else None
-                t10_p = _closest_close(hist, t10) if today >= t10 else None
+                t3_p  = cur_t3 if cur_t3 is not None else _closest_close(hist, t3)
+                t5_p  = cur_t5 if cur_t5 is not None else (_closest_close(hist, t5) if today >= t5 else None)
+                t10_p = cur_t10 if cur_t10 is not None else (_closest_close(hist, t10) if today >= t10 else None)
 
                 def pct(p):
                     if p is None or not base:

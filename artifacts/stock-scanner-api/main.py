@@ -2183,8 +2183,54 @@ _DEFERRED_INITS.append(lambda: composite_scan.init_watchlist_table())
 _DEFERRED_INITS.append(lambda: init_signal_outcomes_table())
 # Backfill T+3/T+5/T+10 prices for any existing rows that haven't been filled yet.
 # Runs once at startup in a background thread - won't block the server or affect any tab.
+def _seed_signal_outcomes_from_calls(days_back: int = 14) -> int:
+    """Upsert high-conviction unusual_calls into signal_outcomes so the Outcomes
+    tab keeps receiving new rows even when bull-flow POST isn't hit that day.
+
+    Maps call volume/OI into call_put_ratio (proxy) and premium into premium_m.
+    UNIQUE(ticker, signal_date, session) — session='calls_seed'.
+    """
+    if not _DB_URL:
+        return 0
+    try:
+        import psycopg2 as _pg_so
+        with _pg_so.connect(_DB_URL, connect_timeout=4,
+                            options="-c statement_timeout=8000") as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO signal_outcomes
+                    (ticker, signal_date, session, price_at_signal,
+                     call_put_ratio, premium_m, strike, expiry)
+                SELECT DISTINCT ON (ticker, (last_seen AT TIME ZONE 'America/New_York')::date)
+                    ticker,
+                    (last_seen AT TIME ZONE 'America/New_York')::date AS signal_date,
+                    'calls_seed' AS session,
+                    price::float,
+                    GREATEST(vol_oi::float, 2.0) AS call_put_ratio,
+                    (prem::float / 1e6) AS premium_m,
+                    strike::float,
+                    expiry::text
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - (%s || ' days')::interval
+                  AND vol_oi >= 2.0
+                  AND prem >= 100000
+                ORDER BY ticker, (last_seen AT TIME ZONE 'America/New_York')::date, prem DESC
+                ON CONFLICT (ticker, signal_date, session) DO NOTHING
+            """, (days_back,))
+            n = cur.rowcount
+            conn.commit()
+        if n:
+            print(f"[signal_outcomes] seeded {n} rows from unusual_calls_log")
+        return n or 0
+    except Exception as _e:
+        print(f"[signal_outcomes] seed from calls error: {_e}")
+        return 0
+
+
 def _backfill_signal_outcomes():
     try:
+        import time as _t_bso
+        _t_bso.sleep(8)  # let deferred inits settle
+        _seed_signal_outcomes_from_calls(21)
         update_signal_outcome_prices()
     except Exception as _e_bso:
         print(f"[signal_outcomes] startup backfill error: {_e_bso}")
@@ -5913,9 +5959,10 @@ try:
         replace_existing=True,
     )
     # Outcomes: Mon-Fri 4:30 PM ET - after market close, fetch closing prices for open AI trade log entries
+    # NOTE: do NOT gate on _intraday_scan_allowed() — that window ends at 4:30 PM ET
+    # (990 mins), so this job would race the gate and often no-op. Historical price
+    # fills must run after the close (same fix as sc_outcomes_update).
     def _run_outcomes_update():
-        if not _intraday_scan_allowed():
-            return
         try:
             _update_ai_trade_outcomes()
         except Exception as e:
@@ -7287,10 +7334,10 @@ try:
                 replace_existing=True,
             )
     # Signal outcomes: Mon-Fri 4:33 PM ET - fills stored T+3/T+5/T+10 prices (no live fetch on page load)
+    # NOTE: no _intraday_scan_allowed() — gate closes at 4:30 PM; this job is 4:33.
     def _run_signal_outcomes():
-        if not _intraday_scan_allowed():
-            return
         try:
+            _seed_signal_outcomes_from_calls()
             update_signal_outcome_prices()
         except Exception as e:
             print(f"[scheduler] signal outcomes error: {e}")
@@ -7301,9 +7348,8 @@ try:
         replace_existing=True,
     )
     # EOD sweep outcomes: Mon-Fri 4:35 PM ET - fills T+1/T+3/T+5 closing prices
+    # NOTE: no _intraday_scan_allowed() — gate closes at 4:30 PM; this job is 4:35.
     def _run_eod_sweep_outcomes():
-        if not _intraday_scan_allowed():
-            return
         try:
             _update_eod_sweep_outcomes()
         except Exception as e:
@@ -7369,9 +7415,8 @@ try:
         replace_existing=True,
     )
     # Conviction outcomes: 4:32 PM ET - fill D+1/D+3/D+5 prices for past snapshots
+    # NOTE: no _intraday_scan_allowed() — gate closes at 4:30 PM; this job is 4:32.
     def _run_conviction_outcomes():
-        if not _intraday_scan_allowed():
-            return
         try:
             import threading as _thr_co
             _thr_co.Thread(target=_fill_conviction_outcomes, daemon=True).start()
@@ -7386,9 +7431,8 @@ try:
     # Conviction eval log: 4:35 PM ET Mon-Fri
     # Item 7 — logs all scored tickers (no min_pts gate) to aiem_conviction_eval_log.
     # Builds the training corpus for shadow learning (item 5).
+    # NOTE: no _intraday_scan_allowed() — gate closes at 4:30 PM; this job is 4:35.
     def _run_conviction_eval_log_sched():
-        if not _intraday_scan_allowed():
-            return
         try:
             import threading as _thr_cel
             _thr_cel.Thread(target=_run_conviction_eval_log_job, daemon=True).start()
@@ -7648,9 +7692,8 @@ try:
         )
 
     # Insider outcomes: Mon-Fri 4:37 PM ET - check post-earnings prices for flagged alerts
+    # NOTE: no _intraday_scan_allowed() — gate closes at 4:30 PM; this job is 4:37.
     def _run_insider_outcomes():
-        if not _intraday_scan_allowed():
-            return
         try:
             _check_insider_outcomes()
         except Exception as e:
@@ -54966,6 +55009,31 @@ def ai_thesis():
 @app.route("/stock-api/outcomes", methods=["GET"])
 def signal_outcomes_route():
     """Return stored bull-flow signals with T+3, T+5, T+10 price outcomes."""
+    # Opportunistic fill when T+10 is empty — grader used to stop after T+3.
+    try:
+        import psycopg2 as _pg_or
+        with _pg_or.connect(_DB_URL, connect_timeout=2,
+                            options="-c statement_timeout=1500") as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT COUNT(*) FROM signal_outcomes
+                WHERE t3_price IS NOT NULL AND t10_price IS NULL
+                  AND signal_date >= CURRENT_DATE - INTERVAL '45 days'
+            """)
+            _need = (_cu.fetchone() or [0])[0]
+        if _need and _need > 20:
+            import threading as _thr_or
+            if not getattr(app, "_outcomes_bg_grading", False):
+                app._outcomes_bg_grading = True
+                def _bg_or():
+                    try:
+                        _seed_signal_outcomes_from_calls(14)
+                        update_signal_outcome_prices()
+                    finally:
+                        app._outcomes_bg_grading = False
+                _thr_or.Thread(target=_bg_or, daemon=True).start()
+    except Exception:
+        pass
+
     outcomes = get_signal_outcomes(limit=500)
 
     # Compute win rates
@@ -57517,8 +57585,8 @@ _DEFERRED_INITS.append(lambda: _init_insider_tables())
 
 def _check_insider_outcomes():
     """
-    After a flagged ticker's earnings date passes, fetch the post-earnings price,
-    compute % move from the detection price, and write the verdict to insider_outcomes.
+    After a flagged ticker's earnings date passes (or T+5 if no earnings date),
+    fetch the post-signal price, compute % move from detection, write verdict.
     Runs daily at 4:37 PM ET.
     """
     import datetime as _dto
@@ -57527,20 +57595,26 @@ def _check_insider_outcomes():
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
-                SELECT id, ticker, price_at_detection, earnings_date
+                SELECT id, ticker, price_at_detection, earnings_date, detected_at
                 FROM insider_alerts
-                WHERE earnings_date IS NOT NULL
-                  AND earnings_date <= %s
-                  AND outcome_checked = FALSE
+                WHERE outcome_checked = FALSE
+                  AND price_at_detection IS NOT NULL
+                  AND (
+                        (earnings_date IS NOT NULL AND earnings_date <= %s)
+                     OR (earnings_date IS NULL
+                         AND detected_at <= NOW() - INTERVAL '5 days')
+                  )
+                ORDER BY detected_at ASC
+                LIMIT 80
             """, (today,))
             pending = cur.fetchall()
             if not pending:
                 print("[insider_outcomes] No pending alerts today")
                 return
             print(f"[insider_outcomes] Checking {len(pending)} alerts…")
-            for (alert_id, ticker, price_at_detection, earnings_date) in pending:
+            for (alert_id, ticker, price_at_detection, earnings_date, detected_at) in pending:
                 try:
-                    hist = _td_history(ticker, days=10)
+                    hist = _td_history(ticker, days=15)
                     if hist is None or hist.empty or not price_at_detection:
                         continue
                     current_price = float(hist["Close"].iloc[-1])
@@ -57552,6 +57626,8 @@ def _check_insider_outcomes():
                         v = f"MISS ❌ {pct:.1f}%"
                     else:
                         v = f"FLAT ➖ {pct:+.1f}%"
+                    # Use earnings_date when present; else detection date as anchor
+                    _ed = earnings_date or (detected_at.date() if hasattr(detected_at, "date") else today)
                     cur.execute("""
                         INSERT INTO insider_outcomes
                             (alert_id, ticker, earnings_date, price_at_detection,
@@ -57563,7 +57639,7 @@ def _check_insider_outcomes():
                                 called_it         = EXCLUDED.called_it,
                                 outcome_verdict   = EXCLUDED.outcome_verdict,
                                 checked_at        = NOW()
-                    """, (alert_id, ticker, earnings_date, price_at_detection,
+                    """, (alert_id, ticker, _ed, price_at_detection,
                           current_price, pct, called, v))
                     cur.execute("UPDATE insider_alerts SET outcome_checked=TRUE WHERE id=%s", (alert_id,))
                     print(f"[insider_outcomes] {ticker}: {v}")
