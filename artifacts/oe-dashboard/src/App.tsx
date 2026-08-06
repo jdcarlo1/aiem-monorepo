@@ -65,6 +65,9 @@ function Router() {
       <Route path="/calibration">
         <ProtectedRoute component={CalibrationPage} />
       </Route>
+      <Route path="/strategies">
+        <ProtectedRoute component={StrategiesPage} />
+      </Route>
       <Route path="/status">
         <ProtectedRoute component={StatusPage} />
       </Route>

@@ -12,6 +12,7 @@ import Login from "@/pages/login";
 import CommandCenter from "@/pages/CommandCenter";
 import Opportunities from "@/pages/Opportunities";
 import PaperTrades from "@/pages/PaperTrades";
+import PatternLab from "@/pages/PatternLab";
 import Decisions from "@/pages/Decisions";
 import Proof from "@/pages/Proof";
 import Risk from "@/pages/Risk";

@@ -1,31 +1,24 @@
 ---
-name: Standalone stat research runner
-description: Why the main.py continuous research loop never auto-starts, and the standalone runner that fixes it.
+name: Stat research runner — workflow wiring
+description: aiem_stat_research_runner.py status — was never persistent, now has workflow + health server
 ---
 
-## The Problem
-`_MKT_CONTINUOUS_LOOP_STARTED = False` (line 30754) and `def _mkt_start_continuous_loop` (line 30818) are both inside the Flask dead zone (lines ~29315–41826). When the module loads, a silent exception fires in that range and skips module-level code, so the flag is never assigned and the function is never defined. The deferred init lambda at line 1939 (`lambda: _mkt_start_continuous_loop()`) raises NameError, caught silently, and the loop never starts.
+## Status (fixed 2026-08-04)
+`aiem_stat_research_runner.py` now has a registered workflow and runs continuously.
 
-**Why:**  The dead zone kills `@app.route` decorators AND module-level assignments inside the problematic try/except block. The continuous loop's flag + start function are both victims.
+**What was done:**
+- Added `_start_health_server()` to the file: `ThreadingHTTPServer` on `STAT_RESEARCH_PORT` (5057), `GET /health` → 200 OK
+- Added `[[services]]` block `stat-research-runner` to `artifacts/stock-scanner/.replit-artifact/artifact.toml` via `verifyAndReplaceArtifactToml`
+- Workflow `artifacts/stock-scanner: stat-research-runner` created and started
+- SHA of file post-fix: e2fc7ffa5b5679a780d422bbf2a1650f2656c5a9f4339e78f7affc50d0a52529
 
-## The Fix
-`aiem_stat_research_runner.py` — standalone Python script (no Flask, no main.py imports):
-- Uses psycopg2 + scipy.stats.ttest_ind directly
-- Writes to `aiem_grid_test_state` (EOD) and `aiem_intraday_grid_state` (intraday)
-- Workflow: `artifacts/stock-scanner: stat-research`
-- Command: `python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_stat_research_runner.py`
-- Loop: batch_size=50 cells per pass, 20h freshness gate, 2h sleep weekdays / 30min weekends
+**Why:**
+Dead zone in main.py prevented any continuous loop from auto-starting there. This runner must be its own process. Without a workflow it never ran — the Jul 25 entries in `aiem_historical_pattern_grid` were from a one-time e2e test.
 
-**How to apply:** If the continuous loop in main.py ever needs to be wired again, note that any module-level code inside a try/except between lines 29315-41826 may be silently skipped. Put flags and start calls BEFORE line 29315 or use the standalone runner pattern.
+**How to apply:**
+Any new background-only Python loop that needs to run 24/7 must be its own service in artifact.toml with a health server thread. Use `ThreadingHTTPServer` on a free port (next available after 5057 is 5058). Add `_start_health_server()` as the first call in `main()`.
 
-## Performance
-- Each SQL query (LEAD window function on polygon_market_daily): ~14-20 seconds
-- 184-cell full pass: ~42 minutes
-- Confirmed working: first cell `ind_rsi_14_lt_30|next_day` written 2026-07-13 08:02:16
-- First FINDING: RSI oversold (<30) → avg return +0.39% (p=0.0000, n=100k)
-
-## Isolation
-- Zero OpenAI tokens — pure scipy.stats
-- aiem_isolation_guard NOT used (standalone, outside main.py's scope)
-- `aiem_process.py` handles same-day first-candle capture at 9:36 AM ET
-- Intraday battery stays idle until `aiem_first_candle_data` accumulates rows (starts Monday 9:36 AM)
+**Tables written:**
+- `aiem_grid_test_state` — EOD multi-day indicator signals (primary)
+- `aiem_intraday_grid_state` — same-day premarket/first-candle signals
+- `aiem_historical_pattern_grid` — long-horizon historical backtest results (runs at startup + weekly)
