@@ -1061,6 +1061,74 @@ _AIEM_PAPER_LOCK      = threading.Lock()  # prevents concurrent _aiem_paper_exec
 # Change this constant (only here) if a different spread is approved.
 _NANO_CAP_SPREAD_PCT  = 0.01
 
+# ── Pattern Lab (Gap Fill + ORB) — independent paper ledgers ──────────────────
+# Isolated from D1/D2/D3. Fed by td_intraday_capture; snapshot via /pattern-lab/snapshot.
+_PATTERN_LAB_ENGINE = None
+_PATTERN_LAB_LOCK = threading.Lock()
+
+def _get_pattern_lab_engine():
+    """Module-level singleton — one AIMPaperTradingEngine for process lifetime."""
+    global _PATTERN_LAB_ENGINE
+    if _PATTERN_LAB_ENGINE is None:
+        with _PATTERN_LAB_LOCK:
+            if _PATTERN_LAB_ENGINE is None:
+                from aim_paper_trading_engine import AIMPaperTradingEngine as _AIM_PTE
+                _PATTERN_LAB_ENGINE = _AIM_PTE(symbol="SPY")
+    return _PATTERN_LAB_ENGINE
+
+def _pattern_lab_feed_from_spy_df(spy_df) -> None:
+    """Normalize Tradier OHLCV → engine schema and evaluate_market_bars once."""
+    try:
+        import pandas as _pl_pd
+        if spy_df is None or getattr(spy_df, "empty", True):
+            return
+        df = spy_df.copy()
+        # Tradier path uses Open/High/Low/Close; engine expects lowercase.
+        _rename = {}
+        for a, b in (("Open", "open"), ("High", "high"), ("Low", "low"),
+                     ("Close", "close"), ("Volume", "volume")):
+            if a in df.columns and b not in df.columns:
+                _rename[a] = b
+        if _rename:
+            df = df.rename(columns=_rename)
+        for col in ("open", "high", "low", "close"):
+            if col not in df.columns:
+                return
+        if not isinstance(df.index, _pl_pd.DatetimeIndex):
+            return
+        if df.index.tz is None:
+            df.index = df.index.tz_localize("America/New_York")
+        else:
+            df.index = df.index.tz_convert("America/New_York")
+        # Prior close: last SPY close from polygon_market_daily before today (ET).
+        prior_close = None
+        try:
+            import psycopg2 as _pl_pg
+            _today_et = __import__("datetime").datetime.now(
+                __import__("pytz").timezone("America/New_York")
+            ).date()
+            with _pl_pg.connect(os.environ.get("DATABASE_URL") or _DB_URL,
+                                connect_timeout=4) as _pc, _pc.cursor() as _pcu:
+                _pcu.execute(
+                    """
+                    SELECT close_price FROM polygon_market_daily
+                    WHERE ticker = 'SPY' AND scan_date < %s
+                    ORDER BY scan_date DESC LIMIT 1
+                    """,
+                    (_today_et,),
+                )
+                _row = _pcu.fetchone()
+                if _row and _row[0] is not None:
+                    prior_close = float(_row[0])
+        except Exception as _pc_e:
+            print(f"[pattern_lab] prior_close lookup error: {_pc_e}")
+        if prior_close is None or prior_close <= 0:
+            return
+        eng = _get_pattern_lab_engine()
+        eng.evaluate_market_bars(prior_close, df)
+    except Exception as _pl_e:
+        print(f"[pattern_lab] evaluate skipped: {_pl_e}")
+
 # ── Rotating leaderboard cursor ────────────────────────────────────────────────
 # Each hourly scan covers a fresh 1,000-ticker segment so the full 6,610-ticker
 # universe completes across 7 scans by ~3:10 PM - leaving 50 min to place trades.
@@ -4137,6 +4205,15 @@ def _run_td_intraday_capture():
             print(f"[td_intraday_cache] bulk save error: {_e_tdi}")
 
     print(f"[td_intraday_cache] {len(universe)} tickers → {total_bars} bars upserted")
+
+    # Pattern Lab — feed SPY 1-min bars into Gap Fill / ORB paper ledgers.
+    # Isolated from D1/D2/D3; failures here must not break intraday capture.
+    try:
+        _spy_df_pl = ticker_dfs.get("SPY")
+        if _spy_df_pl is not None and not getattr(_spy_df_pl, "empty", True):
+            _pattern_lab_feed_from_spy_df(_spy_df_pl)
+    except Exception as _pl_feed_e:
+        print(f"[pattern_lab] feed error (non-fatal): {_pl_feed_e}")
 
 
 def _init_conviction_snapshot_table():
@@ -74752,6 +74829,17 @@ def _build_bear_tech_signals(close_str, rvol, vpin, hurst, iv):
 
 
 # ─── AIEM Dashboard Admin Routes ────────────────────────────────────────────────
+
+@app.route("/stock-api/pattern-lab/snapshot", methods=["GET"])
+@app.route("/pattern-lab/snapshot", methods=["GET"])
+def pattern_lab_snapshot():
+    """Pattern Lab — Gap Fill + ORB independent paper ledger snapshot (raw)."""
+    try:
+        eng = _get_pattern_lab_engine()
+        return jsonify(eng.dashboard_snapshot())
+    except Exception as _e_pl:
+        return jsonify({"error": str(_e_pl)}), 500
+
 
 @app.route("/stock-api/admin/decision-audit", methods=["GET"])
 def admin_decision_audit():
