@@ -2604,12 +2604,16 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   };
   useEffect(() => { load(); }, []);
 
-  const filtered = (data?.signals ?? []).filter(s => {
+  // Hard cap card render — backend also truncates, but an old ~40k-row
+  // cache must never mount that many DOM nodes on mobile (black screen / OOM).
+  const IR_UI_MAX = 100;
+  const filteredAll = (data?.signals ?? []).filter(s => {
     if (filter === "EARNINGS") return s.days_to_earnings != null;
     if (filter === "HIGH")     return s.suspicion_score >= 65;
-    if (filter === "QUIET")    return s.ticker_appearances <= 3;
+    if (filter === "QUIET")    return (s.ticker_appearances ?? 99) <= 3;
     return true;
   });
+  const filtered = filteredAll.slice(0, IR_UI_MAX);
 
   const scoreColor = (n: number) =>
     n >= 80 ? "#f87171" : n >= 65 ? "#fb923c" : n >= 50 ? "#facc15" : "#4ade80";
@@ -2625,8 +2629,10 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
     );
   };
 
-  const premStr = (p: number) =>
-    p >= 1_000_000 ? `$${(p/1_000_000).toFixed(1)}M` : `$${(p/1000).toFixed(0)}K`;
+  const premStr = (p: number | null | undefined) => {
+    const n = Number(p) || 0;
+    return n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : `$${(n/1000).toFixed(0)}K`;
+  };
 
   return (
     <div>
@@ -2680,6 +2686,13 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
               <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{s.label}</div>
             </div>
           ))}
+        </div>
+      )}
+      {view === "live" && data && (Boolean((data as { truncated?: boolean }).truncated) || filteredAll.length > IR_UI_MAX) && (
+        <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10,
+          background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.25)",
+          fontFamily: BB_F, fontSize: 11, color: "#fbbf24", lineHeight: 1.5 }}>
+          Showing top {filtered.length} of {data.total ?? filteredAll.length} signals (highest suspicion first) — full dump truncated so the page stays usable on mobile.
         </div>
       )}
       {view === "live" && (<>
@@ -2743,14 +2756,17 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         {!loading && filtered.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {filtered.map((s, i) => {
-            const sc  = s.suspicion_score;
+            const sc  = s.suspicion_score ?? 0;
             const col = scoreColor(sc);
             const pstr = premStr(s.prem);
-            const otmLabel = s.otm_pct > 0 ? `+${s.otm_pct}% OTM` : s.otm_pct < 0 ? `${Math.abs(s.otm_pct)}% ITM` : "ATM";
+            const otm = Number(s.otm_pct) || 0;
+            const otmLabel = otm > 0 ? `+${otm}% OTM` : otm < 0 ? `${Math.abs(otm)}% ITM` : "ATM";
             const isHigh = sc >= 65;
             const borderCol = sc >= 80 ? "rgba(248,113,113,0.5)" : sc >= 65 ? "rgba(251,146,60,0.4)" : "rgba(255,255,255,0.07)";
             const firstDate = s.first_seen ? s.first_seen.slice(0,10) : "—";
             const lastDate  = s.last_seen  ? s.last_seen.slice(0,10)  : "—";
+            const px = Number(s.price);
+            const voi = Number(s.vol_oi) || 0;
 
             return (
               <div key={i} onClick={() => onSelectTicker(s.ticker)}
@@ -2766,7 +2782,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 22 }}>{s.ticker}</span>
-                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${s.price.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>{Number.isFinite(px) ? `$${px.toFixed(2)}` : "—"}</span>
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                         background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
                       {s.pre_positioned && (
@@ -2776,7 +2792,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                         </span>
                       )}
                       {earningsBadge(s.days_to_earnings)}
-                      {s.ticker_appearances <= 2 && (
+                      {(s.ticker_appearances ?? 99) <= 2 && (
                         <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                           background: "rgba(251,146,60,0.1)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.3)" }}>
                           ⚡ RARE TICKER
@@ -2787,7 +2803,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${s.strike} strike</span>
                       <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>exp {s.expiry}</span>
                       <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>{otmLabel}</span>
-                      {s.iv > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {s.iv}%</span>}
+                      {(Number(s.iv) || 0) > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {s.iv}%</span>}
                     </div>
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
@@ -2799,7 +2815,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                         </span>
                       )}
                       <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
-                        Appeared: <span style={{ color: "#64748b" }}>{s.ticker_appearances}× in 90d</span>
+                        Appeared: <span style={{ color: "#64748b" }}>{s.ticker_appearances ?? "—"}× in 90d</span>
                       </span>
                     </div>
                   </div>
@@ -2813,10 +2829,10 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       {sc}
                     </div>
                     <div style={{ width: 80, height: 4, background: "rgba(255,255,255,0.07)", borderRadius: 99, margin: "6px 0 6px auto" }}>
-                      <div style={{ width: `${sc}%`, height: "100%", background: col, borderRadius: 99 }} />
+                      <div style={{ width: `${Math.min(100, Math.max(0, sc))}%`, height: "100%", background: col, borderRadius: 99 }} />
                     </div>
                     <div style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 18, color: "#e2e8f0", marginBottom: 2 }}>{pstr}</div>
-                    <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>{s.vol_oi.toFixed(1)}× Vol/OI</div>
+                    <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>{voi.toFixed(1)}× Vol/OI</div>
                     <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{(s.volume||0).toLocaleString()} vol · {(s.oi||0).toLocaleString()} OI</div>
                   </div>
                 </div>
