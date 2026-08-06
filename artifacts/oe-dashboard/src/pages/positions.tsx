@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/table';
 import { formatCurrency, formatPercent, formatDateShort } from '@/lib/utils';
 import { ExternalLink } from 'lucide-react';
+import { PerformancePanel } from '@/components/performance-panel';
 
 interface TradeRecord {
   trace_id: string;
@@ -78,7 +79,7 @@ export default function PositionsPage() {
   const { data: trades, isLoading: tradesLoading } = useQuery({
     queryKey: ['trade-records'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/trade-records?limit=50')
+      apiFetch<unknown>('/admin/trade-records?limit=500')
         .then(extractRows<TradeRecord>)
         // Gap 1 fix: only show rows where exit_ts is set (genuinely closed trades)
         .then((rows) => rows.filter((t) => t.exit_ts !== null && t.exit_ts !== undefined)),
@@ -87,7 +88,7 @@ export default function PositionsPage() {
   const { data: allMetrics } = useQuery({
     queryKey: ['options-metrics'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/options-metrics?limit=50').then(extractRows<OptionsMetrics>),
+      apiFetch<unknown>('/admin/options-metrics?limit=200').then(extractRows<OptionsMetrics>),
   });
 
   const { data: paperPositions } = useQuery({
@@ -122,9 +123,11 @@ export default function PositionsPage() {
           Positions & P&L
         </h1>
         <p className="text-base text-muted-foreground mt-1.5">
-          Closed trades and options analytics
+          Performance summary, equity curve, closed trades, and options analytics
         </p>
       </div>
+
+      <PerformancePanel trades={trades ?? []} />
 
       {/* Stack on smaller screens — side-by-side 10-col tables were jammed */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
