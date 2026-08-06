@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/hooks/use-api';
 import {
@@ -40,7 +40,7 @@ export default function LiveDecisionsPage() {
       apiFetch<PipelineCandidate[]>(
         '/admin/options-pipeline/candidates?limit=50'
       ),
-    refetchInterval: 10000, // Poll every 10 seconds
+    refetchInterval: 10000,
   });
 
   const getStatusBadge = (status: string) => {
@@ -58,25 +58,25 @@ export default function LiveDecisionsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-muted rounded w-48" />
+        <div className="h-64 bg-muted rounded" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between border-b border-border pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Live Decisions</h1>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">
+            Live Decisions
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Real-time pipeline execution — polling every 10s
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
           <span className="text-xs text-muted-foreground font-mono">
             Live Feed Active
@@ -102,116 +102,17 @@ export default function LiveDecisionsPage() {
             </TableHeader>
             <TableBody>
               {candidates.map((candidate) => (
-                <>
-                  <TableRow
-                    key={candidate.id}
-                    className="cursor-pointer"
-                    onClick={() =>
-                      setExpandedRow(
-                        expandedRow === candidate.id ? null : candidate.id
-                      )
-                    }
-                    data-testid={`row-candidate-${candidate.id}`}
-                  >
-                    <TableCell>
-                      {expandedRow === candidate.id ? (
-                        <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </TableCell>
-                    <TableCell className="font-semibold font-mono">
-                      {candidate.ticker}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {candidate.scan_date}
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`font-mono text-xs ${
-                          candidate.direction === 'CALL'
-                            ? 'text-chart-2'
-                            : 'text-chart-4'
-                        }`}
-                      >
-                        {candidate.direction}
-                      </span>
-                    </TableCell>
-                    <TableCell>{getStatusBadge(candidate.status)}</TableCell>
-                    <TableCell className="font-mono text-xs text-primary">
-                      {candidate.trace_id}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {candidate.alert_id}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {candidate.selected_score?.toFixed(3) ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {candidate.trigger_source}
-                    </TableCell>
-                  </TableRow>
-                  {expandedRow === candidate.id && (
-                    <TableRow>
-                      <TableCell colSpan={9} className="bg-muted/30">
-                        <div className="p-4 space-y-3">
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">
-                                Decision ID
-                              </p>
-                              <p className="font-mono text-sm">
-                                {candidate.decision_id ?? 'None'}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">
-                                Verification Status
-                              </p>
-                              {candidate.verification_status ? (
-                                <Badge variant="success">
-                                  {candidate.verification_status}
-                                </Badge>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">
-                                  —
-                                </span>
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">
-                                Gate Events
-                              </p>
-                              <p className="font-mono text-sm">
-                                {candidate.gate_events_count ?? 0} events
-                              </p>
-                            </div>
-                          </div>
-                          {candidate.error_text && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">
-                                Error Details
-                              </p>
-                              <pre className="text-xs font-mono bg-destructive/10 text-destructive p-2 rounded overflow-auto">
-                                {candidate.error_text}
-                              </pre>
-                            </div>
-                          )}
-                          {candidate.completed_at && (
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">
-                                Completed At
-                              </p>
-                              <p className="font-mono text-xs">
-                                {formatDate(candidate.completed_at)}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </>
+                <CandidateRows
+                  key={candidate.id}
+                  candidate={candidate}
+                  expanded={expandedRow === candidate.id}
+                  onToggle={() =>
+                    setExpandedRow(
+                      expandedRow === candidate.id ? null : candidate.id
+                    )
+                  }
+                  getStatusBadge={getStatusBadge}
+                />
               ))}
             </TableBody>
           </Table>
@@ -223,6 +124,120 @@ export default function LiveDecisionsPage() {
           </div>
         )}
       </div>
-    </div>
+    </>
+  );
+}
+
+function CandidateRows({
+  candidate,
+  expanded,
+  onToggle,
+  getStatusBadge,
+}: {
+  candidate: PipelineCandidate;
+  expanded: boolean;
+  onToggle: () => void;
+  getStatusBadge: (status: string) => ReactNode;
+}) {
+  return (
+    <>
+      <TableRow
+        className="cursor-pointer"
+        onClick={onToggle}
+        data-testid={`row-candidate-${candidate.id}`}
+      >
+        <TableCell>
+          {expanded ? (
+            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          )}
+        </TableCell>
+        <TableCell className="font-semibold font-mono">
+          {candidate.ticker}
+        </TableCell>
+        <TableCell className="font-mono text-xs">
+          {candidate.scan_date}
+        </TableCell>
+        <TableCell>
+          <span
+            className={`font-mono text-xs ${
+              candidate.direction === 'CALL' ? 'text-chart-2' : 'text-chart-4'
+            }`}
+          >
+            {candidate.direction}
+          </span>
+        </TableCell>
+        <TableCell>{getStatusBadge(candidate.status)}</TableCell>
+        <TableCell className="font-mono text-xs text-primary max-w-[14rem] truncate">
+          {candidate.trace_id}
+        </TableCell>
+        <TableCell className="font-mono text-xs">
+          {candidate.alert_id}
+        </TableCell>
+        <TableCell className="font-mono text-xs">
+          {candidate.selected_score?.toFixed(3) ?? '—'}
+        </TableCell>
+        <TableCell className="text-xs">{candidate.trigger_source}</TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={9} className="bg-muted/30">
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Decision ID
+                  </p>
+                  <p className="font-mono text-sm">
+                    {candidate.decision_id ?? 'None'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Verification Status
+                  </p>
+                  {candidate.verification_status ? (
+                    <Badge variant="success">
+                      {candidate.verification_status}
+                    </Badge>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">—</span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Gate Events
+                  </p>
+                  <p className="font-mono text-sm">
+                    {candidate.gate_events_count ?? 0} events
+                  </p>
+                </div>
+              </div>
+              {candidate.error_text && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Error Details
+                  </p>
+                  <pre className="text-xs font-mono bg-destructive/10 text-destructive p-3 rounded overflow-auto">
+                    {candidate.error_text}
+                  </pre>
+                </div>
+              )}
+              {candidate.completed_at && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Completed At
+                  </p>
+                  <p className="font-mono text-xs">
+                    {formatDate(candidate.completed_at)}
+                  </p>
+                </div>
+              )}
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }

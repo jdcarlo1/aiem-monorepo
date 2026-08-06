@@ -4,7 +4,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { useEffect } from 'react';
 import { getToken } from '@/hooks/use-api';
-import { Sidebar } from '@/components/layout/sidebar';
+import { AppShell } from '@/components/layout/AppShell';
 
 import AuthPage from '@/pages/auth';
 import LiveDecisionsPage from '@/pages/live-decisions';
@@ -34,12 +34,9 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   }
 
   return (
-    <div className="flex min-h-[100dvh]">
-      <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <Component />
-      </main>
-    </div>
+    <AppShell>
+      <Component />
+    </AppShell>
   );
 }
 
@@ -64,9 +61,6 @@ function Router() {
       </Route>
       <Route path="/calibration">
         <ProtectedRoute component={CalibrationPage} />
-      </Route>
-      <Route path="/strategies">
-        <ProtectedRoute component={StrategiesPage} />
       </Route>
       <Route path="/status">
         <ProtectedRoute component={StatusPage} />

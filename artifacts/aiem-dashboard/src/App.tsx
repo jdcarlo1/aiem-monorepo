@@ -30,7 +30,6 @@ import Audit from "@/pages/Audit";
 import TraceExplorer from "@/pages/TraceExplorer";
 import Module4Gate from "@/pages/Module4Gate";
 import Dashboard from "@/pages/Dashboard";
-import PatternLab from "@/pages/PatternLab";
 
 const queryClient = new QueryClient();
 

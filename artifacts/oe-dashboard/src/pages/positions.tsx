@@ -108,27 +108,28 @@ export default function PositionsPage() {
 
   if (tradesLoading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-muted rounded w-48" />
+        <div className="h-64 bg-muted rounded" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Positions & P&L</h1>
+    <>
+      <div className="border-b border-border pb-5">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+          Positions & P&L
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Closed trades and options analytics
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      {/* Stack on smaller screens — side-by-side 10-col tables were jammed */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Left Panel: Closed Trades */}
-        <div className="border border-border rounded-lg bg-card overflow-hidden">
+        <div className="border border-border rounded-lg bg-card overflow-hidden min-w-0">
           <div className="p-4 border-b border-border">
             <h2 className="font-semibold">Closed Trades</h2>
           </div>
@@ -223,9 +224,9 @@ export default function PositionsPage() {
         </div>
 
         {/* Right Panel: Greeks */}
-        <div className="border border-border rounded-lg bg-card overflow-hidden">
+        <div className="border border-border rounded-lg bg-card overflow-hidden min-w-0">
           <div className="p-4 border-b border-border">
-            <h2 className="font-semibold">
+            <h2 className="font-semibold truncate">
               Greeks {selectedTraceId && `(${selectedTraceId})`}
             </h2>
           </div>
@@ -347,6 +348,6 @@ export default function PositionsPage() {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

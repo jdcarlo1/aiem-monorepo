@@ -136,26 +136,26 @@ export default function StatusPage() {
 
   if (jobHealthLoading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-muted rounded w-48" />
+        <div className="h-64 bg-muted rounded" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">System Status</h1>
+    <>
+      <div className="border-b border-border pb-5">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+          System Status
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Job health, scheduler state, and pipeline checkpoints
         </p>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-card border border-border rounded-lg p-4">
           <p className="text-xs text-muted-foreground mb-1">Total Jobs</p>
           <p className="text-2xl font-bold font-mono">{totalJobs}</p>
@@ -266,7 +266,7 @@ export default function StatusPage() {
       {reconcileStatus && (
         <div className="border border-border rounded-lg bg-card p-4">
           <h2 className="font-semibold mb-3">Reconciliation Status</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Status</p>
               <Badge variant="success">{reconcileStatus.status}</Badge>
@@ -289,7 +289,7 @@ export default function StatusPage() {
       {pipelineCheckpoint && (
         <div className="border border-border rounded-lg bg-card p-4">
           <h2 className="font-semibold mb-3">Pipeline Checkpoint</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Stage</p>
               <p className="font-mono text-sm">{pipelineCheckpoint.stage}</p>
@@ -307,6 +307,6 @@ export default function StatusPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

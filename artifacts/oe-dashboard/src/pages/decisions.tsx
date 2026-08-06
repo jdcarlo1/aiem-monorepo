@@ -120,26 +120,26 @@ export default function DecisionsPage() {
 
   if (decisionsLoading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-muted rounded w-48" />
+        <div className="h-64 bg-muted rounded" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Decision Proof</h1>
+    <>
+      <div className="border-b border-border pb-5">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+          Decision Proof
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Cryptographically sealed decision audit trail
         </p>
       </div>
 
       {chainStatus && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-lg p-4">
             <p className="text-xs text-muted-foreground mb-1">Chain Sequence</p>
             <p className="text-2xl font-bold font-mono text-primary">
@@ -154,7 +154,7 @@ export default function DecisionsPage() {
             <p className="text-xs text-muted-foreground mb-1">Last Timestamp</p>
             <p className="text-sm font-mono">{formatDate(chainStatus.last_timestamp_utc)}</p>
           </div>
-          <div className="bg-card border border-border rounded-lg p-4">
+          <div className="bg-card border border-border rounded-lg p-4 min-w-0">
             <p className="text-xs text-muted-foreground mb-1">Last Entry Hash</p>
             <p className="text-xs font-mono text-primary truncate">
               {chainStatus.last_entry_hash}
@@ -260,7 +260,7 @@ export default function DecisionsPage() {
                 </SheetTitle>
               </SheetHeader>
               <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Verification Status</p>
                     <Badge variant="success">{selectedDecision.verification_status}</Badge>
@@ -284,6 +284,6 @@ export default function DecisionsPage() {
           )}
         </SheetContent>
       </Sheet>
-    </div>
+    </>
   );
 }

@@ -101,19 +101,19 @@ export default function WhyTradePage() {
 
   if (indicatorsLoading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-muted rounded w-48" />
+        <div className="h-64 bg-muted rounded" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Why This Trade</h1>
+    <>
+      <div className="border-b border-border pb-5">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+          Why This Trade
+        </h1>
         <p className="text-sm text-muted-foreground mt-1 font-mono">
           Trace ID: {traceId}
         </p>
@@ -240,9 +240,9 @@ export default function WhyTradePage() {
           <h2 className="font-semibold">Options Metrics (Greeks)</h2>
         </div>
         {metrics && metrics.length > 0 ? (
-          <div className="p-4 grid grid-cols-4 gap-4">
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {metrics.map((metric, idx) => (
-              <div key={idx} className="space-y-4">
+              <div key={idx} className="space-y-4 border border-border rounded-md p-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Delta</p>
@@ -308,6 +308,6 @@ export default function WhyTradePage() {
       <div className="p-4 bg-muted/30 border border-border rounded text-xs text-muted-foreground">
         Note: Decision audit linked by timestamp proximity (no direct join exists in schema)
       </div>
-    </div>
+    </>
   );
 }

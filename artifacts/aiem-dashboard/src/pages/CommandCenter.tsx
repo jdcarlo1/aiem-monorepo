@@ -190,22 +190,46 @@ export default function CommandCenter() {
         </div>
       </div>
 
-      {/* Failing jobs alert */}
+      {/* Failing jobs alert — surface last_error so schema/deploy issues are visible */}
       {failingJobs.length > 0 && (
         <div className="flex items-start gap-3 p-4 bg-destructive/10 border border-destructive/30 rounded-md">
           <AlertTriangle size={16} className="text-destructive shrink-0 mt-0.5" />
-          <div>
-            <div className="text-sm font-semibold text-destructive mb-1">
-              {failingJobs.length} job{failingJobs.length > 1 ? "s" : ""} reporting failures
+          <div className="min-w-0 space-y-3">
+            <div>
+              <div className="text-sm font-semibold text-destructive mb-1">
+                {failingJobs.length} job{failingJobs.length > 1 ? "s" : ""} reporting failures
+              </div>
+              <div className="text-xs text-muted-foreground font-mono">
+                {failingJobs.map((j: any) => j.job_name).join(" · ")}
+              </div>
             </div>
-            <div className="text-xs text-muted-foreground font-mono">
-              {failingJobs.map((j: any) => j.job_name).join(" · ")}
-            </div>
+            {failingJobs.map((j: any) => (
+              <div
+                key={j.job_name}
+                className="rounded border border-destructive/20 bg-background/40 p-3 space-y-1"
+              >
+                <div className="text-xs font-mono font-semibold text-destructive">
+                  {j.job_name}
+                  {j.consecutive_failures > 0
+                    ? ` · ${j.consecutive_failures} consecutive fail${j.consecutive_failures > 1 ? "s" : ""}`
+                    : ""}
+                </div>
+                {j.last_error ? (
+                  <pre className="text-[11px] font-mono text-destructive/90 whitespace-pre-wrap break-words leading-relaxed">
+                    {String(j.last_error).trim()}
+                  </pre>
+                ) : (
+                  <div className="text-[11px] font-mono text-muted-foreground">
+                    No last_error recorded — check job_heartbeats / deploy freshness
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Job Heartbeat Grid */}
+      {/* Job Heartbeat Grid — readable density (was jammed 6-col tiny cards) */}
       <div className="panel">
         <div className="panel-header">
           <div className="flex items-center gap-2">
@@ -214,42 +238,55 @@ export default function CommandCenter() {
           </div>
           <span className="text-xs font-mono text-muted-foreground">job_heartbeats table · 30s refresh</span>
         </div>
-        <div className="p-4">
+        <div className="p-4 md:p-5">
           {hbJobs.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
               <AlertTriangle size={20} className="text-primary/50" />
               <span className="text-sm font-mono">No heartbeat data — engine warming up</span>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-              {hbJobs.map((job: any, i: number) => {
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {[...hbJobs]
+                .sort((a: any, b: any) => (b.consecutive_failures > 0 ? 1 : 0) - (a.consecutive_failures > 0 ? 1 : 0))
+                .map((job: any, i: number) => {
                 const failing = job.consecutive_failures > 0;
                 const lastSuccess = job.last_success ? new Date(job.last_success) : null;
                 const age = lastSuccess ? Math.round((Date.now() - lastSuccess.getTime()) / 60000) : null;
                 return (
                   <div
-                    key={i}
-                    className={`p-2.5 rounded-md border transition-all ${
+                    key={job.job_name ?? i}
+                    className={`p-4 rounded-md border transition-all min-w-0 ${
                       failing
                         ? "border-destructive/40 bg-destructive/5"
                         : "border-border bg-card hover:border-border/80"
                     }`}
                     title={job.last_error ?? job.job_name}
                   >
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${failing ? "bg-destructive" : "bg-success"}`} />
-                      {failing && <AlertTriangle size={9} className="text-destructive shrink-0" />}
-                    </div>
-                    <div className="text-[10px] font-mono text-white truncate font-medium" title={job.job_name}>
-                      {job.job_name.replace(/_/g, " ")}
-                    </div>
-                    <div className="text-[9px] font-mono text-muted-foreground mt-0.5">
-                      {age != null ? (age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`) : "never"}
-                    </div>
-                    {failing && (
-                      <div className="text-[9px] font-mono text-destructive mt-0.5">
-                        {job.consecutive_failures} fail{job.consecutive_failures > 1 ? "s" : ""}
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${failing ? "bg-destructive" : "bg-success"}`} />
+                        {failing && <AlertTriangle size={12} className="text-destructive shrink-0" />}
+                        <div className="text-xs font-mono text-white font-medium truncate" title={job.job_name}>
+                          {job.job_name}
+                        </div>
                       </div>
+                      <div className="text-[11px] font-mono text-muted-foreground shrink-0">
+                        {age != null ? (age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`) : "never"}
+                      </div>
+                    </div>
+                    {failing ? (
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-mono text-destructive font-semibold">
+                          {job.consecutive_failures} consecutive fail{job.consecutive_failures > 1 ? "s" : ""}
+                        </div>
+                        {job.last_error ? (
+                          <div className="text-[11px] font-mono text-destructive/80 line-clamp-3 leading-relaxed break-words">
+                            {String(job.last_error).trim()}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] font-mono text-muted-foreground">healthy</div>
                     )}
                   </div>
                 );

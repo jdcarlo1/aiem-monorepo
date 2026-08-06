@@ -146,19 +146,17 @@ export default function CalibrationPage() {
 
   if (calibrationLoading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-muted rounded w-48" />
+        <div className="h-64 bg-muted rounded" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">
+    <>
+      <div className="border-b border-border pb-5">
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">
           Probability Calibration
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -182,7 +180,7 @@ export default function CalibrationPage() {
       </div>
 
       {/* Horizon Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {calibration &&
           calibration.map((horizon) => {
             const isDegraded = horizon.cal_brier > horizon.raw_brier;
@@ -347,6 +345,6 @@ export default function CalibrationPage() {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
