@@ -25,9 +25,9 @@ If publish lands after 9:07 but before 16:00 ET, startup catchup will auto-run t
 
 | Path | Schedule | Data source | Output table | Feeds Paper Money UI? |
 |---|---|---|---|---|
-| **Loop B** `aiem_morning_scan` | **9:07 AM ET** | `polygon_rvol_scan` + `conviction_stack_watchlist` + `unusual_calls_log` (+ Polygon fallback) | `aiem_predictions` | Indirect / not primary |
+| **Loop B** `aiem_morning_scan` | **9:07 AM ET** | `polygon_rvol_scan` + `conviction_stack_watchlist` + `unusual_calls_log` (+ Polygon fallback) | `aiem_predictions` | **Yes — PRIMARY** when today's predictions exist (`signal_source=aiem_loop_b`) |
 | **Workstream D** `aiem_independent_scan` | **9:20 AM ET** | **`polygon_market_daily` only** (raw Polygon bars) | `aiem_independent_picks` | **No** — separate ledger |
-| Paper Money injector | separate | **PRIMARY = `scanner_ai_trades`** (explicit in code) | `aiem_paper_trades` | **Yes** — what you see in Paper Trades |
+| Paper Money injector | separate | **PRIMARY = Loop B `aiem_predictions`**; fallback = `scanner_ai_trades` | `aiem_paper_trades` | **Yes** |
 
 ---
 

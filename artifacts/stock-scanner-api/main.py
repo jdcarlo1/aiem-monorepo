@@ -18724,6 +18724,12 @@ try:
         replace_existing=True,
     )
     _scheduler.add_job(
+        lambda: _aiem_paper_refresh_marks(persist=True),
+        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="5,35", timezone=_ET),
+        id="aiem_paper_refresh_marks",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
         lambda: _aiem_paper_mark_to_market(),
         CronTrigger(day_of_week="mon-fri", hour=16, minute=1, timezone=_ET),
         id="aiem_paper_mtm",
@@ -19487,7 +19493,9 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
       gap_volume            → LIVE (Tradier): price>=2.0, gap_pct>=1.0, rvol_adj>=2.0
       aiem_ai               → DB: ai_trade_log conviction HIGH/EXTREME + BULLISH, last 2d
       scanner_ai_trades     → DB: ai_trade_log BULLISH HIGH/EXTREME/MEDIUM last 2d
-                              (primary Paper Money source — scanner-ranked, not OpenAI)
+                              (fallback Paper Money source when Loop B empty)
+      aiem_loop_b           → PASS_THROUGH: today's aiem_predictions from Loop B
+                              morning scan (PRIMARY Paper Money source when present)
       multi_signal          → PASS_THROUGH: snapshot-based, historical; no per-ticker bar
       oi_buildup            → DB: oi_daily_snapshot OI growth >=20%, last 4 days
       washout_ignition      → PASS_THROUGH: discovery gate means it can never reach exec
@@ -19766,6 +19774,9 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         "thrust_pullback",
         "building_thrust",
         "gap_ignition",
+        # Today's aiem_predictions from Loop B morning scan — already dated
+        # CURRENT_DATE at inject time; no separate momentum bar to re-check.
+        "aiem_loop_b",
     }
 
     # ── 6. DB-backed source metadata ──────────────────────────────────────
@@ -21058,6 +21069,21 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 _notional   = 1000.0
                 _trade_type = pick["trade_type"]
                 _direction  = pick.get("direction", "BULLISH")
+                # Capture live option premium at open when strike/expiry known so
+                # intraday/EOD marks can use real option MTM instead of 2x proxy.
+                _option_entry_mid = None
+                if (_trade_type or "").upper() in ("CALL_OPTION", "PUT_OPTION"):
+                    try:
+                        _osk = pick.get("strike")
+                        _oex = pick.get("expiry")
+                        if _osk is not None and _oex:
+                            _oside = "put" if (_trade_type or "").upper() == "PUT_OPTION" else "call"
+                            _option_entry_mid = _aiem_option_contract_mid(
+                                _t, _osk, _oex, side=_oside
+                            )
+                    except Exception as _oem_e:
+                        print(f"[aiem_paper] option_entry_mid capture skipped {_t}: {_oem_e}")
+                        _option_entry_mid = None
 
                 # ── Position sizing (spec §2-5, aiem_position_sizing) ─────────
                 # compute_position_size() returns PARAMS_NOT_CONFIRMED only when
@@ -21840,25 +21866,30 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 # trade_date) already exists in aiem_paper_trades the duplicate
                 # is caught here, a D3 data_guard.failed event is emitted, and
                 # the candidate is skipped via `continue`.
+                # Also block if the ticker already has ANY OPEN position —
+                # prevents near-duplicate mega-cap stacks across consecutive
+                # trade_dates (Aug 5 OPEN + Aug 6 OPEN of same ticker).
                 # DB constraint aiem_paper_trades_ticker_date_unique is the
                 # second safety net in case this check is ever bypassed.
                 _cu.execute(
-                    "SELECT id FROM aiem_paper_trades "
-                    "WHERE ticker=%s AND trade_date=%s LIMIT 1",
+                    "SELECT id, trade_date::text, status FROM aiem_paper_trades "
+                    "WHERE ticker=%s AND (trade_date=%s OR status='OPEN') "
+                    "ORDER BY CASE WHEN status='OPEN' THEN 0 ELSE 1 END, id DESC "
+                    "LIMIT 1",
                     (_t, _today)
                 )
                 _dedup_existing = _cu.fetchone()
                 if _dedup_existing:
                     print(f"[aiem_paper] ORDER_DEDUP_BLOCKED {_t}: "
-                          f"row id={_dedup_existing[0]} already exists for "
-                          f"{_today} — skipping duplicate")
+                          f"row id={_dedup_existing[0]} date={_dedup_existing[1]} "
+                          f"status={_dedup_existing[2]} — skipping duplicate")
                     try:
                         import aiem_diagram3_governance as _d3ev_dedup
                         _d3ev_dedup.emit_d2_pipeline_event(
                             "data_guard.failed", ticker=_t,
                             reason=(f"gate=order_dedup duplicate "
                                     f"row_id={_dedup_existing[0]} "
-                                    f"ticker={_t} date={_today}"))
+                                    f"ticker={_t} status={_dedup_existing[2]}"))
                     except Exception:
                         pass
                     _dg_bus_publish(
@@ -21936,10 +21967,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                          sizing_stop_price, sizing_stop_basis,
                          sizing_risk_pct, sizing_gate_result,
                          pre_sizing_model, audit_trace_id,
-                         candidate_id, execution_plan_id)
+                         candidate_id, execution_plan_id,
+                         option_entry_mid)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
                             %s,%s,%s,%s,%s,%s,%s,FALSE,%s,
-                            %s,%s)
+                            %s,%s,%s)
                     ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
                 """, (_today, _t, _trade_type, _direction,
                       _fill_price, _qty,
@@ -21949,7 +21981,8 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                       _mid_price, _fill_price, _spread_pct_used,
                       _sizing_stop, _sizing_stop_basis,
                       _sizing_risk_pct, _sizing_gate, _audit_trace_id,
-                      _d2_candidate_id, _exec_plan_id))
+                      _d2_candidate_id, _exec_plan_id,
+                      _option_entry_mid))
                 _dir_tag = "" if _direction == "BULLISH" else f" ↓{_direction}"
                 _tg_entry_lines.append(
                     f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}{_dir_tag}  [{pick['source']}]"
@@ -49819,7 +49852,187 @@ def sell():
 # AIEM AUTONOMOUS PAPER TRADING ENGINE
 # 20 picks/day · $1,000/trade · stocks, options, ETFs, anything
 # 9:35 AM ET: pick + execute  |  4:00 PM ET: mark-to-market + close exits
+# Intraday: refresh marks every 30 min so UI never shows null last_price/pnl
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _aiem_option_contract_mid(ticker: str, strike, expiry, side: str = "call"):
+    """Best-effort Tradier mid for one contract. Returns float or None."""
+    if not ticker or strike is None or not expiry:
+        return None
+    try:
+        exp = str(expiry)[:10]
+        chain = _td_chain(str(ticker).upper(), exp)
+        df = getattr(chain, "calls" if side == "call" else "puts", None)
+        if df is None or getattr(df, "empty", True):
+            return None
+        sk = float(strike)
+        hit = df[df["strike"].astype(float) == sk] if "strike" in df.columns else df.iloc[0:0]
+        if hit is None or len(hit) == 0:
+            if "strike" not in df.columns:
+                return None
+            hit = df.iloc[(df["strike"].astype(float) - sk).abs().argsort()[:1]]
+        row = hit.iloc[0]
+        mid = row.get("lastPrice")
+        if mid is None or float(mid) <= 0:
+            b, a = float(row.get("bid") or 0), float(row.get("ask") or 0)
+            if b > 0 and a > 0:
+                mid = (b + a) / 2.0
+            elif a > 0:
+                mid = a
+            elif b > 0:
+                mid = b
+        return float(mid) if mid and float(mid) > 0 else None
+    except Exception as _om_e:
+        print(f"[aiem_paper] option mid lookup failed {ticker} {strike} {expiry}: {_om_e}")
+        return None
+
+
+def _aiem_paper_option_premium_candidate(value, underlying_entry) -> bool:
+    """True when value looks like an option premium, not an underlying print."""
+    try:
+        v = float(value)
+        u = float(underlying_entry or 0)
+    except Exception:
+        return False
+    if v <= 0:
+        return False
+    # Option premiums are usually << spot; reject near-spot values.
+    return v < max(1.0, u * 0.35)
+
+
+def _aiem_paper_compute_mark(trade_type, direction, entry_f, qty_f, not_f,
+                             underlying_last, option_mid=None, entry_mid=None):
+    """Return (last_price, pnl, pnl_pct, mark_source, is_synthetic).
+
+    Prefer real option mid MTM when both live option mid and an option-premium
+    entry mid are available. Otherwise fall back to the legacy 2x underlying
+    proxy (explicitly labeled synthetic) so OPEN rows never show null marks.
+    """
+    ttype = (trade_type or "STOCK").upper()
+    direction = (direction or "BULLISH").upper()
+    entry_f = float(entry_f or 0)
+    qty_f = float(qty_f or 0)
+    not_f = float(not_f or 0)
+
+    if ttype in ("CALL_OPTION", "PUT_OPTION"):
+        # Real option premium mark-to-market when we stored option_entry_mid.
+        if (option_mid and entry_mid
+                and _aiem_paper_option_premium_candidate(entry_mid, entry_f)):
+            last = float(option_mid)
+            em = float(entry_mid)
+            contracts = max(1.0, not_f / (em * 100.0)) if em > 0 else 1.0
+            pnl = round((last - em) * contracts * 100.0, 2)
+            pnl_pct = round((last - em) / em * 100.0, 4) if em > 0 else 0.0
+            return last, pnl, pnl_pct, "option_mid", False
+
+    last = float(underlying_last or 0)
+    if last <= 0 or entry_f <= 0:
+        # Still surface a live option last for UI when underlying quote failed.
+        if ttype in ("CALL_OPTION", "PUT_OPTION") and option_mid and float(option_mid) > 0:
+            return float(option_mid), None, None, "option_mid_no_underlying", True
+        return None, None, None, "unavailable", True
+
+    if ttype == "CALL_OPTION":
+        move = (last - entry_f) / entry_f * 100.0
+        pnl_pct = round(max(-100.0, move * 2.0), 4)
+        pnl = round(not_f * pnl_pct / 100.0, 2)
+        # Prefer showing option last_price in the UI even when P&L is synthetic.
+        if option_mid and float(option_mid) > 0:
+            return float(option_mid), pnl, pnl_pct, "option_last_synthetic_pnl", True
+        return last, pnl, pnl_pct, "synthetic_underlying_2x", True
+    if ttype == "PUT_OPTION":
+        move = (entry_f - last) / entry_f * 100.0
+        pnl_pct = round(max(-100.0, move * 2.0), 4)
+        pnl = round(not_f * pnl_pct / 100.0, 2)
+        if option_mid and float(option_mid) > 0:
+            return float(option_mid), pnl, pnl_pct, "option_last_synthetic_pnl", True
+        return last, pnl, pnl_pct, "synthetic_underlying_2x", True
+    if ttype == "SHORT_STOCK" or direction == "BEARISH":
+        pnl = round((entry_f - last) * qty_f, 2)
+        pnl_pct = round((entry_f - last) / entry_f * 100.0, 4)
+        return last, pnl, pnl_pct, "stock_quote", False
+    pnl = round((last - entry_f) * qty_f, 2)
+    pnl_pct = round((last - entry_f) / entry_f * 100.0, 4)
+    return last, pnl, pnl_pct, "stock_quote", False
+
+
+def _aiem_paper_refresh_marks(persist: bool = True, max_option_lookups: int = 8):
+    """Lightweight intraday mark refresh for OPEN paper trades."""
+    import datetime as _rmdt
+    updated = 0
+    skipped = 0
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT id, ticker, trade_type, entry_price, quantity, notional,
+                       COALESCE(direction, 'BULLISH'), strike, expiry,
+                       option_entry_mid, mid_price
+                FROM aiem_paper_trades WHERE status = 'OPEN'
+            """)
+            rows = _cu.fetchall()
+        if not rows:
+            return {"updated": 0, "skipped": 0, "open": 0}
+
+        tickers = list({r[1] for r in rows})
+        quotes = _td_quotes(tickers) or {}
+        option_lookups = 0
+        writes = []
+
+        for (_id, _t, _ttype, _entry, _qty, _notional, _dir, _strike, _expiry,
+             _opt_entry, _mid) in rows:
+            q = quotes.get(_t) or {}
+            und = float(q.get("last") or q.get("bid") or 0)
+            opt_mid = None
+            if (_ttype or "").upper() in ("CALL_OPTION", "PUT_OPTION") and _strike and _expiry:
+                if option_lookups < max_option_lookups:
+                    side = "put" if (_ttype or "").upper() == "PUT_OPTION" else "call"
+                    opt_mid = _aiem_option_contract_mid(_t, _strike, _expiry, side=side)
+                    option_lookups += 1
+            # Prefer dedicated option_entry_mid; fall back to mid_price only when
+            # it looks like a premium (not underlying).
+            entry_prem = None
+            if _opt_entry is not None and float(_opt_entry or 0) > 0:
+                entry_prem = float(_opt_entry)
+            elif _mid is not None and _aiem_paper_option_premium_candidate(_mid, _entry):
+                entry_prem = float(_mid)
+            last, pnl, pnl_pct, src, synthetic = _aiem_paper_compute_mark(
+                _ttype, _dir, float(_entry or 0), float(_qty or 0), float(_notional or 0), und,
+                option_mid=opt_mid, entry_mid=entry_prem,
+            )
+            if last is None:
+                skipped += 1
+                continue
+            writes.append((_id, last, pnl, pnl_pct, src, synthetic))
+
+        if persist and writes:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+                for (_id, last, pnl, pnl_pct, src, _syn) in writes:
+                    _cu.execute("""
+                        UPDATE aiem_paper_trades
+                        SET last_price=%s, pnl=%s, pnl_pct=%s, updated_at=NOW(),
+                            needs_review=FALSE, review_reason=NULL
+                        WHERE id=%s AND status='OPEN'
+                    """, (last, pnl, pnl_pct, _id))
+                    updated += 1
+                _c.commit()
+        else:
+            updated = len(writes)
+
+        print(f"[aiem_paper] refresh_marks updated={updated} skipped={skipped} "
+              f"open={len(rows)} option_lookups={option_lookups}")
+        return {
+            "updated": updated, "skipped": skipped, "open": len(rows),
+            "marks": [
+                {"id": w[0], "last_price": w[1], "pnl": w[2], "pnl_pct": w[3],
+                 "mark_source": w[4], "pnl_is_synthetic_proxy": w[5]}
+                for w in writes
+            ],
+            "as_of": _rmdt.datetime.now().isoformat(),
+        }
+    except Exception as _rme:
+        print(f"[aiem_paper] refresh_marks error: {_rme}")
+        return {"updated": 0, "skipped": 0, "error": str(_rme)}
+
 
 def _init_aiem_paper_trades_table():
     try:
@@ -49873,6 +50086,9 @@ def _init_aiem_paper_trades_table():
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS ppo_trained_at TIMESTAMPTZ")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS exit_reason TEXT")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'BULLISH'")
+            # Real option premium at entry (distinct from mid_price which is
+            # underlying mid used for slippage audit on stock fills).
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS option_entry_mid NUMERIC(14,4)")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
@@ -50000,11 +50216,66 @@ def _build_scanner_pool_for_paper(cursor) -> list:
     return list(pool_map.values())
 
 
+def _inject_aiem_loop_b_predictions_for_paper(_add, cursor) -> int:
+    """
+    PRIMARY Paper Money source when Loop B morning scan succeeded:
+    today's rows from aiem_predictions (AIEM autonomous morning Loop B).
+    Scanner AI trades remain the fallback when this returns 0.
+    """
+    injected = set()
+    try:
+        cursor.execute("""
+            SELECT ticker, rank, confidence_score, signal_basis, reasoning, predicted_move
+            FROM aiem_predictions
+            WHERE prediction_date = CURRENT_DATE
+            ORDER BY COALESCE(rank, 999), COALESCE(confidence_score, 0) DESC
+            LIMIT 15
+        """)
+        rows = cursor.fetchall() or []
+        for (_t, _rank, _conf, _basis, _reason, _move) in rows:
+            tk = (_t or "").upper().strip()
+            if not tk:
+                continue
+            try:
+                conf = float(_conf or 0)
+            except Exception:
+                conf = 0.0
+            # Confidence is typically 0-10; map to paper score band above scanner MEDIUM.
+            score = 28.0 + min(12.0, max(0.0, conf))
+            if _rank is not None:
+                try:
+                    score += max(0.0, 6.0 - float(_rank))
+                except Exception:
+                    pass
+            detail = (
+                f"Loop B morning prediction rank={_rank} conf={conf:.2f} "
+                f"{(_basis or '')[:60]} | {(_reason or _move or '')[:100]}"
+            )[:180]
+            _trade_type = "CALL_OPTION" if (
+                "CALL" in str(_basis or "").upper()
+                or "CALL" in str(_move or "").upper()
+                or "OPTION" in str(_basis or "").upper()
+            ) else "STOCK"
+            _add(
+                tk,
+                score,
+                _trade_type,
+                "aiem_loop_b",
+                detail,
+                direction="BULLISH",
+            )
+            injected.add(tk)
+        print(f"[paper_loop_b] injected {len(injected)} aiem_predictions tickers")
+    except Exception as _lb_e:
+        print(f"[paper_loop_b] aiem_predictions inject skipped: {_lb_e}")
+    return len(injected)
+
+
 def _inject_scanner_ai_trades_for_paper(_add, cursor) -> int:
     """
-    Primary Paper Money source: scanner-ranked AI Trades (indicators / Layer 9 /
-    unusual calls / composite) — NOT OpenAI ticker selection.
-    Source label: scanner_ai_trades (scores high enough to dominate fillers).
+    FALLBACK Paper Money source: scanner-ranked AI Trades (indicators / Layer 9 /
+    unusual calls / composite) — used when Loop B aiem_predictions is empty.
+    Source label: scanner_ai_trades.
     Returns number of tickers injected.
     """
     injected = set()
@@ -50295,6 +50566,7 @@ def _aiem_paper_pick_candidates(
         # with a higher effective score. (Bug: inject ran but washout/gap/etc.
         # replaced source labels before insert — 0 scanner_ai_trades rows ever.)
         _PRIORITY = {
+            "aiem_loop_b": 120,
             "scanner_ai_trades": 100,
             "conviction_stack": 80,
             "unusual_calls": 70,
@@ -50304,9 +50576,9 @@ def _aiem_paper_pick_candidates(
             "gap_volume": 45,
             "oi_buildup": 40,
         }
-        if existing is not None and existing.get("source") == "scanner_ai_trades" \
-                and source != "scanner_ai_trades":
-            # Keep scanner attribution; optionally upgrade option legs
+        if existing is not None and existing.get("source") in ("aiem_loop_b", "scanner_ai_trades") \
+                and _PRIORITY.get(source, 0) < _PRIORITY.get(existing.get("source"), 0):
+            # Keep higher-priority Loop B / scanner attribution; optionally upgrade option legs
             if trade_type == "CALL_OPTION" and existing["trade_type"] == "STOCK":
                 existing["trade_type"] = "CALL_OPTION"
                 existing["direction"] = direction
@@ -50314,7 +50586,7 @@ def _aiem_paper_pick_candidates(
                 existing["expiry"] = expiry if expiry is not None else existing.get("expiry")
             return
         if existing is None or _eff > existing["score"] or (
-            source == "scanner_ai_trades"
+            source in ("aiem_loop_b", "scanner_ai_trades")
             and _PRIORITY.get(source, 0) > _PRIORITY.get(existing.get("source"), 0)
         ):
             _candidates[t] = {"ticker": t, "score": _eff,
@@ -50336,13 +50608,27 @@ def _aiem_paper_pick_candidates(
         with _pg2_eff.connect(_db_url_eff, connect_timeout=4,
                                options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
 
-            # ── 0. PRIMARY: scanner-ranked AI Trades (indicators, not OpenAI) ─
-            # User directive: Paper Money comes from AI Trades ranked by Stock
-            # Scanner / Layer 9 / unusual calls / composite — not gpt selection.
+            # ── 0. PRIMARY: AIEM Loop B morning predictions (aiem_predictions) ─
+            # When Loop B ran, Paper Money should reflect those picks — not the
+            # scanner filler path that dominated when Loop B was empty.
+            _loop_b_n = 0
             try:
-                _inject_scanner_ai_trades_for_paper(_add, _cu)
+                _loop_b_n = _inject_aiem_loop_b_predictions_for_paper(_add, _cu)
+            except Exception as _lb_e:
+                print(f"[aiem_paper] aiem_loop_b primary source failed: {_lb_e}")
+
+            # ── 0b. FALLBACK: scanner-ranked AI Trades when Loop B empty ──────
+            try:
+                if _loop_b_n <= 0:
+                    _inject_scanner_ai_trades_for_paper(_add, _cu)
+                else:
+                    print(f"[aiem_paper] Loop B primary active ({_loop_b_n}); "
+                          f"scanner_ai_trades demoted to gap-fill only")
+                    # Still inject scanner lightly for diversification, but
+                    # _PRIORITY keeps Loop B attribution on collisions.
+                    _inject_scanner_ai_trades_for_paper(_add, _cu)
             except Exception as _sai_e:
-                print(f"[aiem_paper] scanner_ai_trades primary source failed: {_sai_e}")
+                print(f"[aiem_paper] scanner_ai_trades fallback failed: {_sai_e}")
 
             # ── 1. Conviction stack (highest conviction tickers) ──────────────
             _cu.execute("""
@@ -50948,15 +51234,23 @@ def _aiem_paper_pick_candidates(
 
     # Apply macro risk-off: cap at 10 picks and downweight options
     _final = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)
-    # Force-pin scanner_ai_trades into the head of the batch so Paper Money
-    # actually records that source (primary directive). Boost + re-sort.
+    # Force-pin Loop B predictions into the head of the batch so Paper Money
+    # records AIEM morning Loop B when present; else pin scanner fallback.
+    _lb = [c for c in _final if c.get("source") == "aiem_loop_b"]
     _sai = [c for c in _final if c.get("source") == "scanner_ai_trades"]
-    if _sai:
+    if _lb:
+        for _c in _lb:
+            _c["score"] = max(float(_c.get("score") or 0), 55.0)
+            _c["detail"] = (( _c.get("detail") or "") + " | PIN:aiem_loop_b").strip(" |")
+        _final = sorted(_final, key=lambda x: x["score"], reverse=True)
+        print(f"[aiem_paper] pinned {len(_lb)} aiem_loop_b candidates to top of batch")
+    elif _sai:
         for _c in _sai:
             _c["score"] = max(float(_c.get("score") or 0), 50.0)
             _c["detail"] = (( _c.get("detail") or "") + " | PIN:scanner_ai_trades").strip(" |")
         _final = sorted(_final, key=lambda x: x["score"], reverse=True)
-        print(f"[aiem_paper] pinned {len(_sai)} scanner_ai_trades candidates to top of batch")
+        print(f"[aiem_paper] pinned {len(_sai)} scanner_ai_trades candidates to top of batch "
+              f"(Loop B empty — fallback)")
     if _macro_bias == -1:
         for _fp in _final:
             if _fp["trade_type"] == "CALL_OPTION":
@@ -51923,7 +52217,8 @@ def _aiem_paper_mark_to_market():
             _cu.execute("""
                 SELECT id, ticker, trade_type, entry_price, quantity,
                        notional, trade_date, signal_source, signal_detail,
-                       COALESCE(direction, 'BULLISH') AS direction
+                       COALESCE(direction, 'BULLISH') AS direction,
+                       strike, expiry, option_entry_mid, mid_price
                 FROM aiem_paper_trades WHERE status = 'OPEN'
             """)
             _open = _cu.fetchall()
@@ -51935,6 +52230,23 @@ def _aiem_paper_mark_to_market():
         _tg_exit_lines = []  # collect exits for consolidated Telegram
         _tickers = list(set(r[1] for r in _open))
         _quotes  = _td_quotes(_tickers)
+        # Best-effort option mids for CALL/PUT legs (cap lookups).
+        _opt_mids = {}
+        _opt_lookups = 0
+        for _orow in _open:
+            _ott = (_orow[2] or "").upper()
+            if _ott not in ("CALL_OPTION", "PUT_OPTION"):
+                continue
+            if _opt_lookups >= 10:
+                break
+            _ostrike, _oexp = _orow[10], _orow[11]
+            if not _ostrike or not _oexp:
+                continue
+            _oside = "put" if _ott == "PUT_OPTION" else "call"
+            _om = _aiem_option_contract_mid(_orow[1], _ostrike, _oexp, side=_oside)
+            _opt_lookups += 1
+            if _om:
+                _opt_mids[_orow[0]] = _om
 
         # ── 2. Pull recent OHLCV context for each ticker ───────────────────
         _indicator_ctx = {}
@@ -51991,32 +52303,45 @@ def _aiem_paper_mark_to_market():
         _stale_quote_ids = set()   # Fix #4: positions whose live quote fetch failed this cycle
 
         for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail,
-             _dir) in _open:
+             _dir, _strike, _expiry, _opt_entry, _mid) in _open:
             # Diagram 2 fix (architect-required): reset per-iteration so a
             # failed/skipped SELECT on THIS trade can never (a) NameError from
             # a bare reference, or (b) silently inherit a PRIOR trade's stale
             # audit_trace_id and misattribute stage 20/21 rows to it.
             _at_row = None
             _q        = _quotes.get(_t) or {}
-            _last     = float(_q.get("last") or 0)
+            _und_last = float(_q.get("last") or 0)
             _entry_f  = float(_entry)
             _qty_f    = float(_qty)
             _not_f    = float(_notional)
             _days     = (_today - _trade_date).days
             _dir      = _dir or "BULLISH"
+            _entry_prem = None
+            if _opt_entry is not None and float(_opt_entry or 0) > 0:
+                _entry_prem = float(_opt_entry)
+            elif _mid is not None and _aiem_paper_option_premium_candidate(_mid, _entry_f):
+                _entry_prem = float(_mid)
+            _opt_mid = _opt_mids.get(_id)
+            _last, _pnl, _pnl_pct, _mark_src, _is_syn = _aiem_paper_compute_mark(
+                _ttype, _dir, _entry_f, _qty_f, _not_f, _und_last,
+                option_mid=_opt_mid, entry_mid=_entry_prem,
+            )
 
-            # Fix #4: a failed quote fetch (_last <= 0) must not be silently
+            # Fix #4: a failed quote fetch must not be silently
             # masked as a flat 0% P&L as if it were a real observed price.
-            # _entry_f is kept only as an internal computational placeholder
-            # for the 14-day safety-cap math in step 5 below — this position
-            # is excluded from what's shown to the LLM this cycle (see the
-            # `continue` below), not treated as a real, flat-moving quote.
-            _stale_quote = _last <= 0
+            _stale_quote = (_last is None) or (
+                float(_und_last or 0) <= 0 and not (_opt_mid and float(_opt_mid) > 0)
+            )
             if _stale_quote:
                 _stale_quote_ids.add(_id)
                 _last = _entry_f
+                _pnl = 0.0
+                _pnl_pct = 0.0
+                _mark_src = "stale_placeholder"
+                _is_syn = True
 
-            _price_map[_id] = (_last, _entry_f, _qty_f, _not_f, _ttype, _trade_date, _dir)
+            _price_map[_id] = (_last, _entry_f, _qty_f, _not_f, _ttype, _trade_date, _dir,
+                               _pnl, _pnl_pct, _mark_src, _is_syn)
 
             if _stale_quote:
                 # Excluded from feeding the LLM's HOLD/EXIT reasoning as if
@@ -52024,43 +52349,23 @@ def _aiem_paper_mark_to_market():
                 # to this position regardless of the missing quote.
                 continue
 
-            # Direction-aware P&L:
-            #   CALL_OPTION (BULLISH): 2x underlying proxy — stock up = call wins
-            #   PUT_OPTION  (BEARISH): 2x inverse proxy  — stock down = put wins
-            #   SHORT_STOCK (BEARISH): 1x inverse        — stock down = short wins
-            #   STOCK/ETF   (BULLISH): 1x long           — stock up = wins
-            if _ttype == "CALL_OPTION":
-                _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
-                _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 2)
-                _pnl      = round(_not_f * _pnl_pct / 100, 2)
-            elif _ttype == "PUT_OPTION":
-                _move_pct = (_entry_f - _last) / _entry_f * 100 if _entry_f > 0 else 0
-                _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 2)
-                _pnl      = round(_not_f * _pnl_pct / 100, 2)
-            elif _ttype == "SHORT_STOCK":
-                _pnl     = round((_entry_f - _last) * _qty_f, 2)
-                _pnl_pct = round((_entry_f - _last) / _entry_f * 100, 2) if _entry_f > 0 else 0
-            else:
-                _pnl     = round((_last - _entry_f) * _qty_f, 2)
-                _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 2) if _entry_f > 0 else 0
-
             _pos_entry = {
                 "id": _id, "ticker": _t, "trade_type": _ttype,
                 "direction": _dir,
-                "entry_price": round(_entry_f, 2), "current_price": round(_last, 2),
+                "entry_price": round(_entry_f, 2), "current_price": round(float(_last), 2),
                 "pnl_dollars": _pnl,
                 "days_held": _days, "signal_source": _src,
                 "signal_detail": _detail or "",
                 "recent_sessions": _indicator_ctx.get(_t, [])[:5],
+                "mark_source": _mark_src,
             }
-            # Fix #8: CALL_OPTION / PUT_OPTION P&L is a synthetic 2x-underlying-move
-            # proxy (no strike/IV/theta modeled) — label it distinctly so it's
+            # Fix #8: label synthetic option proxy distinctly so it's
             # never fed to / read by the LLM as if it were real option pricing.
-            if _ttype in ("CALL_OPTION", "PUT_OPTION"):
+            if _ttype in ("CALL_OPTION", "PUT_OPTION") and _is_syn:
                 _pos_entry["synthetic_option_proxy_pct"] = _pnl_pct
                 _pos_entry["proxy_note"] = (
-                    f"Synthetic 2x underlying-move proxy ({_dir}) — "
-                    "NOT real options pricing (no strike/IV/theta)."
+                    f"Synthetic / partial option mark ({_mark_src}, {_dir}) — "
+                    "NOT full options pricing (IV/theta incomplete unless option_mid)."
                 )
             else:
                 _pos_entry["pnl_pct"] = _pnl_pct
@@ -52320,25 +52625,14 @@ def _aiem_paper_mark_to_market():
         # ── 5. Apply decisions ─────────────────────────────────────────────
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail,
-                 _dir) in _open:
-                _last, _entry_f, _qty_f, _not_f, _, _, _dir2 = _price_map[_id]
+                 _dir, _strike, _expiry, _opt_entry, _mid) in _open:
+                _pm = _price_map.get(_id)
+                if not _pm:
+                    continue
+                (_last, _entry_f, _qty_f, _not_f, _, _, _dir2,
+                 _pnl, _pnl_pct, _mark_src, _is_syn) = _pm
                 _dir  = _dir or _dir2 or "BULLISH"
                 _days = (_today - _trade_date).days
-
-                if _ttype == "CALL_OPTION":
-                    _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
-                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
-                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
-                elif _ttype == "PUT_OPTION":
-                    _move_pct = (_entry_f - _last) / _entry_f * 100 if _entry_f > 0 else 0
-                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
-                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
-                elif _ttype == "SHORT_STOCK":
-                    _pnl     = round((_entry_f - _last) * _qty_f, 2)
-                    _pnl_pct = round((_entry_f - _last) / _entry_f * 100, 4) if _entry_f > 0 else 0
-                else:
-                    _pnl     = round((_last - _entry_f) * _qty_f, 2)
-                    _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 4) if _entry_f > 0 else 0
 
                 _ai      = _ai_decisions.get(_id, {})
                 _exit    = _ai.get("decision", "HOLD") == "EXIT"
@@ -52393,7 +52687,9 @@ def _aiem_paper_mark_to_market():
                         trade_id=_id, status=_status, exit_reason=_reason,
                         exit_price=_last, exit_date=_today, mode="close")
                     if _close_result.get("fired"):
-                        _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype in ("CALL_OPTION", "PUT_OPTION") else ""
+                        _proxy_tag = (
+                            f" [{_mark_src}]" if _ttype in ("CALL_OPTION", "PUT_OPTION") else ""
+                        )
                         print(f"[aiem_paper][MTM] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — {_reason}")
                         _emoji = "✅" if _pnl_pct >= 0 else "🔴"
                         _tg_exit_lines.append(f"{_emoji} {_t:<6} {_pnl_pct:+.1f}%  {_reason}")
@@ -52416,7 +52712,7 @@ def _aiem_paper_mark_to_market():
                         SET last_price=%s, pnl=%s, pnl_pct=%s, updated_at=NOW(),
                             needs_review=%s, review_reason=%s
                         WHERE id=%s
-                    """, (_last, round(_pnl, 2), round(_pnl_pct, 4),
+                    """, (_last, round(float(_pnl or 0), 2), round(float(_pnl_pct or 0), 4),
                           _needs_review, _review_reason, _id))
             _c.commit()
 
@@ -52568,8 +52864,27 @@ def aiem_paper_portfolio():
                      "quantity","notional","signal_source","signal_detail",
                      "hold_days_max","last_price","pnl","pnl_pct","status","created_at",
                      "strike","expiry"]
+            _open_raw = _cu.fetchall()
+            # If any open mark is null, refresh from Tradier before responding
+            # so Paper Trades never renders empty last_price/pnl mid-session.
+            if any(r[10] is None or r[11] is None for r in _open_raw):
+                try:
+                    _aiem_paper_refresh_marks(persist=True, max_option_lookups=6)
+                    _cu.execute("""
+                        SELECT id, trade_date::text, ticker, trade_type,
+                               entry_price, quantity, notional,
+                               signal_source, signal_detail, hold_days_max,
+                               last_price, pnl, pnl_pct, status, created_at,
+                               strike, expiry
+                        FROM aiem_paper_trades
+                        WHERE status = 'OPEN'
+                        ORDER BY created_at DESC
+                    """)
+                    _open_raw = _cu.fetchall()
+                except Exception as _rm_e:
+                    print(f"[aiem_paper] portfolio live refresh skipped: {_rm_e}")
             _open_pos = []
-            for _r in _cu.fetchall():
+            for _r in _open_raw:
                 _d = dict(zip(_cols, _r))
                 for _k in ["entry_price","quantity","notional","last_price","pnl","pnl_pct","strike"]:
                     _d[_k] = float(_d[_k]) if _d[_k] is not None else None
@@ -52783,13 +53098,19 @@ def aiem_paper_execution_log_endpoint():
 
 @app.route("/stock-api/aiem-paper-portfolio/force-mtm", methods=["POST"])
 def aiem_paper_force_mtm():
-    """Admin: force mark-to-market immediately."""
+    """Admin: force mark refresh + full MTM immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     import threading as _mtm_thr
-    _mtm_thr.Thread(target=_aiem_paper_mark_to_market, daemon=True).start()
-    return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
+    def _run():
+        try:
+            _aiem_paper_refresh_marks(persist=True)
+        except Exception as _e:
+            print(f"[aiem_paper] force-mtm refresh failed: {_e}")
+        _aiem_paper_mark_to_market()
+    _mtm_thr.Thread(target=_run, daemon=True).start()
+    return jsonify({"status": "marking", "message": "Refreshing marks + MTM — refresh portfolio in 10s"})
 
 
 @app.route("/stock-api/admin/paper-fill-audit", methods=["GET", "POST"])

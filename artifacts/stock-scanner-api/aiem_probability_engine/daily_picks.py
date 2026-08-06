@@ -110,9 +110,74 @@ def _score_and_rank(rows: list, n: int) -> list:
         r["_score"] = score
         r["_regime_tag"] = r.get("regime_tag")
         r["_edge"] = r.get("edge_after_cost_prob_pts")
+        r["_prob_fingerprint"] = (
+            round(float(r.get("prob_up_1d") or 0), 6),
+            round(float(p2), 6),
+            round(float(p3), 6),
+            round(float(r.get("prob_up_4d") or 0), 6),
+        )
         ranked.append(r)
-    ranked.sort(key=lambda r: r["_score"], reverse=True)
+
+    # 2026-08-06: AAPL/NVDA/PLTR were logged with identical probability vectors
+    # (NaN options features → median imputer → same model output). Break ties
+    # with live Polygon rvol/gap so ranking is not arbitrary / cloned.
+    identical = False
+    if len(ranked) >= 2:
+        fps = [r["_prob_fingerprint"] for r in ranked]
+        identical = len(set(fps)) == 1
+    if identical:
+        poly = _polygon_diff_scores([r["ticker"] for r in ranked])
+        for r in ranked:
+            nudge = float(poly.get(r["ticker"], 0.0))
+            r["_score"] = float(r["_score"]) + nudge
+            r["_tiebreak_nudge"] = nudge
+            warns = r.get("warnings_json") or []
+            if isinstance(warns, str):
+                try:
+                    warns = json.loads(warns)
+                except Exception:
+                    warns = [warns]
+            if not isinstance(warns, list):
+                warns = []
+            warns = list(warns) + [
+                "identical_prob_vector_across_tickers — applied polygon rvol/gap tie-break"
+            ]
+            r["warnings_json"] = warns
+        print(f"[daily_picks] WARNING: {len(ranked)} tickers share identical "
+              f"probability vectors; applied polygon tie-break")
+
+    ranked.sort(key=lambda r: (-r["_score"], r["ticker"]))
     return ranked[:n]
+
+
+def _polygon_diff_scores(tickers: list) -> dict:
+    """Small score nudges from latest polygon_market_daily rvol/gap (0..0.05)."""
+    out = {t: 0.0 for t in tickers}
+    if not tickers:
+        return out
+    try:
+        with psycopg2.connect(DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (ticker)
+                       ticker, COALESCE(rvol, 0), COALESCE(gap_pct, 0)
+                FROM polygon_market_daily
+                WHERE ticker = ANY(%s)
+                ORDER BY ticker, scan_date DESC
+            """, (list(tickers),))
+            rows = cur.fetchall()
+        if not rows:
+            return out
+        rvols = [float(r[1] or 0) for r in rows]
+        gaps = [abs(float(r[2] or 0)) for r in rows]
+        max_r = max(rvols) if rvols else 1.0
+        max_g = max(gaps) if gaps else 1.0
+        for t, rv, gp in rows:
+            rn = (float(rv) / max_r) if max_r > 0 else 0.0
+            gn = (abs(float(gp)) / max_g) if max_g > 0 else 0.0
+            out[t] = round(0.03 * rn + 0.02 * gn, 6)
+    except Exception as e:
+        print(f"[daily_picks] polygon tie-break skipped: {e}")
+    return out
 
 
 def run_daily_job(n: int = 10, model_version: str = None) -> list:
