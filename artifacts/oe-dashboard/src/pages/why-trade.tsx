@@ -111,10 +111,10 @@ export default function WhyTradePage() {
   return (
     <>
       <div className="border-b border-border pb-5">
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+        <h1 className="text-3xl font-bold text-foreground tracking-tight">
           Why This Trade
         </h1>
-        <p className="text-sm text-muted-foreground mt-1 font-mono">
+        <p className="text-base text-muted-foreground mt-1.5 font-mono">
           Trace ID: {traceId}
         </p>
       </div>
@@ -163,7 +163,7 @@ export default function WhyTradePage() {
             <p className="text-muted-foreground text-sm font-medium">
               Contribution scores not yet computed
             </p>
-            <p className="text-muted-foreground text-xs max-w-md">
+            <p className="text-muted-foreground text-sm max-w-md">
               The pipeline captures indicator snapshots ({allIndicators.length} recorded for this trace)
               but has not yet run the scoring pass that assigns weighted contribution values.
               Raw indicator values are available in the table below.
@@ -178,7 +178,7 @@ export default function WhyTradePage() {
           <h2 className="font-semibold">
             Indicator Details
             {allIndicators.length > 0 && (
-              <span className="ml-2 text-xs text-muted-foreground font-normal font-mono">
+              <span className="ml-2 text-sm text-muted-foreground font-normal font-mono">
                 {allIndicators.length} rows — {scoredIndicators.length} scored
               </span>
             )}
@@ -199,16 +199,16 @@ export default function WhyTradePage() {
             <TableBody>
               {tableIndicators.map((indicator, idx) => (
                 <TableRow key={idx} data-testid={`row-indicator-${idx}`}>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {indicator.canonical_id}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {indicator.normalized_value?.toFixed(4) ?? '—'}
                   </TableCell>
-                  <TableCell className="font-mono text-xs font-semibold">
+                  <TableCell className="font-mono text-sm font-semibold">
                     {indicator.contribution_score?.toFixed(4) ?? '—'}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {indicator.weight?.toFixed(4) ?? '—'}
                   </TableCell>
                   <TableCell>
@@ -220,7 +220,7 @@ export default function WhyTradePage() {
                       {indicator.quality_status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {indicator.signal_direction}
                   </TableCell>
                 </TableRow>
@@ -245,48 +245,48 @@ export default function WhyTradePage() {
               <div key={idx} className="space-y-4 border border-border rounded-md p-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Delta</p>
+                    <p className="text-sm text-muted-foreground mb-1">Delta</p>
                     <p className="font-mono text-sm">{metric.delta?.toFixed(3)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Gamma</p>
+                    <p className="text-sm text-muted-foreground mb-1">Gamma</p>
                     <p className="font-mono text-sm">{metric.gamma?.toFixed(4)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Theta</p>
+                    <p className="text-sm text-muted-foreground mb-1">Theta</p>
                     <p className="font-mono text-sm">{metric.theta?.toFixed(3)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Vega</p>
+                    <p className="text-sm text-muted-foreground mb-1">Vega</p>
                     <p className="font-mono text-sm">{metric.vega?.toFixed(3)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Rho</p>
+                    <p className="text-sm text-muted-foreground mb-1">Rho</p>
                     <p className="font-mono text-sm">{metric.rho?.toFixed(3)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">EV</p>
+                    <p className="text-sm text-muted-foreground mb-1">EV</p>
                     <p className="font-mono text-sm">{formatCurrency(metric.ev)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">PoP</p>
+                    <p className="text-sm text-muted-foreground mb-1">PoP</p>
                     <p className="font-mono text-sm">{formatPercent(metric.pop)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">RoR</p>
+                    <p className="text-sm text-muted-foreground mb-1">RoR</p>
                     <p className="font-mono text-sm">
                       {metric.return_on_risk?.toFixed(2)}
                     </p>
                   </div>
                   {metric.iv && (
                     <div>
-                      <p className="text-xs text-muted-foreground mb-1">IV</p>
+                      <p className="text-sm text-muted-foreground mb-1">IV</p>
                       <p className="font-mono text-sm">{formatPercent(metric.iv)}</p>
                     </div>
                   )}
                   {metric.iv_percentile && (
                     <div>
-                      <p className="text-xs text-muted-foreground mb-1">
+                      <p className="text-sm text-muted-foreground mb-1">
                         IV Percentile
                       </p>
                       <p className="font-mono text-sm">
@@ -305,7 +305,7 @@ export default function WhyTradePage() {
         )}
       </div>
 
-      <div className="p-4 bg-muted/30 border border-border rounded text-xs text-muted-foreground">
+      <div className="p-4 bg-muted/30 border border-border rounded text-sm text-muted-foreground">
         Note: Decision audit linked by timestamp proximity (no direct join exists in schema)
       </div>
     </>

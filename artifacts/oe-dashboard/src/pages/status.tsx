@@ -146,10 +146,10 @@ export default function StatusPage() {
   return (
     <>
       <div className="border-b border-border pb-5">
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+        <h1 className="text-3xl font-bold text-foreground tracking-tight">
           System Status
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-base text-muted-foreground mt-1.5">
           Job health, scheduler state, and pipeline checkpoints
         </p>
       </div>
@@ -157,19 +157,19 @@ export default function StatusPage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total Jobs</p>
-          <p className="text-2xl font-bold font-mono">{totalJobs}</p>
+          <p className="text-sm text-muted-foreground mb-1">Total Jobs</p>
+          <p className="text-3xl font-bold font-mono">{totalJobs}</p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Jobs Healthy</p>
-          <p className="text-2xl font-bold font-mono text-chart-2">{healthyJobs}</p>
+          <p className="text-sm text-muted-foreground mb-1">Jobs Healthy</p>
+          <p className="text-3xl font-bold font-mono text-chart-2">{healthyJobs}</p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Jobs Degraded</p>
-          <p className="text-2xl font-bold font-mono text-chart-3">{degradedJobs}</p>
+          <p className="text-sm text-muted-foreground mb-1">Jobs Degraded</p>
+          <p className="text-3xl font-bold font-mono text-chart-3">{degradedJobs}</p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Last Pipeline Run</p>
+          <p className="text-sm text-muted-foreground mb-1">Last Pipeline Run</p>
           <p className="text-sm font-mono">
             {pipelineCheckpoint
               ? formatDate(pipelineCheckpoint.updated_at)
@@ -201,14 +201,14 @@ export default function StatusPage() {
                     <TableCell className="font-mono text-sm">
                       {job.job_name}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-sm">
                       {formatDate(job.last_heartbeat)}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-sm">
                       {job.consecutive_failures}
                     </TableCell>
                     <TableCell>{getHealthBadge(job.consecutive_failures)}</TableCell>
-                    <TableCell className="text-xs max-w-xs truncate">
+                    <TableCell className="text-sm max-w-xs truncate">
                       {job.last_error ?? '—'}
                     </TableCell>
                   </TableRow>
@@ -242,14 +242,14 @@ export default function StatusPage() {
               <TableBody>
                 {schedulerJobs.map((job, idx) => (
                   <TableRow key={idx} data-testid={`row-scheduler-${idx}`}>
-                    <TableCell className="font-mono text-xs">{job.job_id}</TableCell>
+                    <TableCell className="font-mono text-sm">{job.job_id}</TableCell>
                     <TableCell className="font-mono text-sm">
                       {job.job_name}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-sm">
                       {formatDate(job.next_run_time)}
                     </TableCell>
-                    <TableCell className="text-xs">{job.trigger_type}</TableCell>
+                    <TableCell className="text-sm">{job.trigger_type}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -268,16 +268,16 @@ export default function StatusPage() {
           <h2 className="font-semibold mb-3">Reconciliation Status</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Status</p>
+              <p className="text-sm text-muted-foreground mb-1">Status</p>
               <Badge variant="success">{reconcileStatus.status}</Badge>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Last Run</p>
+              <p className="text-sm text-muted-foreground mb-1">Last Run</p>
               <p className="font-mono text-sm">{formatDate(reconcileStatus.last_run)}</p>
             </div>
             {reconcileStatus.discrepancies !== undefined && (
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Discrepancies</p>
+                <p className="text-sm text-muted-foreground mb-1">Discrepancies</p>
                 <p className="font-mono text-sm">{reconcileStatus.discrepancies}</p>
               </div>
             )}
@@ -291,15 +291,15 @@ export default function StatusPage() {
           <h2 className="font-semibold mb-3">Pipeline Checkpoint</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Stage</p>
+              <p className="text-sm text-muted-foreground mb-1">Stage</p>
               <p className="font-mono text-sm">{pipelineCheckpoint.stage}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Status</p>
+              <p className="text-sm text-muted-foreground mb-1">Status</p>
               <Badge variant="success">{pipelineCheckpoint.status}</Badge>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Updated At</p>
+              <p className="text-sm text-muted-foreground mb-1">Updated At</p>
               <p className="font-mono text-sm">
                 {formatDate(pipelineCheckpoint.updated_at)}
               </p>

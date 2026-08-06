@@ -110,7 +110,7 @@ export default function DecisionsPage() {
           {label}
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-2">
-          <pre className="text-xs font-mono bg-card border border-border p-3 rounded overflow-auto max-h-96">
+          <pre className="text-sm font-mono bg-card border border-border p-3 rounded overflow-auto max-h-96">
             {JSON.stringify(data ?? null, null, 2)}
           </pre>
         </CollapsibleContent>
@@ -130,10 +130,10 @@ export default function DecisionsPage() {
   return (
     <>
       <div className="border-b border-border pb-5">
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+        <h1 className="text-3xl font-bold text-foreground tracking-tight">
           Decision Proof
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-base text-muted-foreground mt-1.5">
           Cryptographically sealed decision audit trail
         </p>
       </div>
@@ -141,22 +141,22 @@ export default function DecisionsPage() {
       {chainStatus && (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-lg p-4">
-            <p className="text-xs text-muted-foreground mb-1">Chain Sequence</p>
-            <p className="text-2xl font-bold font-mono text-primary">
+            <p className="text-sm text-muted-foreground mb-1">Chain Sequence</p>
+            <p className="text-3xl font-bold font-mono text-primary">
               {chainStatus.chain_seq}
             </p>
           </div>
           <div className="bg-card border border-border rounded-lg p-4">
-            <p className="text-xs text-muted-foreground mb-1">Total Entries</p>
-            <p className="text-2xl font-bold font-mono">{chainStatus.total_entries}</p>
+            <p className="text-sm text-muted-foreground mb-1">Total Entries</p>
+            <p className="text-3xl font-bold font-mono">{chainStatus.total_entries}</p>
           </div>
           <div className="bg-card border border-border rounded-lg p-4">
-            <p className="text-xs text-muted-foreground mb-1">Last Timestamp</p>
+            <p className="text-sm text-muted-foreground mb-1">Last Timestamp</p>
             <p className="text-sm font-mono">{formatDate(chainStatus.last_timestamp_utc)}</p>
           </div>
           <div className="bg-card border border-border rounded-lg p-4 min-w-0">
-            <p className="text-xs text-muted-foreground mb-1">Last Entry Hash</p>
-            <p className="text-xs font-mono text-primary truncate">
+            <p className="text-sm text-muted-foreground mb-1">Last Entry Hash</p>
+            <p className="text-sm font-mono text-primary truncate">
               {chainStatus.last_entry_hash}
             </p>
           </div>
@@ -191,10 +191,10 @@ export default function DecisionsPage() {
                   <TableCell>
                     <Badge variant="success">{decision.verification_status}</Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {decision.engine_version}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {formatDate(decision.created_at)}
                   </TableCell>
                 </TableRow>
@@ -226,17 +226,17 @@ export default function DecisionsPage() {
             <TableBody>
               {gateEvents.map((event) => (
                 <TableRow key={event.id} data-testid={`row-gate-${event.id}`}>
-                  <TableCell className="font-mono text-xs text-primary">
+                  <TableCell className="font-mono text-sm text-primary">
                     {event.trace_id}
                   </TableCell>
-                  <TableCell className="text-xs">{event.gate_type}</TableCell>
+                  <TableCell className="text-sm">{event.gate_type}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{event.action_taken}</Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-xs truncate max-w-xs">
+                  <TableCell className="font-mono text-sm truncate max-w-xs">
                     {event.chain_hash}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {formatDate(event.recorded_at)}
                   </TableCell>
                 </TableRow>
@@ -262,11 +262,11 @@ export default function DecisionsPage() {
               <div className="mt-6 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Verification Status</p>
+                    <p className="text-sm text-muted-foreground mb-1">Verification Status</p>
                     <Badge variant="success">{selectedDecision.verification_status}</Badge>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Engine Version</p>
+                    <p className="text-sm text-muted-foreground mb-1">Engine Version</p>
                     <p className="font-mono text-sm">{selectedDecision.engine_version}</p>
                   </div>
                 </div>

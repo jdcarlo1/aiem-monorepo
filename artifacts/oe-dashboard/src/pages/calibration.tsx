@@ -156,10 +156,10 @@ export default function CalibrationPage() {
   return (
     <>
       <div className="border-b border-border pb-5">
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+        <h1 className="text-3xl font-bold text-foreground tracking-tight">
           Probability Calibration
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-base text-muted-foreground mt-1.5">
           Model accuracy and Platt scaling effectiveness
         </p>
       </div>
@@ -171,7 +171,7 @@ export default function CalibrationPage() {
           <p className="font-semibold text-destructive text-sm">
             Platt Scaling Currently Degraded
           </p>
-          <p className="text-xs text-destructive/90 mt-1">
+          <p className="text-sm text-destructive/90 mt-1">
             Raw Brier scores are the honest accuracy metric. All 4 horizons show
             calibrated Brier &gt; raw Brier, indicating scaling worsens predictions.
             Use raw scores for all decisions.
@@ -200,15 +200,15 @@ export default function CalibrationPage() {
                 </div>
                 <div className="space-y-3">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">
+                    <p className="text-sm text-muted-foreground mb-1">
                       Model Accuracy (Raw Brier)
                     </p>
-                    <p className="text-2xl font-bold font-mono text-primary">
+                    <p className="text-3xl font-bold font-mono text-primary">
                       {horizon.raw_brier.toFixed(4)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">
+                    <p className="text-sm text-muted-foreground mb-1">
                       After Platt Scaling
                     </p>
                     <p
@@ -220,10 +220,10 @@ export default function CalibrationPage() {
                     </p>
                   </div>
                   <div className="pt-2 border-t border-border">
-                    <p className="text-xs text-muted-foreground mb-1">
+                    <p className="text-sm text-muted-foreground mb-1">
                       Data Quality
                     </p>
-                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="grid grid-cols-2 gap-2 text-sm font-mono">
                       <div>
                         <span className="text-muted-foreground">Genuine:</span>{' '}
                         <span className="text-foreground">{horizon.n_genuine}</span>
@@ -266,22 +266,22 @@ export default function CalibrationPage() {
                   <TableCell className="font-semibold font-mono">
                     {pick.ticker}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {pick.scan_date}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {(pick.prob_up_1d * 100).toFixed(1)}%
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {(pick.prob_up_2d * 100).toFixed(1)}%
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {(pick.prob_up_3d * 100).toFixed(1)}%
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {(pick.prob_up_4d * 100).toFixed(1)}%
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {pick.confidence !== undefined
                       ? `${(pick.confidence * 100).toFixed(0)}%`
                       : '—'}
@@ -319,13 +319,13 @@ export default function CalibrationPage() {
                   <TableCell className="font-semibold font-mono">
                     {record.ticker}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {record.scan_date}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {record.horizon}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {(record.predicted_prob * 100).toFixed(1)}%
                   </TableCell>
                   <TableCell>

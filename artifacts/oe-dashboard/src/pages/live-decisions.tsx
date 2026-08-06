@@ -69,16 +69,16 @@ export default function LiveDecisionsPage() {
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between border-b border-border pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">
+          <h1 className="text-3xl font-bold text-foreground tracking-tight">
             Live Decisions
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-base text-muted-foreground mt-1.5">
             Real-time pipeline execution — polling every 10s
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-          <span className="text-xs text-muted-foreground font-mono">
+          <span className="text-sm text-muted-foreground font-mono">
             Live Feed Active
           </span>
         </div>
@@ -156,12 +156,12 @@ function CandidateRows({
         <TableCell className="font-semibold font-mono">
           {candidate.ticker}
         </TableCell>
-        <TableCell className="font-mono text-xs">
+        <TableCell className="font-mono text-sm">
           {candidate.scan_date}
         </TableCell>
         <TableCell>
           <span
-            className={`font-mono text-xs ${
+            className={`font-mono text-sm ${
               candidate.direction === 'CALL' ? 'text-chart-2' : 'text-chart-4'
             }`}
           >
@@ -169,16 +169,16 @@ function CandidateRows({
           </span>
         </TableCell>
         <TableCell>{getStatusBadge(candidate.status)}</TableCell>
-        <TableCell className="font-mono text-xs text-primary max-w-[14rem] truncate">
+        <TableCell className="font-mono text-sm text-primary max-w-[14rem] truncate">
           {candidate.trace_id}
         </TableCell>
-        <TableCell className="font-mono text-xs">
+        <TableCell className="font-mono text-sm">
           {candidate.alert_id}
         </TableCell>
-        <TableCell className="font-mono text-xs">
+        <TableCell className="font-mono text-sm">
           {candidate.selected_score?.toFixed(3) ?? '—'}
         </TableCell>
-        <TableCell className="text-xs">{candidate.trigger_source}</TableCell>
+        <TableCell className="text-sm">{candidate.trigger_source}</TableCell>
       </TableRow>
       {expanded && (
         <TableRow>
@@ -186,7 +186,7 @@ function CandidateRows({
             <div className="p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-1">
                     Decision ID
                   </p>
                   <p className="font-mono text-sm">
@@ -194,7 +194,7 @@ function CandidateRows({
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-1">
                     Verification Status
                   </p>
                   {candidate.verification_status ? (
@@ -206,7 +206,7 @@ function CandidateRows({
                   )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-1">
                     Gate Events
                   </p>
                   <p className="font-mono text-sm">
@@ -216,20 +216,20 @@ function CandidateRows({
               </div>
               {candidate.error_text && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-1">
                     Error Details
                   </p>
-                  <pre className="text-xs font-mono bg-destructive/10 text-destructive p-3 rounded overflow-auto">
+                  <pre className="text-sm font-mono bg-destructive/10 text-destructive p-3 rounded overflow-auto">
                     {candidate.error_text}
                   </pre>
                 </div>
               )}
               {candidate.completed_at && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">
+                  <p className="text-sm text-muted-foreground mb-1">
                     Completed At
                   </p>
-                  <p className="font-mono text-xs">
+                  <p className="font-mono text-sm">
                     {formatDate(candidate.completed_at)}
                   </p>
                 </div>

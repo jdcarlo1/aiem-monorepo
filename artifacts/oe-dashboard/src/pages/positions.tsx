@@ -118,10 +118,10 @@ export default function PositionsPage() {
   return (
     <>
       <div className="border-b border-border pb-5">
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">
+        <h1 className="text-3xl font-bold text-foreground tracking-tight">
           Positions & P&L
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="text-base text-muted-foreground mt-1.5">
           Closed trades and options analytics
         </p>
       </div>
@@ -163,15 +163,15 @@ export default function PositionsPage() {
                       <TableCell className="font-semibold font-mono">
                         {trade.ticker}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {formatDateShort(trade.scan_date)}
                       </TableCell>
-                      <TableCell className="text-xs">
+                      <TableCell className="text-sm">
                         {trade.strategy_family}
                       </TableCell>
                       <TableCell>
                         <span
-                          className={`font-mono text-xs ${
+                          className={`font-mono text-sm ${
                             trade.direction === 'CALL'
                               ? 'text-chart-2'
                               : 'text-chart-4'
@@ -180,27 +180,27 @@ export default function PositionsPage() {
                           {trade.direction}
                         </span>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {formatCurrency(trade.entry_price)}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {formatCurrency(trade.exit_price)}
                       </TableCell>
                       <TableCell
-                        className={`font-mono text-xs font-semibold ${
+                        className={`font-mono text-sm font-semibold ${
                           trade.realized_pnl >= 0 ? 'text-chart-2' : 'text-chart-4'
                         }`}
                       >
                         {formatCurrency(trade.realized_pnl)}
                       </TableCell>
                       <TableCell
-                        className={`font-mono text-xs ${
+                        className={`font-mono text-sm ${
                           trade.return_pct >= 0 ? 'text-chart-2' : 'text-chart-4'
                         }`}
                       >
                         {formatPercent(trade.return_pct)}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {trade.holding_days}d
                       </TableCell>
                       <TableCell>
@@ -254,25 +254,25 @@ export default function PositionsPage() {
                       <TableCell className="font-semibold font-mono">
                         {metric.ticker}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {metric.delta?.toFixed(3) ?? '—'}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {metric.gamma?.toFixed(4) ?? '—'}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {metric.theta?.toFixed(3) ?? '—'}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {metric.vega?.toFixed(3) ?? '—'}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {formatCurrency(metric.ev)}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {formatPercent(metric.pop)}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-sm">
                         {metric.return_on_risk?.toFixed(2) ?? '—'}
                       </TableCell>
                     </TableRow>
@@ -316,26 +316,26 @@ export default function PositionsPage() {
                   <TableCell className="font-semibold font-mono">
                     {position.ticker}
                   </TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="text-sm">
                     {position.position_type}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {position.quantity}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {formatCurrency(position.entry_price)}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {formatCurrency(position.current_price)}
                   </TableCell>
                   <TableCell
-                    className={`font-mono text-xs font-semibold ${
+                    className={`font-mono text-sm font-semibold ${
                       position.unrealized_pnl >= 0 ? 'text-chart-2' : 'text-chart-4'
                     }`}
                   >
                     {formatCurrency(position.unrealized_pnl)}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-sm">
                     {formatDateShort(position.opened_at)}
                   </TableCell>
                 </TableRow>

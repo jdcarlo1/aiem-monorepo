@@ -24,10 +24,10 @@ export default function AuthPage() {
           <div className="w-16 h-16 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
             <Shield className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">
+          <h1 className="text-3xl font-bold text-foreground">
             Options Engine Terminal
           </h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono">
+          <p className="text-base text-muted-foreground mt-1.5 font-mono">
             Admin Authentication Required
           </p>
         </div>
@@ -63,7 +63,7 @@ export default function AuthPage() {
         </form>
 
         <div className="mt-8 p-4 bg-muted/50 rounded border border-border">
-          <p className="text-xs text-muted-foreground leading-relaxed">
+          <p className="text-sm text-muted-foreground leading-relaxed">
             This terminal provides forensic-grade access to the options trading
             pipeline. All actions are logged and cryptographically verified.
           </p>
