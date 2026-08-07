@@ -378,7 +378,7 @@ def persist_asym_paper_close(
                         exit_date=(NOW() AT TIME ZONE 'America/New_York')::date,
                         pnl=%s,
                         pnl_pct=CASE WHEN notional IS NOT NULL AND notional<>0
-                                     THEN (%s / notional) * 100.0 ELSE NULL END,
+                                     THEN (%s / ABS(notional)) * 100.0 ELSE NULL END,
                         last_price=%s,
                         exit_reason=%s,
                         updated_at=NOW()

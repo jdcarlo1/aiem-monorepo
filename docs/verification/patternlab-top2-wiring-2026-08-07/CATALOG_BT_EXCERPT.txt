@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""
+SPY Catalog Untested Strategies — same rules as spy_asymmetric_bt.py
+
+Directive: backtest every catalog strategy NOT already covered by the 23-strategy
+asymmetric BT, using real Polygon daily option aggregates.
+
+Shared rules (identical to prior run):
+  - Underlying: SPY
+  - Risk budget: $500 max debit (credits: 1 package)
+  - Entry: weekly Monday
+  - Exit: TP grid 50/75/100/125/150/200% of |entry|; NO STOP; else expiry flatten
+  - Pricing: Polygon daily option aggregates (O:SPY…) — no synthetic BS
+
+Archives: docs/verification/spy-catalog-untested-bt/
+RISK_USD = float(os.environ.get("ASYM_BT_RISK_USD", "500"))
+TP_PCTS = [50, 75, 100, 125, 150, 200]
+def b_bull_rr(spot, d0, en, ef):
+    k = _k(spot)
+    return [(1, "C", k + 5, en), (-1, "P", k - 5, en)]
+
+def b_narrow_wing_fly(spot, d0, en, ef):
+    k = _k(spot)
+    return [(1, "C", k - 2, en), (-2, "C", k, en), (1, "C", k + 2, en)]
+
+                continue
+            d0 = later[0]
+        spot = float(spy.loc[d0, "close"])
+        exp_near = bt.next_friday(d0, weeks_ahead=3)
+        exp_far = bt.next_friday(d0, weeks_ahead=7)
+        if exp_near > end + timedelta(days=7):
+        else:
+            if abs(unit_cost) < 1.0:
+                continue
+            if unit_cost > 0:
+                if unit_cost > RISK_USD:
+                    continue
+                mult = max(int(RISK_USD / unit_cost), 1)
+                while mult > 1 and unit_cost * mult > RISK_USD:
+                    mult -= 1
+            else:
+                mult = 1
+        for lp in leg_pos:
+            lp.qty *= mult
+        if premium_basis < 1.0:
+            premium_basis = abs(entry_val) if abs(entry_val) >= 1.0 else 1.0
+        tp_dollars = None if tp_pct <= 0 else premium_basis * (tp_pct / 100.0)
+        sl_dollars = None if sl_pct <= 0 else premium_basis * (sl_pct / 100.0)
+
+        def _pnl(mark: float) -> float:
