@@ -770,6 +770,52 @@ _liveness_watchdog_thr = _early_bind_thr.Thread(
 _liveness_watchdog_thr.start()
 print("[startup] liveness watchdog started (self health-check every 30s, force-restart after 3 consecutive failures)", flush=True)
 
+# ── Morning deploy blackout boot alert ──────────────────────────────────────
+# Aug 7 2026: PR #46 Publish mid-morning brought stock-api up at 9:57 ET and
+# missed Loop B (9:07) + paper 9:42 → 0 autonomous paper picks.  Alert owner
+# immediately when a process boots inside the autonomous morning window.
+def _boot_morning_window_alert():
+    try:
+        import datetime as _bmw_dt
+        try:
+            from zoneinfo import ZoneInfo as _BMW_ZI
+            _bmw_now = _bmw_dt.datetime.now(_BMW_ZI("America/New_York"))
+        except Exception:
+            import pytz as _bmw_pytz
+            _bmw_now = _bmw_dt.datetime.now(_bmw_pytz.timezone("America/New_York"))
+        if _bmw_now.weekday() >= 5:
+            return
+        _bmw_mins = _bmw_now.hour * 60 + _bmw_now.minute
+        # 08:50–10:20 ET = Loop B / paper / retry window
+        if not (8 * 60 + 50 <= _bmw_mins <= 10 * 60 + 20):
+            return
+        _bmw_msg = (
+            f"⚠️ stock-api BOOT during morning autonomous window "
+            f"({_bmw_now.strftime('%H:%M')} ET {_bmw_now.date()}). "
+            f"Publish/redeploy in 08:50–10:20 ET risks missing Loop B (9:07) "
+            f"and paper execute (9:42). Prefer Publish before 08:45 ET or after "
+            f"10:30 ET. Catchup + 10:15 retry will attempt recovery."
+        )
+        print(f"[startup] {_bmw_msg}", flush=True)
+        try:
+            import time as _bmw_t
+            # Wait briefly so _tg_send / TELEGRAM secrets are ready post-import.
+            for _ in range(30):
+                _tg = globals().get("_tg_send")
+                if callable(_tg):
+                    _tg(_bmw_msg)
+                    break
+                _bmw_t.sleep(2)
+        except Exception as _bmw_tg_e:
+            print(f"[startup] morning-window telegram failed: {_bmw_tg_e}", flush=True)
+    except Exception as _bmw_e:
+        print(f"[startup] morning-window boot alert error: {_bmw_e}", flush=True)
+
+import threading as _bmw_thr
+_bmw_thr.Thread(
+    target=_boot_morning_window_alert, daemon=True, name="boot-morning-window-alert"
+).start()
+
 @app.route("/stock-api/process-info", methods=["GET"])
 def process_info():
     return jsonify(_get_process_info())
@@ -9627,16 +9673,39 @@ try:
             try:
                 import aiem_paper_recovery as _psr_pr
                 _psr_status = _psr_pr.get_today_status(_psr_now.date())
-                if _psr_status.get("status") in ("COMPLETED", "SKIPPED"):
+                _psr_st = _psr_status.get("status")
+                _psr_pc = _psr_status.get("picks_count")
+                # Real trades already booked — do not re-run.
+                if _psr_st in ("COMPLETED", "SKIPPED") and _psr_pc is not None and int(_psr_pc) > 0:
                     print(f"[paper_startup_reconciler] already "
-                          f"{_psr_status['status']} — no action needed")
+                          f"{_psr_st} with picks={_psr_pc} — no action needed")
                     return
                 if _psr_status.get("status") == "EXECUTING":
                     print("[paper_startup_reconciler] EXECUTING in progress — no action")
                     return
+                # Late boot (after 9:42): give Loop B / scanner catchup time before
+                # the first paper attempt so we don't burn a NO_CANDIDATES SKIPPED.
+                if (_psr_now.hour > 9) or (_psr_now.hour == 9 and _psr_now.minute >= 42):
+                    print("[paper_startup_reconciler] late boot — waiting up to 6 min "
+                          "for Loop B / scanner warm before paper execute")
+                    for _ in range(36):
+                        try:
+                            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_w, \
+                                    _c_w.cursor() as _cu_w:
+                                _cu_w.execute(
+                                    "SELECT COUNT(*) FROM aiem_predictions "
+                                    "WHERE prediction_date = %s",
+                                    (_psr_now.date(),),
+                                )
+                                if int((_cu_w.fetchone() or [0])[0] or 0) > 0:
+                                    print("[paper_startup_reconciler] Loop B predictions ready")
+                                    break
+                        except Exception:
+                            pass
+                        _psr_t.sleep(10)
             except Exception as _psr_le:
                 print(f"[paper_startup_reconciler] ledger check error: {_psr_le}")
-            print(f"[paper_startup_reconciler] no terminal run for {_psr_now.date()} "
+            print(f"[paper_startup_reconciler] no terminal run with picks for {_psr_now.date()} "
                   f"— triggering startup_recovery")
             _aiem_paper_execute_today(trigger_source="startup_recovery")
             print("[paper_startup_reconciler] startup_recovery complete")
@@ -18719,6 +18788,15 @@ try:
         lambda: _aiem_paper_execute_today(trigger_source="scheduled_942"),
         CronTrigger(day_of_week="mon-fri", hour=9, minute=42, timezone=_ET),
         id="aiem_paper_execute",
+        replace_existing=True,
+    )
+    # Safety net when a mid-morning Publish/restart misses 9:42 (Aug 7 2026:
+    # PR #46 publish brought stock-api up at 9:57 ET → 0 paper picks).
+    # Same zero-pick override privilege as scheduled_942 via try_claim Step 2c.
+    _scheduler.add_job(
+        lambda: _aiem_paper_execute_today(trigger_source="scheduled_1015"),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=15, timezone=_ET),
+        id="aiem_paper_execute_retry",
         replace_existing=True,
     )
 
