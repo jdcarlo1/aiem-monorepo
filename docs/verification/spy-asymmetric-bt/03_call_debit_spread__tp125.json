@@ -2,18 +2,18 @@
   "strategy": "03_call_debit_spread",
   "tp_pct": 125,
   "no_stop_loss": true,
-  "risk_usd": 100.0,
+  "risk_usd": 500.0,
   "window": {
     "start": "2024-08-07",
     "end": "2026-08-07"
   },
   "summary": {
-    "trades": 4,
-    "total_pnl": 1129.0,
-    "win_rate": 0.75,
-    "avg_pnl": 282.25,
-    "tp_hits": 2,
-    "expiry_exits": 2
+    "trades": 95,
+    "total_pnl": 3376.0,
+    "win_rate": 0.6,
+    "avg_pnl": 35.54,
+    "tp_hits": 10,
+    "expiry_exits": 85
   },
   "trades": [
     {
@@ -86,6 +86,1644 @@
       "legs": [
         "1xO:SPY240927C00552000",
         "-1xO:SPY240927C00557000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-10-04",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": 296.0,
+      "exit_val": 399.0,
+      "premium_basis": 296.0,
+      "pnl": 103.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241004C00546000",
+        "-1xO:SPY241004C00551000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-11",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": 273.0,
+      "exit_val": 504.0,
+      "premium_basis": 273.0,
+      "pnl": 231.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241011C00563000",
+        "-1xO:SPY241011C00568000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 1,
+      "entry_val": 281.0,
+      "exit_val": 501.0,
+      "premium_basis": 281.0,
+      "pnl": 220.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241018C00570000",
+        "-1xO:SPY241018C00575000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-25",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": 281.0,
+      "exit_val": 454.0,
+      "premium_basis": 281.0,
+      "pnl": 173.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241025C00574000",
+        "-1xO:SPY241025C00579000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-11-01",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": 311.0,
+      "exit_val": 378.0,
+      "premium_basis": 311.0,
+      "pnl": 67.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241101C00568000",
+        "-1xO:SPY241101C00573000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-08",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 1,
+      "entry_val": 293.0,
+      "exit_val": 510.0,
+      "premium_basis": 293.0,
+      "pnl": 217.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241108C00584000",
+        "-1xO:SPY241108C00589000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-15",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": 295.0,
+      "exit_val": 197.0,
+      "premium_basis": 295.0,
+      "pnl": -98.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241115C00584000",
+        "-1xO:SPY241115C00589000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-14",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": 280.0,
+      "exit_val": 654.0,
+      "premium_basis": 280.0,
+      "pnl": 374.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241122C00581000",
+        "-1xO:SPY241122C00586000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-29",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 1,
+      "entry_val": 283.0,
+      "exit_val": 525.0,
+      "premium_basis": 283.0,
+      "pnl": 242.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241129C00570000",
+        "-1xO:SPY241129C00575000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-12-06",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": 282.0,
+      "exit_val": 505.0,
+      "premium_basis": 282.0,
+      "pnl": 223.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241206C00599000",
+        "-1xO:SPY241206C00604000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-13",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": 287.0,
+      "exit_val": 555.0,
+      "premium_basis": 287.0,
+      "pnl": 268.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241213C00588000",
+        "-1xO:SPY241213C00593000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": 293.0,
+      "exit_val": 0.0,
+      "premium_basis": 293.0,
+      "pnl": -293.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241220C00598000",
+        "-1xO:SPY241220C00603000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-27",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": 275.0,
+      "exit_val": 0.0,
+      "premium_basis": 275.0,
+      "pnl": -275.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241227C00604000",
+        "-1xO:SPY241227C00609000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 2,
+      "entry_val": 492.0,
+      "exit_val": 0.0,
+      "premium_basis": 492.0,
+      "pnl": -492.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250103C00605000",
+        "-2xO:SPY250103C00610000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 2,
+      "entry_val": 488.0,
+      "exit_val": 0.0,
+      "premium_basis": 488.0,
+      "pnl": -488.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250110C00607000",
+        "-2xO:SPY250110C00612000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-17",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": 301.0,
+      "exit_val": 229.0,
+      "premium_basis": 301.0,
+      "pnl": -72.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250117C00595000",
+        "-1xO:SPY250117C00600000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-24",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": 302.0,
+      "exit_val": 397.0,
+      "premium_basis": 302.0,
+      "pnl": 95.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250124C00588000",
+        "-1xO:SPY250124C00593000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-31",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": 293.0,
+      "exit_val": 547.0,
+      "premium_basis": 293.0,
+      "pnl": 254.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250131C00595000",
+        "-1xO:SPY250131C00600000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-02-07",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": 303.0,
+      "exit_val": 518.0,
+      "premium_basis": 303.0,
+      "pnl": 215.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250207C00581000",
+        "-1xO:SPY250207C00586000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-14",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": 300.0,
+      "exit_val": 486.0,
+      "premium_basis": 300.0,
+      "pnl": 186.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250214C00603000",
+        "-1xO:SPY250214C00608000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": 304.0,
+      "exit_val": 130.0,
+      "premium_basis": 304.0,
+      "pnl": -174.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250221C00599000",
+        "-1xO:SPY250221C00604000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-28",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": 292.0,
+      "exit_val": 0.0,
+      "premium_basis": 292.0,
+      "pnl": -292.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250228C00598000",
+        "-1xO:SPY250228C00603000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": 285.0,
+      "exit_val": 0.0,
+      "premium_basis": 285.0,
+      "pnl": -285.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250307C00605000",
+        "-1xO:SPY250307C00610000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": 297.0,
+      "exit_val": 0.0,
+      "premium_basis": 297.0,
+      "pnl": -297.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250314C00611000",
+        "-1xO:SPY250314C00616000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 1,
+      "entry_val": 279.0,
+      "exit_val": 0.0,
+      "premium_basis": 279.0,
+      "pnl": -279.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250321C00597000",
+        "-1xO:SPY250321C00602000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-03-03",
+      "exit_date": "2025-03-28",
+      "spot": 583.77,
+      "exp_near": "2025-03-28",
+      "mult": 1,
+      "entry_val": 338.0,
+      "exit_val": 0.0,
+      "premium_basis": 338.0,
+      "pnl": -338.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250328C00584000",
+        "-1xO:SPY250328C00589000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-03-10",
+      "exit_date": "2025-04-04",
+      "spot": 560.58,
+      "exp_near": "2025-04-04",
+      "mult": 1,
+      "entry_val": 308.0,
+      "exit_val": 0.0,
+      "premium_basis": 308.0,
+      "pnl": -308.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250404C00561000",
+        "-1xO:SPY250404C00566000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-04-11",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": 350.0,
+      "exit_val": 0.0,
+      "premium_basis": 350.0,
+      "pnl": -350.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250411C00567000",
+        "-1xO:SPY250411C00572000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-25",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 1,
+      "entry_val": 307.0,
+      "exit_val": 0.0,
+      "premium_basis": 307.0,
+      "pnl": -307.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250425C00559000",
+        "-1xO:SPY250425C00564000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-05-08",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 1,
+      "entry_val": 302.0,
+      "exit_val": 698.0,
+      "premium_basis": 302.0,
+      "pnl": 396.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250509C00539000",
+        "-1xO:SPY250509C00544000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-04-29",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": 264.0,
+      "exit_val": 673.0,
+      "premium_basis": 264.0,
+      "pnl": 409.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250516C00514000",
+        "-1xO:SPY250516C00519000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-21",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": 319.0,
+      "exit_val": 1092.0,
+      "premium_basis": 319.0,
+      "pnl": 773.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250523C00551000",
+        "-1xO:SPY250523C00556000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-20",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": 311.0,
+      "exit_val": 703.0,
+      "premium_basis": 311.0,
+      "pnl": 392.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250530C00564000",
+        "-1xO:SPY250530C00569000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-06-06",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": 298.0,
+      "exit_val": 546.0,
+      "premium_basis": 298.0,
+      "pnl": 248.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250606C00583000",
+        "-1xO:SPY250606C00588000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-13",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": 266.0,
+      "exit_val": 241.0,
+      "premium_basis": 266.0,
+      "pnl": -25.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250613C00595000",
+        "-1xO:SPY250613C00600000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": 281.0,
+      "exit_val": 350.0,
+      "premium_basis": 281.0,
+      "pnl": 69.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250620C00591000",
+        "-1xO:SPY250620C00596000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": 275.0,
+      "exit_val": 406.0,
+      "premium_basis": 275.0,
+      "pnl": 131.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250627C00593000",
+        "-1xO:SPY250627C00598000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-07-11",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": 302.0,
+      "exit_val": 568.0,
+      "premium_basis": 302.0,
+      "pnl": 266.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250711C00603000",
+        "-1xO:SPY250711C00608000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-18",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": 299.0,
+      "exit_val": 498.0,
+      "premium_basis": 299.0,
+      "pnl": 199.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250718C00600000",
+        "-1xO:SPY250718C00605000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-07-31",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": 274.0,
+      "exit_val": 674.0,
+      "premium_basis": 274.0,
+      "pnl": 400.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250801C00621000",
+        "-1xO:SPY250801C00626000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-08",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": 282.0,
+      "exit_val": 490.0,
+      "premium_basis": 282.0,
+      "pnl": 208.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250808C00625000",
+        "-1xO:SPY250808C00630000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-15",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": 291.0,
+      "exit_val": 514.0,
+      "premium_basis": 291.0,
+      "pnl": 223.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250815C00629000",
+        "-1xO:SPY250815C00634000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-22",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": 315.0,
+      "exit_val": 495.0,
+      "premium_basis": 315.0,
+      "pnl": 180.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250822C00637000",
+        "-1xO:SPY250822C00642000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-29",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": 359.0,
+      "exit_val": 503.0,
+      "premium_basis": 359.0,
+      "pnl": 144.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250829C00631000",
+        "-1xO:SPY250829C00636000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": 287.0,
+      "exit_val": 498.0,
+      "premium_basis": 287.0,
+      "pnl": 211.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250905C00636000",
+        "-1xO:SPY250905C00641000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-09-12",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": 282.0,
+      "exit_val": 495.0,
+      "premium_basis": 282.0,
+      "pnl": 213.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250912C00643000",
+        "-1xO:SPY250912C00648000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-19",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": 301.0,
+      "exit_val": 494.0,
+      "premium_basis": 301.0,
+      "pnl": 193.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250919C00642000",
+        "-1xO:SPY250919C00647000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-26",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": 294.0,
+      "exit_val": 443.0,
+      "premium_basis": 294.0,
+      "pnl": 149.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250926C00640000",
+        "-1xO:SPY250926C00645000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-10-03",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": 283.0,
+      "exit_val": 514.0,
+      "premium_basis": 283.0,
+      "pnl": 231.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251003C00649000",
+        "-1xO:SPY251003C00654000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": 261.0,
+      "exit_val": 0.0,
+      "premium_basis": 261.0,
+      "pnl": -261.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251010C00661000",
+        "-1xO:SPY251010C00666000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-17",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": 276.0,
+      "exit_val": 0.0,
+      "premium_basis": 276.0,
+      "pnl": -276.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251017C00667000",
+        "-1xO:SPY251017C00672000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-24",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": 301.0,
+      "exit_val": 501.0,
+      "premium_basis": 301.0,
+      "pnl": 200.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251024C00664000",
+        "-1xO:SPY251024C00669000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-31",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": 282.0,
+      "exit_val": 476.0,
+      "premium_basis": 282.0,
+      "pnl": 194.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251031C00672000",
+        "-1xO:SPY251031C00677000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-11-07",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": 303.0,
+      "exit_val": 518.0,
+      "premium_basis": 303.0,
+      "pnl": 215.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251107C00663000",
+        "-1xO:SPY251107C00668000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-14",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": 290.0,
+      "exit_val": 149.0,
+      "premium_basis": 290.0,
+      "pnl": -141.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251114C00671000",
+        "-1xO:SPY251114C00676000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": 296.0,
+      "exit_val": 0.0,
+      "premium_basis": 296.0,
+      "pnl": -296.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251121C00685000",
+        "-1xO:SPY251121C00690000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-28",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": 295.0,
+      "exit_val": 5.0,
+      "premium_basis": 295.0,
+      "pnl": -290.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251128C00683000",
+        "-1xO:SPY251128C00688000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-12-05",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": 336.0,
+      "exit_val": 498.0,
+      "premium_basis": 336.0,
+      "pnl": 162.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251205C00681000",
+        "-1xO:SPY251205C00686000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-12-12",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 1,
+      "entry_val": 418.0,
+      "exit_val": 506.0,
+      "premium_basis": 418.0,
+      "pnl": 88.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251212C00666000",
+        "-1xO:SPY251212C00671000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-19",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": 297.0,
+      "exit_val": 444.0,
+      "premium_basis": 297.0,
+      "pnl": 147.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251219C00669000",
+        "-1xO:SPY251219C00674000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-26",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": 275.0,
+      "exit_val": 510.0,
+      "premium_basis": 275.0,
+      "pnl": 235.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251226C00680000",
+        "-1xO:SPY251226C00685000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-12-08",
+      "exit_date": "2026-01-02",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": 299.0,
+      "exit_val": 0.0,
+      "premium_basis": 299.0,
+      "pnl": -299.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260102C00684000",
+        "-1xO:SPY260102C00689000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-12-15",
+      "exit_date": "2026-01-09",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": 288.0,
+      "exit_val": 499.0,
+      "premium_basis": 288.0,
+      "pnl": 211.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260109C00681000",
+        "-1xO:SPY260109C00686000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-16",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": 293.0,
+      "exit_val": 498.0,
+      "premium_basis": 293.0,
+      "pnl": 205.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260116C00685000",
+        "-1xO:SPY260116C00690000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-23",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": 281.0,
+      "exit_val": 59.0,
+      "premium_basis": 281.0,
+      "pnl": -222.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260123C00688000",
+        "-1xO:SPY260123C00693000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-30",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": 274.0,
+      "exit_val": 330.0,
+      "premium_basis": 274.0,
+      "pnl": 56.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260130C00688000",
+        "-1xO:SPY260130C00693000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-02-06",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": 294.0,
+      "exit_val": 0.0,
+      "premium_basis": 294.0,
+      "pnl": -294.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260206C00695000",
+        "-1xO:SPY260206C00700000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-02-13",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": 330.0,
+      "exit_val": 381.0,
+      "premium_basis": 330.0,
+      "pnl": 51.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260213C00678000",
+        "-1xO:SPY260213C00683000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-20",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": 301.0,
+      "exit_val": 0.0,
+      "premium_basis": 301.0,
+      "pnl": -301.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260220C00693000",
+        "-1xO:SPY260220C00698000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-27",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": 319.0,
+      "exit_val": 0.0,
+      "premium_basis": 319.0,
+      "pnl": -319.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260227C00695000",
+        "-1xO:SPY260227C00700000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-03-06",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": 320.0,
+      "exit_val": 0.0,
+      "premium_basis": 320.0,
+      "pnl": -320.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260306C00694000",
+        "-1xO:SPY260306C00699000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-13",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 1,
+      "entry_val": 302.0,
+      "exit_val": 0.0,
+      "premium_basis": 302.0,
+      "pnl": -302.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260313C00683000",
+        "-1xO:SPY260313C00688000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-20",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": 314.0,
+      "exit_val": 0.0,
+      "premium_basis": 314.0,
+      "pnl": -314.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260320C00682000",
+        "-1xO:SPY260320C00687000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-27",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 1,
+      "entry_val": 289.0,
+      "exit_val": 0.0,
+      "premium_basis": 289.0,
+      "pnl": -289.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260327C00686000",
+        "-1xO:SPY260327C00691000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-04-10",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": 299.0,
+      "exit_val": 474.0,
+      "premium_basis": 299.0,
+      "pnl": 175.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260410C00669000",
+        "-1xO:SPY260410C00674000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-04-17",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 1,
+      "entry_val": 299.0,
+      "exit_val": 548.0,
+      "premium_basis": 299.0,
+      "pnl": 249.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260417C00655000",
+        "-1xO:SPY260417C00660000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-04-15",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 1,
+      "entry_val": 337.0,
+      "exit_val": 839.0,
+      "premium_basis": 337.0,
+      "pnl": 502.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260424C00632000",
+        "-1xO:SPY260424C00637000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-04-30",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": 296.0,
+      "exit_val": 700.0,
+      "premium_basis": 296.0,
+      "pnl": 404.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260501C00659000",
+        "-1xO:SPY260501C00664000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-05-08",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": 340.0,
+      "exit_val": 484.0,
+      "premium_basis": 340.0,
+      "pnl": 144.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260508C00686000",
+        "-1xO:SPY260508C00691000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-05-15",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 1,
+      "entry_val": 322.0,
+      "exit_val": 483.0,
+      "premium_basis": 322.0,
+      "pnl": 161.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260515C00709000",
+        "-1xO:SPY260515C00714000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-05-22",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 1,
+      "entry_val": 266.0,
+      "exit_val": 478.0,
+      "premium_basis": 266.0,
+      "pnl": 212.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260522C00715000",
+        "-1xO:SPY260522C00720000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-29",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 1,
+      "entry_val": 287.0,
+      "exit_val": 484.0,
+      "premium_basis": 287.0,
+      "pnl": 197.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260529C00718000",
+        "-1xO:SPY260529C00723000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-06-05",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": 289.0,
+      "exit_val": 1.0,
+      "premium_basis": 289.0,
+      "pnl": -288.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260605C00739000",
+        "-1xO:SPY260605C00744000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-06-12",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": 336.0,
+      "exit_val": 328.0,
+      "premium_basis": 336.0,
+      "pnl": -8.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260612C00739000",
+        "-1xO:SPY260612C00744000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-26",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": 272.0,
+      "exit_val": 0.0,
+      "premium_basis": 272.0,
+      "pnl": -272.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260626C00759000",
+        "-1xO:SPY260626C00764000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-07-10",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 1,
+      "entry_val": 262.0,
+      "exit_val": 12.0,
+      "premium_basis": 262.0,
+      "pnl": -250.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260710C00755000",
+        "-1xO:SPY260710C00760000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-07-17",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 1,
+      "entry_val": 308.0,
+      "exit_val": 0.0,
+      "premium_basis": 308.0,
+      "pnl": -308.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260717C00744000",
+        "-1xO:SPY260717C00749000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-24",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 1,
+      "entry_val": 282.0,
+      "exit_val": 0.0,
+      "premium_basis": 282.0,
+      "pnl": -282.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260724C00741000",
+        "-1xO:SPY260724C00746000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-31",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": 289.0,
+      "exit_val": 0.0,
+      "premium_basis": 289.0,
+      "pnl": -289.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260731C00751000",
+        "-1xO:SPY260731C00756000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-08-05",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": 312.0,
+      "exit_val": 650.0,
+      "premium_basis": 312.0,
+      "pnl": 338.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260807C00749000",
+        "-1xO:SPY260807C00754000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-08-05",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 1,
+      "entry_val": 356.0,
+      "exit_val": 548.0,
+      "premium_basis": 356.0,
+      "pnl": 192.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260814C00742000",
+        "-1xO:SPY260814C00747000"
       ]
     }
   ]

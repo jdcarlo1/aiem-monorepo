@@ -44,7 +44,7 @@ POLYGON_BASE = "https://api.polygon.io"
 RATE_SLEEP = float(os.environ.get("ASYM_BT_RATE_SLEEP", "0.25"))
 CACHE_DIR = Path(os.environ.get("ASYM_BT_CACHE", "/tmp/spy_asym_bt_cache"))
 ARCHIVE_DIR_NAME = "spy-asymmetric-bt"
-RISK_USD = 100.0
+RISK_USD = float(os.environ.get("ASYM_BT_RISK_USD", "500"))
 TP_PCTS = [50, 75, 100, 125, 150, 200]
 
 

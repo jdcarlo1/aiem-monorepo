@@ -2,91 +2,16 @@
   "strategy": "12_long_straddle",
   "tp_pct": 150,
   "no_stop_loss": true,
-  "risk_usd": 100.0,
+  "risk_usd": 500.0,
   "window": {
     "start": "2024-08-07",
     "end": "2026-08-07"
   },
   "summary": {
-    "trades": 4,
-    "total_pnl": -3050.0,
-    "win_rate": 0.25,
-    "avg_pnl": -762.5,
-    "tp_hits": 0,
-    "expiry_exits": 4
+    "trades": 0,
+    "total_pnl": 0.0,
+    "win_rate": null,
+    "avg_pnl": null
   },
-  "trades": [
-    {
-      "strategy": "12_long_straddle",
-      "tp_pct": 150,
-      "entry_date": "2024-08-12",
-      "exit_date": "2024-09-06",
-      "spot": 533.27,
-      "exp_near": "2024-09-06",
-      "mult": 1,
-      "entry_val": 2054.0,
-      "exit_val": 826.0,
-      "premium_basis": 2054.0,
-      "pnl": -1228.0,
-      "exit_reason": "EXPIRY_FLATTEN",
-      "legs": [
-        "1xO:SPY240906C00533000",
-        "1xO:SPY240906P00533000"
-      ]
-    },
-    {
-      "strategy": "12_long_straddle",
-      "tp_pct": 150,
-      "entry_date": "2024-08-19",
-      "exit_date": "2024-09-13",
-      "spot": 559.61,
-      "exp_near": "2024-09-13",
-      "mult": 1,
-      "entry_val": 1436.0,
-      "exit_val": 166.0,
-      "premium_basis": 1436.0,
-      "pnl": -1270.0,
-      "exit_reason": "EXPIRY_FLATTEN",
-      "legs": [
-        "1xO:SPY240913C00560000",
-        "1xO:SPY240913P00560000"
-      ]
-    },
-    {
-      "strategy": "12_long_straddle",
-      "tp_pct": 150,
-      "entry_date": "2024-08-26",
-      "exit_date": "2024-09-20",
-      "spot": 560.79,
-      "exp_near": "2024-09-20",
-      "mult": 1,
-      "entry_val": 1578.0,
-      "exit_val": 678.0,
-      "premium_basis": 1578.0,
-      "pnl": -900.0,
-      "exit_reason": "EXPIRY_FLATTEN",
-      "legs": [
-        "1xO:SPY240920C00561000",
-        "1xO:SPY240920P00561000"
-      ]
-    },
-    {
-      "strategy": "12_long_straddle",
-      "tp_pct": 150,
-      "entry_date": "2024-09-03",
-      "exit_date": "2024-09-27",
-      "spot": 552.08,
-      "exp_near": "2024-09-27",
-      "mult": 1,
-      "entry_val": 1771.0,
-      "exit_val": 2119.0,
-      "premium_basis": 1771.0,
-      "pnl": 348.0,
-      "exit_reason": "EXPIRY_FLATTEN",
-      "legs": [
-        "1xO:SPY240927C00552000",
-        "1xO:SPY240927P00552000"
-      ]
-    }
-  ]
+  "trades": []
 }

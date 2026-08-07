@@ -1,0 +1,1010 @@
+{
+  "strategy": "10_call_ratio_backspread",
+  "tp_pct": 200,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 55,
+    "total_pnl": -8010.0,
+    "win_rate": 0.2727,
+    "avg_pnl": -145.64,
+    "tp_hits": 10,
+    "expiry_exits": 45
+  },
+  "trades": [
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-13",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 2,
+      "entry_val": 492.0,
+      "exit_val": -326.0,
+      "premium_basis": 492.0,
+      "pnl": -818.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-2xO:SPY240913C00560000",
+        "4xO:SPY240913C00565000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 276.0,
+      "exit_val": -389.0,
+      "premium_basis": 276.0,
+      "pnl": -665.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240920C00561000",
+        "2xO:SPY240920C00566000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-20",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": 328.0,
+      "exit_val": 996.0,
+      "premium_basis": 328.0,
+      "pnl": 668.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY240927C00552000",
+        "2xO:SPY240927C00557000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-09-18",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": 422.0,
+      "exit_val": 2040.0,
+      "premium_basis": 422.0,
+      "pnl": 1618.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241004C00546000",
+        "2xO:SPY241004C00551000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-11",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": 272.0,
+      "exit_val": 627.0,
+      "premium_basis": 272.0,
+      "pnl": 355.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241011C00563000",
+        "2xO:SPY241011C00568000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 2,
+      "entry_val": 488.0,
+      "exit_val": 936.0,
+      "premium_basis": 488.0,
+      "pnl": 448.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-2xO:SPY241018C00570000",
+        "4xO:SPY241018C00575000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-25",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": 285.0,
+      "exit_val": -446.0,
+      "premium_basis": 285.0,
+      "pnl": -731.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241025C00574000",
+        "2xO:SPY241025C00579000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-11-01",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": 442.0,
+      "exit_val": -377.0,
+      "premium_basis": 442.0,
+      "pnl": -819.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241101C00568000",
+        "2xO:SPY241101C00573000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-15",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": 440.0,
+      "exit_val": -196.0,
+      "premium_basis": 440.0,
+      "pnl": -636.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241115C00584000",
+        "2xO:SPY241115C00589000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-12-06",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": 276.0,
+      "exit_val": -130.0,
+      "premium_basis": 276.0,
+      "pnl": -406.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241206C00599000",
+        "2xO:SPY241206C00604000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-05",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": 353.0,
+      "exit_val": 1112.0,
+      "premium_basis": 353.0,
+      "pnl": 759.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241213C00588000",
+        "2xO:SPY241213C00593000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 2,
+      "entry_val": 420.0,
+      "exit_val": 2.0,
+      "premium_basis": 420.0,
+      "pnl": -418.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-2xO:SPY241220C00598000",
+        "4xO:SPY241220C00603000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-27",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 4,
+      "entry_val": 496.0,
+      "exit_val": 4.0,
+      "premium_basis": 496.0,
+      "pnl": -492.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-4xO:SPY241227C00604000",
+        "8xO:SPY241227C00609000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 3,
+      "entry_val": 420.0,
+      "exit_val": 3.0,
+      "premium_basis": 420.0,
+      "pnl": -417.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-3xO:SPY250103C00605000",
+        "6xO:SPY250103C00610000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 2,
+      "entry_val": 386.0,
+      "exit_val": 2.0,
+      "premium_basis": 386.0,
+      "pnl": -384.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-2xO:SPY250110C00607000",
+        "4xO:SPY250110C00612000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-17",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": 349.0,
+      "exit_val": -228.0,
+      "premium_basis": 349.0,
+      "pnl": -577.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250117C00595000",
+        "2xO:SPY250117C00600000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-23",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": 365.0,
+      "exit_val": 1273.0,
+      "premium_basis": 365.0,
+      "pnl": 908.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250124C00588000",
+        "2xO:SPY250124C00593000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-31",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": 380.0,
+      "exit_val": -405.0,
+      "premium_basis": 380.0,
+      "pnl": -785.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250131C00595000",
+        "2xO:SPY250131C00600000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-14",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": 303.0,
+      "exit_val": -307.0,
+      "premium_basis": 303.0,
+      "pnl": -610.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250214C00603000",
+        "2xO:SPY250214C00608000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": 435.0,
+      "exit_val": -129.0,
+      "premium_basis": 435.0,
+      "pnl": -564.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250221C00599000",
+        "2xO:SPY250221C00604000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-28",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": 483.0,
+      "exit_val": 1.0,
+      "premium_basis": 483.0,
+      "pnl": -482.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250228C00598000",
+        "2xO:SPY250228C00603000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": 290.0,
+      "exit_val": 1.0,
+      "premium_basis": 290.0,
+      "pnl": -289.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250307C00605000",
+        "2xO:SPY250307C00610000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": 262.0,
+      "exit_val": 1.0,
+      "premium_basis": 262.0,
+      "pnl": -261.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250314C00611000",
+        "2xO:SPY250314C00616000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-04-11",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": 489.0,
+      "exit_val": 1.0,
+      "premium_basis": 489.0,
+      "pnl": -488.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250411C00567000",
+        "2xO:SPY250411C00572000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-06-06",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": 453.0,
+      "exit_val": 572.0,
+      "premium_basis": 453.0,
+      "pnl": 119.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250606C00583000",
+        "2xO:SPY250606C00588000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-13",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": 481.0,
+      "exit_val": -240.0,
+      "premium_basis": 481.0,
+      "pnl": -721.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250613C00595000",
+        "2xO:SPY250613C00600000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": 465.0,
+      "exit_val": -348.0,
+      "premium_basis": 465.0,
+      "pnl": -813.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250620C00591000",
+        "2xO:SPY250620C00596000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": 401.0,
+      "exit_val": 1254.0,
+      "premium_basis": 401.0,
+      "pnl": 853.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250627C00593000",
+        "2xO:SPY250627C00598000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-07-03",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": 323.0,
+      "exit_val": 1407.0,
+      "premium_basis": 323.0,
+      "pnl": 1084.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250711C00603000",
+        "2xO:SPY250711C00608000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-03",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": 490.0,
+      "exit_val": 1797.0,
+      "premium_basis": 490.0,
+      "pnl": 1307.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250718C00600000",
+        "2xO:SPY250718C00605000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-08-01",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": 482.0,
+      "exit_val": -88.0,
+      "premium_basis": 482.0,
+      "pnl": -570.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250801C00621000",
+        "2xO:SPY250801C00626000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-08",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": 442.0,
+      "exit_val": 285.0,
+      "premium_basis": 442.0,
+      "pnl": -157.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250808C00625000",
+        "2xO:SPY250808C00630000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-15",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": 412.0,
+      "exit_val": 373.0,
+      "premium_basis": 412.0,
+      "pnl": -39.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250815C00629000",
+        "2xO:SPY250815C00634000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-22",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": 278.0,
+      "exit_val": -158.0,
+      "premium_basis": 278.0,
+      "pnl": -436.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250822C00637000",
+        "2xO:SPY250822C00642000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-29",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": 372.0,
+      "exit_val": 377.0,
+      "premium_basis": 372.0,
+      "pnl": 5.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250829C00631000",
+        "2xO:SPY250829C00636000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": 386.0,
+      "exit_val": 95.0,
+      "premium_basis": 386.0,
+      "pnl": -291.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250905C00636000",
+        "2xO:SPY250905C00641000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-09-12",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": 362.0,
+      "exit_val": 445.0,
+      "premium_basis": 362.0,
+      "pnl": 83.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250912C00643000",
+        "2xO:SPY250912C00648000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-15",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": 318.0,
+      "exit_val": 1072.0,
+      "premium_basis": 318.0,
+      "pnl": 754.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250919C00642000",
+        "2xO:SPY250919C00647000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-19",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": 408.0,
+      "exit_val": 1553.0,
+      "premium_basis": 408.0,
+      "pnl": 1145.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250926C00640000",
+        "2xO:SPY250926C00645000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-09-15",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 2,
+      "entry_val": 472.0,
+      "exit_val": 1454.0,
+      "premium_basis": 472.0,
+      "pnl": 982.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-2xO:SPY251003C00649000",
+        "4xO:SPY251003C00654000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": 300.0,
+      "exit_val": 1.0,
+      "premium_basis": 300.0,
+      "pnl": -299.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251010C00661000",
+        "2xO:SPY251010C00666000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-17",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": 420.0,
+      "exit_val": 1.0,
+      "premium_basis": 420.0,
+      "pnl": -419.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251017C00667000",
+        "2xO:SPY251017C00672000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-24",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": 368.0,
+      "exit_val": 298.0,
+      "premium_basis": 368.0,
+      "pnl": -70.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251024C00664000",
+        "2xO:SPY251024C00669000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-31",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": 447.0,
+      "exit_val": 30.0,
+      "premium_basis": 447.0,
+      "pnl": -417.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251031C00672000",
+        "2xO:SPY251031C00677000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": 482.0,
+      "exit_val": 1.0,
+      "premium_basis": 482.0,
+      "pnl": -481.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251121C00685000",
+        "2xO:SPY251121C00690000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-26",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": 480.0,
+      "exit_val": -9.0,
+      "premium_basis": 480.0,
+      "pnl": -489.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251226C00680000",
+        "2xO:SPY251226C00685000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-12-08",
+      "exit_date": "2026-01-02",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": 345.0,
+      "exit_val": 1.0,
+      "premium_basis": 345.0,
+      "pnl": -344.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260102C00684000",
+        "2xO:SPY260102C00689000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-12-15",
+      "exit_date": "2026-01-09",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": 358.0,
+      "exit_val": 301.0,
+      "premium_basis": 358.0,
+      "pnl": -57.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260109C00681000",
+        "2xO:SPY260109C00686000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-16",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": 332.0,
+      "exit_val": -346.0,
+      "premium_basis": 332.0,
+      "pnl": -678.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260116C00685000",
+        "2xO:SPY260116C00690000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-23",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": 344.0,
+      "exit_val": -58.0,
+      "premium_basis": 344.0,
+      "pnl": -402.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260123C00688000",
+        "2xO:SPY260123C00693000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-30",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": 415.0,
+      "exit_val": -329.0,
+      "premium_basis": 415.0,
+      "pnl": -744.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260130C00688000",
+        "2xO:SPY260130C00693000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-02-06",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": 426.0,
+      "exit_val": 1.0,
+      "premium_basis": 426.0,
+      "pnl": -425.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260206C00695000",
+        "2xO:SPY260206C00700000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-20",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": 423.0,
+      "exit_val": 1.0,
+      "premium_basis": 423.0,
+      "pnl": -422.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260220C00693000",
+        "2xO:SPY260220C00698000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-27",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": 492.0,
+      "exit_val": 1.0,
+      "premium_basis": 492.0,
+      "pnl": -491.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260227C00695000",
+        "2xO:SPY260227C00700000"
+      ]
+    },
+    {
+      "strategy": "10_call_ratio_backspread",
+      "tp_pct": 200,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-26",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": 492.0,
+      "exit_val": 1.0,
+      "premium_basis": 492.0,
+      "pnl": -491.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260626C00759000",
+        "2xO:SPY260626C00764000"
+      ]
+    }
+  ]
+}
