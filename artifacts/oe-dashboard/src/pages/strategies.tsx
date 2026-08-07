@@ -54,7 +54,7 @@ type Snapshot = {
 };
 
 const ASYM_CARDS: Array<{
-  key: keyof Snapshot;
+  key: 'put_butterfly' | 'call_butterfly' | 'put_ladder';
   title: string;
   blurb: string;
 }> = [
@@ -89,17 +89,17 @@ export default function StrategiesPage() {
   });
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
-      <div className="flex justify-between items-end border-b border-border pb-4">
+    <>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end border-b border-border pb-5">
         <div>
-          <h1 className="text-2xl font-mono font-bold tracking-tight uppercase">
+          <h1 className="text-3xl font-mono font-bold tracking-tight uppercase">
             Strategies
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
             Live paper on Options Engine — F3 0DTE + top-3 asymmetric debit packages
           </p>
         </div>
-        <div className="font-mono text-xs text-muted-foreground text-right">
+        <div className="font-mono text-sm text-muted-foreground text-left sm:text-right shrink-0">
           <div>POLL 30s</div>
           <div className="text-primary">
             {isLoading ? 'LOADING…' : isError ? 'ERROR' : 'LIVE'}
@@ -111,24 +111,26 @@ export default function StrategiesPage() {
       </div>
 
       {isError ? (
-        <div className="border border-destructive/40 bg-destructive/10 p-3 font-mono text-xs text-destructive">
+        <div className="border border-destructive/40 bg-destructive/10 p-3 font-mono text-sm text-destructive">
           {String((error as Error)?.message || error)}
         </div>
       ) : null}
 
-      <F3Card snap={data?.f3} />
+      <div className="space-y-5 max-w-6xl">
+        <F3Card snap={data?.f3} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {ASYM_CARDS.map((c) => (
-          <AsymCard
-            key={c.key}
-            title={c.title}
-            blurb={c.blurb}
-            snap={data?.[c.key] as StrategySnap | undefined}
-          />
-        ))}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {ASYM_CARDS.map((c) => (
+            <AsymCard
+              key={c.key}
+              title={c.title}
+              blurb={c.blurb}
+              snap={data?.[c.key]}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -141,24 +143,24 @@ function F3Card({ snap }: { snap?: StrategySnap }) {
   const qty = pos?.contracts ?? pos?.shares;
 
   return (
-    <div className="border border-border bg-card">
-      <div className="p-3 border-b border-border bg-sidebar/40 flex justify-between items-center">
+    <div className="border border-border bg-card rounded-lg overflow-hidden">
+      <div className="p-4 border-b border-border bg-sidebar/40 flex justify-between items-center gap-3">
         <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2 uppercase">
           <FlaskConical size={14} /> F3 SPY 0DTE
         </h2>
-        <span className="text-[10px] font-mono text-muted-foreground uppercase">
+        <span className="text-sm font-mono text-muted-foreground uppercase">
           {snap?.pattern || 'F3_SPY_0DTE'}
         </span>
       </div>
 
-      <div className="p-4 space-y-4">
-        <p className="font-mono text-xs text-muted-foreground leading-relaxed">
+      <div className="p-5 space-y-5">
+        <p className="font-mono text-sm text-muted-foreground leading-relaxed">
           Premarket direction → ORB 9:30–9:44 → breakout with PM → buy ATM CALL/PUT
           ($200 notional) → auto-sell at −65% premium stop, else exit 16:00 ET.
           No profit target. Real Tradier premiums when available (no synthetic leverage).
         </p>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Metric
             label="Account"
             value={`$${(snap?.account_balance_usd ?? 10000).toLocaleString(undefined, {
@@ -186,41 +188,41 @@ function F3Card({ snap }: { snap?: StrategySnap }) {
           />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
-          <div className="border border-border p-3">
-            <div className="text-muted-foreground uppercase text-[10px]">Premarket</div>
-            <div className="text-white mt-1">{snap?.pm_direction || '—'}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono text-sm">
+          <div className="border border-border rounded-md p-3">
+            <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">Premarket</div>
+            <div className="text-foreground mt-1">{snap?.pm_direction || '—'}</div>
           </div>
-          <div className="border border-border p-3">
-            <div className="text-muted-foreground uppercase text-[10px]">ORB High</div>
-            <div className="text-white mt-1">
+          <div className="border border-border rounded-md p-3">
+            <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">ORB High</div>
+            <div className="text-foreground mt-1">
               {snap?.orb_high != null ? `$${Number(snap.orb_high).toFixed(2)}` : '—'}
             </div>
           </div>
-          <div className="border border-border p-3">
-            <div className="text-muted-foreground uppercase text-[10px]">ORB Low</div>
-            <div className="text-white mt-1">
+          <div className="border border-border rounded-md p-3">
+            <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">ORB Low</div>
+            <div className="text-foreground mt-1">
               {snap?.orb_low != null ? `$${Number(snap.orb_low).toFixed(2)}` : '—'}
             </div>
           </div>
-          <div className="border border-border p-3">
-            <div className="text-muted-foreground uppercase text-[10px]">Signal</div>
+          <div className="border border-border rounded-md p-3">
+            <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">Signal</div>
             <div className="text-primary mt-1">{snap?.signal_state?.status || '—'}</div>
           </div>
         </div>
 
         {snap?.signal_state?.note ? (
-          <div className="font-mono text-[11px] text-muted-foreground border border-border p-2">
+          <div className="font-mono text-sm text-muted-foreground border border-border rounded-md p-3">
             {snap.signal_state.note}
           </div>
         ) : null}
 
-        <div className="border border-border bg-black/20 p-3">
-          <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2 flex items-center gap-2">
+        <div className="border border-border rounded-md bg-muted/20 p-4">
+          <div className="text-sm font-mono text-muted-foreground uppercase mb-3 flex items-center gap-2">
             <Activity size={12} /> Active Position
           </div>
           {pos ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono text-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-sm">
               <div className="flex items-center gap-2 flex-wrap">
                 {dir === 'CALL' || dir === 'LONG' ? (
                   <TrendingUp size={14} className="text-chart-2" />
@@ -241,7 +243,7 @@ function F3Card({ snap }: { snap?: StrategySnap }) {
                   {pos.option_symbol || pos.symbol}
                 </span>
               </div>
-              <div className="text-muted-foreground text-xs space-y-0.5 md:text-right">
+              <div className="text-muted-foreground text-sm space-y-1 md:text-right">
                 <div>
                   ENTRY{' '}
                   <span className="text-foreground">
@@ -271,7 +273,7 @@ function F3Card({ snap }: { snap?: StrategySnap }) {
               </div>
             </div>
           ) : (
-            <div className="font-mono text-xs text-muted-foreground">NO ACTIVE POSITION</div>
+            <div className="font-mono text-sm text-muted-foreground">NO ACTIVE POSITION</div>
           )}
         </div>
 
@@ -299,18 +301,18 @@ function AsymCard({
   const tpPct = Number(snap?.rules?.take_profit_pct ?? 0);
 
   return (
-    <div className="border border-border bg-card flex flex-col">
-      <div className="p-3 border-b border-border bg-sidebar/40 flex justify-between items-center">
+    <div className="border border-border bg-card rounded-lg overflow-hidden flex flex-col">
+      <div className="p-4 border-b border-border bg-sidebar/40 flex justify-between items-center gap-2">
         <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2 uppercase">
           <FlaskConical size={14} /> {title}
         </h2>
-        <span className="text-[10px] font-mono text-muted-foreground uppercase">
+        <span className="text-xs font-mono text-muted-foreground uppercase shrink-0">
           {snap?.pattern || '—'}
         </span>
       </div>
 
       <div className="p-4 space-y-3 flex-1 flex flex-col">
-        <p className="font-mono text-[11px] text-muted-foreground leading-relaxed">{blurb}</p>
+        <p className="font-mono text-xs text-muted-foreground leading-relaxed">{blurb}</p>
 
         <div className="grid grid-cols-2 gap-2">
           <Metric
@@ -336,16 +338,16 @@ function AsymCard({
           />
         </div>
 
-        <div className="border border-border p-2 font-mono text-[11px]">
-          <div className="text-muted-foreground uppercase text-[10px]">Signal</div>
+        <div className="border border-border rounded-md p-3 font-mono text-xs">
+          <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">Signal</div>
           <div className="text-primary mt-1">{snap?.signal_state?.status || '—'}</div>
           {snap?.signal_state?.note ? (
             <div className="text-muted-foreground mt-1">{snap.signal_state.note}</div>
           ) : null}
         </div>
 
-        <div className="border border-border bg-black/20 p-3 flex-1">
-          <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2 flex items-center gap-2">
+        <div className="border border-border rounded-md bg-muted/20 p-3 flex-1">
+          <div className="text-xs font-mono text-muted-foreground uppercase mb-2 flex items-center gap-2">
             <Activity size={12} /> Active Position
           </div>
           {pos ? (
@@ -362,7 +364,10 @@ function AsymCard({
               <div className="text-muted-foreground">
                 DEBIT{' '}
                 <span className="text-foreground">
-                  ${Number(pos.entry_debit_usd ?? (pos.entry_premium ?? pos.entry ?? 0) * 100).toFixed(2)}
+                  $
+                  {Number(
+                    pos.entry_debit_usd ?? (pos.entry_premium ?? pos.entry ?? 0) * 100
+                  ).toFixed(2)}
                 </span>
               </div>
               {pos.expiration ? (
@@ -410,22 +415,23 @@ function RecentTrades({
   const trades = snap?.recent_trades || [];
   return (
     <div>
-      <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2">
-        Recent · W{snap?.wins ?? 0}/L{snap?.losses ?? 0}
+      <div className="text-sm font-mono text-muted-foreground uppercase mb-2">
+        Recent Trades · W{snap?.wins ?? 0}/L{snap?.losses ?? 0}
+        {!compact && snap?.total_trades != null ? ` · ${snap.total_trades} total` : ''}
       </div>
       {trades.length === 0 ? (
-        <div className="font-mono text-xs text-muted-foreground">{emptyLabel}</div>
+        <div className="font-mono text-sm text-muted-foreground">{emptyLabel}</div>
       ) : (
         <div
-          className={`border border-border divide-y divide-border font-mono text-xs ${
-            compact ? 'max-h-28 overflow-auto' : ''
+          className={`border border-border rounded-md divide-y divide-border font-mono text-sm ${
+            compact ? 'max-h-28 overflow-auto text-xs' : ''
           }`}
         >
           {trades
             .slice()
             .reverse()
             .map((t, i) => (
-              <div key={i} className="flex justify-between p-2 gap-3">
+              <div key={i} className="flex justify-between p-3 gap-3">
                 <span>
                   {t.direction || '—'} · {t.reason || '—'}
                   {t.thin_exit ? ' · THIN_EXIT' : ''}
@@ -453,9 +459,9 @@ function Metric({
   valueClass?: string;
 }) {
   return (
-    <div className="border border-border bg-black/30 p-3">
-      <div className="text-[10px] font-mono text-muted-foreground uppercase">{label}</div>
-      <div className={`text-lg font-mono font-bold mt-1 ${valueClass}`}>{value}</div>
+    <div className="border border-border rounded-md bg-muted/30 p-3">
+      <div className="text-sm font-mono text-muted-foreground uppercase">{label}</div>
+      <div className={`text-xl font-mono font-bold mt-1.5 ${valueClass}`}>{value}</div>
     </div>
   );
 }

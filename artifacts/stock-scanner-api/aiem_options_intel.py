@@ -389,31 +389,49 @@ def verify_options_decision_inputs(
     """
     Runtime gate — MANDATORY before outputting LONG CALL / LONG PUT / NO TRADE.
 
-    Confirms every required input from the final decision requirements has been
-    collected for both the call and the put. Returns ready_for_decision=True only
-    when ALL required fields are populated AND no hard rejection gate fires.
-
-    Required per-contract fields (call_data and put_data must each contain):
-      delta, gamma, theta, vega, iv, volume, open_interest,
-      bid, ask, bid_ask_spread_pct, breakeven, premium_at_risk,
-      expected_move, probability_estimate, expected_return, dte, slippage_pct
+    Thresholds come from ``aiem_options_gate_profile.resolve_gate_profile()``
+    (OE_GATE_PROFILE=strict|balanced|opportunity, default balanced).
 
     Required stock-level fields (in call_data — shared context):
       stock_direction, market_regime, iv_rank, iv_crush_risk,
       vwap_position, sector_strength, market_breadth
 
-    Hard rejection gates (fail → that direction is ineligible):
-      ✗ dte < 5                        (expiration too close)
-      ✗ open_interest < 500            (insufficient liquidity)
-      ✗ volume < 100                   (insufficient liquidity)
-      ✗ bid_ask_spread_pct > 0.20      (excessive spread)
-      ✗ slippage_pct > 0.15            (excessive slippage)
-      ✗ delta < 0.20                   (lottery strike)
-      ✗ probability_estimate < 0.35   (below minimum PoP)
+    Per-contract fields are required only for *active* legs (bid+ask present).
+    When allow_single_leg=True (balanced/opportunity), a missing opposite leg
+    does NOT block ready_for_decision — morning CALL movers often have no
+    liquid put quotes early.
+
+    Hard rejection gates (active leg only; None skips that check):
+      ✗ dte < min_dte
+      ✗ open_interest < min_oi
+      ✗ volume < min_volume
+      ✗ bid_ask_spread_pct > max_spread_pct
+      ✗ slippage_pct > max_slippage_pct
+      ✗ |delta| < min_delta
+      ✗ probability_estimate < min_pop
+
+    NOTE: D5 risk/reward is NOT a hard gate here — it is a REQ6 score weight.
     """
+    try:
+        from aiem_options_gate_profile import resolve_gate_profile, describe_gate_profile
+        _gate = resolve_gate_profile()
+    except Exception:
+        _gate = {
+            "profile": "balanced",
+            "min_oi": 250, "min_volume": 50,
+            "max_spread_pct": 0.28, "max_slippage_pct": 0.20,
+            "min_delta": 0.18, "min_pop": 0.30, "min_dte": 5,
+            "score_min": 50.0, "margin_min": 8.0,
+            "allow_single_leg": True,
+        }
+        def describe_gate_profile(c=None):  # noqa: E306
+            return "profile=balanced (fallback)"
+
+    # volume / open_interest are OPTIONAL presence-wise: None skips the
+    # liquidity hard gates (Tradier often unavailable early). When populated,
+    # min_oi / min_volume still apply in _check_gates.
     PER_CONTRACT_FIELDS = [
         "delta", "gamma", "theta", "vega", "iv",
-        "volume", "open_interest",
         "bid", "ask", "bid_ask_spread_pct",
         "breakeven", "premium_at_risk",
         "expected_move", "probability_estimate",
@@ -427,26 +445,65 @@ def verify_options_decision_inputs(
     call_data = call_data or {}
     put_data  = put_data  or {}
     missing   = []
+    allow_single = bool(_gate.get("allow_single_leg", True))
+    score_min = float(_gate.get("score_min", 50))
+    margin_min = float(_gate.get("margin_min", 8))
 
+    def _leg_active(data: dict) -> bool:
+        return data.get("bid") is not None and data.get("ask") is not None
+
+    call_active = _leg_active(call_data)
+    put_active = _leg_active(put_data)
+
+    # Stock context: prefer call_data, fall back to put_data (single-leg PUT).
+    stock_src = call_data if any(call_data.get(f) is not None for f in STOCK_FIELDS) else put_data
     for f in STOCK_FIELDS:
-        if call_data.get(f) is None:
+        if stock_src.get(f) is None and call_data.get(f) is None and put_data.get(f) is None:
             missing.append(f"stock:{f}")
 
-    for label, data in [("call", call_data), ("put", put_data)]:
+    legs_to_require = []
+    if allow_single:
+        if call_active:
+            legs_to_require.append(("call", call_data))
+        if put_active:
+            legs_to_require.append(("put", put_data))
+        if not legs_to_require:
+            # Neither leg quoted — not ready (scheduler usually exits earlier).
+            missing.append("call:bid")
+            missing.append("put:bid")
+    else:
+        legs_to_require = [("call", call_data), ("put", put_data)]
+
+    for label, data in legs_to_require:
         for f in PER_CONTRACT_FIELDS:
             if data.get(f) is None:
                 missing.append(f"{label}:{f}")
 
+    min_oi = float(_gate["min_oi"])
+    min_vol = float(_gate["min_volume"])
+    max_spread = float(_gate["max_spread_pct"])
+    max_slip = float(_gate["max_slippage_pct"])
+    min_delta = float(_gate["min_delta"])
+    min_pop = float(_gate["min_pop"])
+    min_dte = float(_gate["min_dte"])
+
     def _check_gates(label: str, data: dict) -> list:
         fails = []
         checks = [
-            ("dte",                  lambda v: float(v) < 5,    "DTE < 5 — expiration too close"),
-            ("open_interest",        lambda v: float(v) < 500,  "OI < 500 — insufficient liquidity"),
-            ("volume",               lambda v: float(v) < 100,  "volume < 100 — insufficient liquidity"),
-            ("bid_ask_spread_pct",   lambda v: float(v) > 0.20, "bid/ask spread > 20% of mid"),
-            ("slippage_pct",         lambda v: float(v) > 0.15, "slippage > 15%"),
-            ("delta",                lambda v: abs(float(v)) < 0.20, "delta < 0.20 — lottery strike"),
-            ("probability_estimate", lambda v: float(v) < 0.35, "PoP < 35% — below minimum threshold"),
+            ("dte", lambda v: float(v) < min_dte,
+             f"DTE < {min_dte:g} — expiration too close"),
+            ("open_interest", lambda v: float(v) < min_oi,
+             f"OI < {min_oi:g} — insufficient liquidity"),
+            ("volume", lambda v: float(v) < min_vol,
+             f"volume < {min_vol:g} — insufficient liquidity"),
+            ("bid_ask_spread_pct", lambda v: float(v) > max_spread,
+             f"bid/ask spread > {max_spread:.0%} of mid"),
+            ("slippage_pct", lambda v: float(v) > max_slip,
+             f"slippage > {max_slip:.0%}"),
+            ("delta", lambda v: abs(float(v)) < min_delta,
+             f"delta < {min_delta:g} — lottery strike"),
+            ("probability_estimate", lambda v: float(v) < min_pop,
+             f"PoP < {min_pop:.0%} — below minimum threshold"),
         ]
         for field, test, reason in checks:
             val = data.get(field)
@@ -458,39 +515,68 @@ def verify_options_decision_inputs(
                     pass
         return fails
 
-    call_gate_fails = _check_gates("call", call_data)
-    put_gate_fails  = _check_gates("put",  put_data)
-    all_gate_fails  = call_gate_fails + put_gate_fails
+    # Inactive legs are ineligible (not gate-failed) when single-leg is allowed.
+    call_gate_fails = _check_gates("call", call_data) if call_active else []
+    put_gate_fails = _check_gates("put", put_data) if put_active else []
+    all_gate_fails = call_gate_fails + put_gate_fails
 
-    call_eligible = len(missing) == 0 and len(call_gate_fails) == 0
-    put_eligible  = len(missing) == 0 and len(put_gate_fails)  == 0
-    ready         = len(missing) == 0 and (call_eligible or put_eligible)
+    stock_ok = not any(m.startswith("stock:") for m in missing)
+    call_fields_ok = not any(m.startswith("call:") for m in missing)
+    put_fields_ok = not any(m.startswith("put:") for m in missing)
 
-    if missing:
+    if allow_single:
+        call_eligible = (
+            stock_ok and call_active and call_fields_ok and len(call_gate_fails) == 0
+        )
+        put_eligible = (
+            stock_ok and put_active and put_fields_ok and len(put_gate_fails) == 0
+        )
+        # Missing fields on inactive opposite leg must not block readiness.
+        blocking_missing = [m for m in missing if m.startswith("stock:")]
+        if call_active:
+            blocking_missing += [m for m in missing if m.startswith("call:")]
+        if put_active:
+            blocking_missing += [m for m in missing if m.startswith("put:")]
+        if not call_active and not put_active:
+            blocking_missing = list(missing)
+        missing = blocking_missing
+        ready = len(missing) == 0 and (call_eligible or put_eligible)
+    else:
+        call_eligible = len(missing) == 0 and len(call_gate_fails) == 0
+        put_eligible = len(missing) == 0 and len(put_gate_fails) == 0
+        ready = len(missing) == 0 and (call_eligible or put_eligible)
+
+    profile_txt = describe_gate_profile(_gate)
+
+    if missing and not ready:
         verdict = (
-            f"NOT READY — {len(missing)} required field(s) missing. "
+            f"NOT READY — {len(missing)} required field(s) missing "
+            f"[{profile_txt}]. "
             "Collect all missing inputs before calling this function again."
         )
     elif not call_eligible and not put_eligible:
         verdict = (
-            "BOTH DIRECTIONS REJECTED by hard gates. "
+            f"BOTH DIRECTIONS REJECTED by hard gates [{profile_txt}]. "
             "Return NO TRADE — neither the call nor the put meets minimum quality standards."
         )
     elif not call_eligible:
         verdict = (
-            "CALL rejected by hard gates. Only the PUT is eligible. "
-            "Proceed to final scoring — still requires overall score >= 55 to send alert."
+            f"CALL rejected by hard gates [{profile_txt}]. Only the PUT is eligible. "
+            f"Proceed to final scoring — still requires overall score >= {score_min:g} "
+            f"and margin >= {margin_min:g} to send alert."
         )
     elif not put_eligible:
         verdict = (
-            "PUT rejected by hard gates. Only the CALL is eligible. "
-            "Proceed to final scoring — still requires overall score >= 55 to send alert."
+            f"PUT rejected by hard gates [{profile_txt}]. Only the CALL is eligible. "
+            f"Proceed to final scoring — still requires overall score >= {score_min:g} "
+            f"and margin >= {margin_min:g} to send alert."
         )
     else:
         verdict = (
-            "BOTH directions passed all gates and have all required inputs. "
+            f"BOTH directions passed all gates [{profile_txt}]. "
             "Proceed to final scoring — highest score wins; "
-            "winning direction must score >= 55 AND >= 10 points above the other to send an alert."
+            f"winning direction must score >= {score_min:g} AND "
+            f">= {margin_min:g} points above the other to send an alert."
         )
 
     return {
@@ -500,5 +586,13 @@ def verify_options_decision_inputs(
         "gate_failures":      all_gate_fails,
         "call_eligible":      call_eligible,
         "put_eligible":       put_eligible,
+        "gate_profile":       _gate.get("profile"),
+        "gate_thresholds":    {
+            "min_oi": min_oi, "min_volume": min_vol,
+            "max_spread_pct": max_spread, "max_slippage_pct": max_slip,
+            "min_delta": min_delta, "min_pop": min_pop, "min_dte": min_dte,
+            "score_min": score_min, "margin_min": margin_min,
+            "allow_single_leg": allow_single,
+        },
         "verdict":            verdict,
     }

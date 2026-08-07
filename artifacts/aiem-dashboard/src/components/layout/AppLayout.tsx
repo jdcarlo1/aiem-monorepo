@@ -54,7 +54,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="w-8 h-8 bg-primary/20 rounded-sm flex items-center justify-center">
             <Terminal size={16} className="text-primary animate-pulse" />
           </div>
-          <span className="font-mono text-xs text-muted-foreground tracking-widest uppercase">Authenticating…</span>
+          <span className="font-mono text-sm text-muted-foreground tracking-widest uppercase">Authenticating…</span>
         </div>
       </div>
     );

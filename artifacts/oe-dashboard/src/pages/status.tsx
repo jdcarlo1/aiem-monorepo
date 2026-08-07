@@ -93,20 +93,35 @@ function normalisePipelineCheckpoint(resp: unknown): PipelineCheckpoint | null {
   };
 }
 
+/** OE-scoped job names — hide AIEM equity / morning / paper jobs from OE Status. */
+const OE_JOB_RE =
+  /option|oe_|gex|0dte|spy_0dte|f3_|options_pipeline|options_structure|reconcile|gamma/i;
+
+function isOeJob(name: string | undefined | null): boolean {
+  return !!name && OE_JOB_RE.test(String(name));
+}
+
 export default function StatusPage() {
   const { apiFetch } = useApi();
 
   // Use /admin/job-heartbeats (raw heartbeat table) instead of /admin/job-health (aggregate)
+  // Phase 0: filter to OE-owned jobs so OE Status does not look like the AIEM terminal.
   const { data: jobHealth, isLoading: jobHealthLoading } = useQuery({
-    queryKey: ['job-health'],
+    queryKey: ['job-health-oe'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/job-heartbeats').then(normaliseJobHealth),
+      apiFetch<unknown>('/admin/job-heartbeats')
+        .then(normaliseJobHealth)
+        .then((jobs) => jobs.filter((j) => isOeJob(j.job_name))),
   });
 
   const { data: schedulerJobs } = useQuery({
-    queryKey: ['scheduler-jobs'],
+    queryKey: ['scheduler-jobs-oe'],
     queryFn: () =>
-      apiFetch<unknown>('/admin/scheduler-jobs').then(normaliseSchedulerJobs),
+      apiFetch<unknown>('/admin/scheduler-jobs')
+        .then(normaliseSchedulerJobs)
+        .then((jobs) =>
+          jobs.filter((j) => isOeJob(j.job_name) || isOeJob(j.job_id)),
+        ),
   });
 
   const { data: reconcileStatus } = useQuery({
@@ -136,40 +151,40 @@ export default function StatusPage() {
 
   if (jobHealthLoading) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-48" />
-          <div className="h-64 bg-muted rounded" />
-        </div>
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-muted rounded w-48" />
+        <div className="h-64 bg-muted rounded" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">System Status</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Job health, scheduler state, and pipeline checkpoints
+    <>
+      <div className="border-b border-border pb-5">
+        <h1 className="text-3xl font-bold text-foreground tracking-tight">
+          System Status
+        </h1>
+        <p className="text-base text-muted-foreground mt-1.5">
+          OE-scoped jobs only · AIEM equity/morning jobs live on /aiem/
         </p>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total Jobs</p>
-          <p className="text-2xl font-bold font-mono">{totalJobs}</p>
+          <p className="text-sm text-muted-foreground mb-1">Total Jobs</p>
+          <p className="text-3xl font-bold font-mono">{totalJobs}</p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Jobs Healthy</p>
-          <p className="text-2xl font-bold font-mono text-chart-2">{healthyJobs}</p>
+          <p className="text-sm text-muted-foreground mb-1">Jobs Healthy</p>
+          <p className="text-3xl font-bold font-mono text-chart-2">{healthyJobs}</p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Jobs Degraded</p>
-          <p className="text-2xl font-bold font-mono text-chart-3">{degradedJobs}</p>
+          <p className="text-sm text-muted-foreground mb-1">Jobs Degraded</p>
+          <p className="text-3xl font-bold font-mono text-chart-3">{degradedJobs}</p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4">
-          <p className="text-xs text-muted-foreground mb-1">Last Pipeline Run</p>
+          <p className="text-sm text-muted-foreground mb-1">Last Pipeline Run</p>
           <p className="text-sm font-mono">
             {pipelineCheckpoint
               ? formatDate(pipelineCheckpoint.updated_at)
@@ -201,14 +216,14 @@ export default function StatusPage() {
                     <TableCell className="font-mono text-sm">
                       {job.job_name}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-sm">
                       {formatDate(job.last_heartbeat)}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-sm">
                       {job.consecutive_failures}
                     </TableCell>
                     <TableCell>{getHealthBadge(job.consecutive_failures)}</TableCell>
-                    <TableCell className="text-xs max-w-xs truncate">
+                    <TableCell className="text-sm max-w-xs truncate">
                       {job.last_error ?? '—'}
                     </TableCell>
                   </TableRow>
@@ -242,14 +257,14 @@ export default function StatusPage() {
               <TableBody>
                 {schedulerJobs.map((job, idx) => (
                   <TableRow key={idx} data-testid={`row-scheduler-${idx}`}>
-                    <TableCell className="font-mono text-xs">{job.job_id}</TableCell>
+                    <TableCell className="font-mono text-sm">{job.job_id}</TableCell>
                     <TableCell className="font-mono text-sm">
                       {job.job_name}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-sm">
                       {formatDate(job.next_run_time)}
                     </TableCell>
-                    <TableCell className="text-xs">{job.trigger_type}</TableCell>
+                    <TableCell className="text-sm">{job.trigger_type}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -266,18 +281,18 @@ export default function StatusPage() {
       {reconcileStatus && (
         <div className="border border-border rounded-lg bg-card p-4">
           <h2 className="font-semibold mb-3">Reconciliation Status</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Status</p>
+              <p className="text-sm text-muted-foreground mb-1">Status</p>
               <Badge variant="success">{reconcileStatus.status}</Badge>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Last Run</p>
+              <p className="text-sm text-muted-foreground mb-1">Last Run</p>
               <p className="font-mono text-sm">{formatDate(reconcileStatus.last_run)}</p>
             </div>
             {reconcileStatus.discrepancies !== undefined && (
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Discrepancies</p>
+                <p className="text-sm text-muted-foreground mb-1">Discrepancies</p>
                 <p className="font-mono text-sm">{reconcileStatus.discrepancies}</p>
               </div>
             )}
@@ -289,17 +304,17 @@ export default function StatusPage() {
       {pipelineCheckpoint && (
         <div className="border border-border rounded-lg bg-card p-4">
           <h2 className="font-semibold mb-3">Pipeline Checkpoint</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Stage</p>
+              <p className="text-sm text-muted-foreground mb-1">Stage</p>
               <p className="font-mono text-sm">{pipelineCheckpoint.stage}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Status</p>
+              <p className="text-sm text-muted-foreground mb-1">Status</p>
               <Badge variant="success">{pipelineCheckpoint.status}</Badge>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Updated At</p>
+              <p className="text-sm text-muted-foreground mb-1">Updated At</p>
               <p className="font-mono text-sm">
                 {formatDate(pipelineCheckpoint.updated_at)}
               </p>
@@ -307,6 +322,6 @@ export default function StatusPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
