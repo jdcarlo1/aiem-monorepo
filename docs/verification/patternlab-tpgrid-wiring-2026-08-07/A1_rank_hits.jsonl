@@ -1,0 +1,48 @@
+{
+  "rank": 1,
+  "of": 138,
+  "item": {
+    "label": "07_long_put_butterfly__tp200",
+    "strategy": "07_long_put_butterfly",
+    "tp_pct": 200,
+    "trades": 91,
+    "total_pnl": 104676.0,
+    "win_rate": 0.6374,
+    "avg_pnl": 1150.29,
+    "tp_hits": 52,
+    "expiry_exits": 39,
+    "path": "/workspace/docs/verification/spy-asymmetric-bt/07_long_put_butterfly__tp200.json"
+  }
+}
+{
+  "rank": 7,
+  "of": 138,
+  "item": {
+    "label": "06_long_call_butterfly__tp100",
+    "strategy": "06_long_call_butterfly",
+    "tp_pct": 100,
+    "trades": 92,
+    "total_pnl": 76186.0,
+    "win_rate": 0.8478,
+    "avg_pnl": 828.11,
+    "tp_hits": 78,
+    "expiry_exits": 14,
+    "path": "/workspace/docs/verification/spy-asymmetric-bt/06_long_call_butterfly__tp100.json"
+  }
+}
+{
+  "rank": 13,
+  "of": 138,
+  "item": {
+    "label": "23_put_ladder_defined_risk__tp150",
+    "strategy": "23_put_ladder_defined_risk",
+    "tp_pct": 150,
+    "trades": 92,
+    "total_pnl": 69455.0,
+    "win_rate": 0.5217,
+    "avg_pnl": 754.95,
+    "tp_hits": 47,
+    "expiry_exits": 45,
+    "path": "/workspace/docs/verification/spy-asymmetric-bt/23_put_ladder_defined_risk__tp150.json"
+  }
+}
