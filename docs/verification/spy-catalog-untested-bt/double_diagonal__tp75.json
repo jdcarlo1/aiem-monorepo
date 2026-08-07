@@ -1,0 +1,127 @@
+{
+  "strategy": "Double Diagonal",
+  "tp_pct": 75,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 5,
+    "total_pnl": 1985.0,
+    "win_rate": 1.0,
+    "avg_pnl": 397.0,
+    "tp_hits": 5,
+    "sl_hits": 0,
+    "expiry_exits": 0
+  },
+  "trades": [
+    {
+      "strategy": "Double Diagonal",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-12",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 265.0,
+      "exit_val": 505.0,
+      "premium_basis": 265.0,
+      "pnl": 240.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY240920C00566000",
+        "1xO:SPY241018C00571000",
+        "-1xO:SPY240920P00556000",
+        "1xO:SPY241018P00551000"
+      ]
+    },
+    {
+      "strategy": "Double Diagonal",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-15",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": 338.0,
+      "exit_val": 662.0,
+      "premium_basis": 338.0,
+      "pnl": 324.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241122C00586000",
+        "1xO:SPY241220C00591000",
+        "-1xO:SPY241122P00576000",
+        "1xO:SPY241220P00571000"
+      ]
+    },
+    {
+      "strategy": "Double Diagonal",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-12",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": 285.0,
+      "exit_val": 627.0,
+      "premium_basis": 285.0,
+      "pnl": 342.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241220C00603000",
+        "1xO:SPY250117C00608000",
+        "-1xO:SPY241220P00593000",
+        "1xO:SPY250117P00588000"
+      ]
+    },
+    {
+      "strategy": "Double Diagonal",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-29",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": 391.0,
+      "exit_val": 780.0,
+      "premium_basis": 391.0,
+      "pnl": 389.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250131C00600000",
+        "1xO:SPY250228C00605000",
+        "-1xO:SPY250131P00590000",
+        "1xO:SPY250228P00585000"
+      ]
+    },
+    {
+      "strategy": "Double Diagonal",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": 418.0,
+      "exit_val": 1108.0,
+      "premium_basis": 418.0,
+      "pnl": 690.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250221C00604000",
+        "1xO:SPY250321C00609000",
+        "-1xO:SPY250221P00594000",
+        "1xO:SPY250321P00589000"
+      ]
+    }
+  ]
+}

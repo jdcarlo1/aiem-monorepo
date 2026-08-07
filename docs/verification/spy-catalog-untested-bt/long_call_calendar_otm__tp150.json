@@ -1,0 +1,136 @@
+{
+  "strategy": "Long Call Calendar OTM",
+  "tp_pct": 150,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 6,
+    "total_pnl": 2181.0,
+    "win_rate": 1.0,
+    "avg_pnl": 363.5,
+    "tp_hits": 0,
+    "sl_hits": 0,
+    "expiry_exits": 6
+  },
+  "trades": [
+    {
+      "strategy": "Long Call Calendar OTM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 398.0,
+      "exit_val": 856.0,
+      "premium_basis": 398.0,
+      "pnl": 458.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240920C00566000",
+        "1xO:SPY241018C00566000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar OTM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-22",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": 402.0,
+      "exit_val": 612.0,
+      "premium_basis": 402.0,
+      "pnl": 210.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241122C00586000",
+        "1xO:SPY241220C00586000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar OTM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": 390.0,
+      "exit_val": 471.0,
+      "premium_basis": 390.0,
+      "pnl": 81.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241220C00603000",
+        "1xO:SPY250117C00603000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar OTM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-31",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": 495.0,
+      "exit_val": 958.0,
+      "premium_basis": 495.0,
+      "pnl": 463.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250131C00600000",
+        "1xO:SPY250228C00600000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar OTM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": 486.0,
+      "exit_val": 800.0,
+      "premium_basis": 486.0,
+      "pnl": 314.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250221C00604000",
+        "1xO:SPY250321C00604000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar OTM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": 455.0,
+      "exit_val": 1110.0,
+      "premium_basis": 455.0,
+      "pnl": 655.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250620C00596000",
+        "1xO:SPY250718C00596000"
+      ]
+    }
+  ]
+}

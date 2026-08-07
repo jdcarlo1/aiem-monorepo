@@ -1,0 +1,1862 @@
+{
+  "strategy": "Broken-Wing Put Butterfly",
+  "tp_pct": 125,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 92,
+    "total_pnl": 13106.0,
+    "win_rate": 0.9239,
+    "avg_pnl": 142.46,
+    "tp_hits": 61,
+    "sl_hits": 0,
+    "expiry_exits": 31
+  },
+  "trades": [
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-08-16",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 1,
+      "entry_val": -5.0,
+      "exit_val": 9.0,
+      "premium_basis": 5.0,
+      "pnl": 14.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY240906P00533000",
+        "-2xO:SPY240906P00528000",
+        "1xO:SPY240906P00518000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-11",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": -48.0,
+      "exit_val": 70.0,
+      "premium_basis": 48.0,
+      "pnl": 118.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY240913P00560000",
+        "-2xO:SPY240913P00555000",
+        "1xO:SPY240913P00545000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-05",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": -44.0,
+      "exit_val": 44.0,
+      "premium_basis": 44.0,
+      "pnl": 88.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY240920P00561000",
+        "-2xO:SPY240920P00556000",
+        "1xO:SPY240920P00546000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-27",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": -119.0,
+      "exit_val": 0.0,
+      "premium_basis": 119.0,
+      "pnl": 119.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240927P00552000",
+        "-2xO:SPY240927P00547000",
+        "1xO:SPY240927P00537000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-08",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": -41.0,
+      "exit_val": 13.0,
+      "premium_basis": 41.0,
+      "pnl": 54.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241011P00563000",
+        "-2xO:SPY241011P00558000",
+        "1xO:SPY241011P00548000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-15",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 1,
+      "entry_val": -45.0,
+      "exit_val": 14.0,
+      "premium_basis": 45.0,
+      "pnl": 59.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241018P00570000",
+        "-2xO:SPY241018P00565000",
+        "1xO:SPY241018P00555000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-23",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": -61.0,
+      "exit_val": 36.0,
+      "premium_basis": 61.0,
+      "pnl": 97.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241025P00574000",
+        "-2xO:SPY241025P00569000",
+        "1xO:SPY241025P00559000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-10-23",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": -93.0,
+      "exit_val": 29.0,
+      "premium_basis": 93.0,
+      "pnl": 122.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241101P00568000",
+        "-2xO:SPY241101P00563000",
+        "1xO:SPY241101P00553000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-06",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 1,
+      "entry_val": -74.0,
+      "exit_val": 21.0,
+      "premium_basis": 74.0,
+      "pnl": 95.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241108P00584000",
+        "-2xO:SPY241108P00579000",
+        "1xO:SPY241108P00569000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-15",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": -104.0,
+      "exit_val": 0.0,
+      "premium_basis": 104.0,
+      "pnl": 104.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241115P00584000",
+        "-2xO:SPY241115P00579000",
+        "1xO:SPY241115P00569000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-14",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": -40.0,
+      "exit_val": 12.0,
+      "premium_basis": 40.0,
+      "pnl": 52.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241122P00581000",
+        "-2xO:SPY241122P00576000",
+        "1xO:SPY241122P00566000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-29",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 1,
+      "entry_val": -166.0,
+      "exit_val": 0.0,
+      "premium_basis": 166.0,
+      "pnl": 166.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241129P00570000",
+        "-2xO:SPY241129P00565000",
+        "1xO:SPY241129P00555000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-11-26",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": -62.0,
+      "exit_val": 19.0,
+      "premium_basis": 62.0,
+      "pnl": 81.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241206P00599000",
+        "-2xO:SPY241206P00594000",
+        "1xO:SPY241206P00584000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-13",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": -61.0,
+      "exit_val": 1.0,
+      "premium_basis": 61.0,
+      "pnl": 62.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241213P00588000",
+        "-2xO:SPY241213P00583000",
+        "1xO:SPY241213P00573000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-11",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": -53.0,
+      "exit_val": 14.0,
+      "premium_basis": 53.0,
+      "pnl": 67.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241220P00598000",
+        "-2xO:SPY241220P00593000",
+        "1xO:SPY241220P00583000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-06",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": -3.0,
+      "exit_val": 12.0,
+      "premium_basis": 3.0,
+      "pnl": 15.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY241227P00604000",
+        "-2xO:SPY241227P00599000",
+        "1xO:SPY241227P00589000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2024-12-24",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": -52.0,
+      "exit_val": 49.0,
+      "premium_basis": 52.0,
+      "pnl": 101.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250103P00605000",
+        "-2xO:SPY250103P00600000",
+        "1xO:SPY250103P00590000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2024-12-17",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": -41.0,
+      "exit_val": 20.0,
+      "premium_basis": 41.0,
+      "pnl": 61.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250110P00607000",
+        "-2xO:SPY250110P00602000",
+        "1xO:SPY250110P00592000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-15",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": -40.0,
+      "exit_val": 80.0,
+      "premium_basis": 40.0,
+      "pnl": 120.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250117P00595000",
+        "-2xO:SPY250117P00590000",
+        "1xO:SPY250117P00580000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-24",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 3,
+      "entry_val": 426.0,
+      "exit_val": 0.0,
+      "premium_basis": 426.0,
+      "pnl": -426.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250124P00588000",
+        "-6xO:SPY250124P00583000",
+        "3xO:SPY250124P00573000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-28",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": -66.0,
+      "exit_val": 19.0,
+      "premium_basis": 66.0,
+      "pnl": 85.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250131P00595000",
+        "-2xO:SPY250131P00590000",
+        "1xO:SPY250131P00580000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-01-16",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": -133.0,
+      "exit_val": 37.0,
+      "premium_basis": 133.0,
+      "pnl": 170.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250207P00581000",
+        "-2xO:SPY250207P00576000",
+        "1xO:SPY250207P00566000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-11",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": -112.0,
+      "exit_val": 31.0,
+      "premium_basis": 112.0,
+      "pnl": 143.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250214P00603000",
+        "-2xO:SPY250214P00598000",
+        "1xO:SPY250214P00588000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-01-29",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": -78.0,
+      "exit_val": 36.0,
+      "premium_basis": 78.0,
+      "pnl": 114.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250221P00599000",
+        "-2xO:SPY250221P00594000",
+        "1xO:SPY250221P00584000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-28",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": -91.0,
+      "exit_val": 448.0,
+      "premium_basis": 91.0,
+      "pnl": 539.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250228P00598000",
+        "-2xO:SPY250228P00593000",
+        "1xO:SPY250228P00583000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": -71.0,
+      "exit_val": -558.0,
+      "premium_basis": 71.0,
+      "pnl": -487.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250307P00605000",
+        "-2xO:SPY250307P00600000",
+        "1xO:SPY250307P00590000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": -25.0,
+      "exit_val": -1742.0,
+      "premium_basis": 25.0,
+      "pnl": -1717.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250314P00611000",
+        "-2xO:SPY250314P00606000",
+        "1xO:SPY250314P00596000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 1,
+      "entry_val": -87.0,
+      "exit_val": -454.0,
+      "premium_basis": 87.0,
+      "pnl": -367.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250321P00597000",
+        "-2xO:SPY250321P00592000",
+        "1xO:SPY250321P00582000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-04-08",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": -135.0,
+      "exit_val": 4394.0,
+      "premium_basis": 135.0,
+      "pnl": 4529.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250411P00567000",
+        "-2xO:SPY250411P00562000",
+        "1xO:SPY250411P00552000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-09",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 1,
+      "entry_val": -28.0,
+      "exit_val": 722.0,
+      "premium_basis": 28.0,
+      "pnl": 750.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250425P00559000",
+        "-2xO:SPY250425P00554000",
+        "1xO:SPY250425P00544000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-05-09",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 1,
+      "entry_val": 303.0,
+      "exit_val": 0.0,
+      "premium_basis": 303.0,
+      "pnl": -303.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250509P00539000",
+        "-2xO:SPY250509P00534000",
+        "1xO:SPY250509P00524000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-05-01",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": -60.0,
+      "exit_val": 52.0,
+      "premium_basis": 60.0,
+      "pnl": 112.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250516P00514000",
+        "-2xO:SPY250516P00509000",
+        "1xO:SPY250516P00499000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-04-30",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": -18.0,
+      "exit_val": 98.0,
+      "premium_basis": 18.0,
+      "pnl": 116.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250523P00551000",
+        "-2xO:SPY250523P00546000",
+        "1xO:SPY250523P00536000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-30",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": -114.0,
+      "exit_val": 0.0,
+      "premium_basis": 114.0,
+      "pnl": 114.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250530P00564000",
+        "-2xO:SPY250530P00559000",
+        "1xO:SPY250530P00549000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-06-02",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": -34.0,
+      "exit_val": 9.0,
+      "premium_basis": 34.0,
+      "pnl": 43.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250606P00583000",
+        "-2xO:SPY250606P00578000",
+        "1xO:SPY250606P00568000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-13",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": -89.0,
+      "exit_val": 2.0,
+      "premium_basis": 89.0,
+      "pnl": 91.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250613P00595000",
+        "-2xO:SPY250613P00590000",
+        "1xO:SPY250613P00580000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-18",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": -66.0,
+      "exit_val": 26.0,
+      "premium_basis": 66.0,
+      "pnl": 92.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250620P00591000",
+        "-2xO:SPY250620P00586000",
+        "1xO:SPY250620P00576000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": -51.0,
+      "exit_val": 0.0,
+      "premium_basis": 51.0,
+      "pnl": 51.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250627P00593000",
+        "-2xO:SPY250627P00588000",
+        "1xO:SPY250627P00578000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-07-11",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": -67.0,
+      "exit_val": 0.0,
+      "premium_basis": 67.0,
+      "pnl": 67.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250711P00603000",
+        "-2xO:SPY250711P00598000",
+        "1xO:SPY250711P00588000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-18",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": -66.0,
+      "exit_val": 0.0,
+      "premium_basis": 66.0,
+      "pnl": 66.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250718P00600000",
+        "-2xO:SPY250718P00595000",
+        "1xO:SPY250718P00585000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-30",
+      "exit_date": "2025-07-23",
+      "spot": 617.85,
+      "exp_near": "2025-07-25",
+      "mult": 1,
+      "entry_val": -62.0,
+      "exit_val": 17.0,
+      "premium_basis": 62.0,
+      "pnl": 79.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250725P00618000",
+        "-2xO:SPY250725P00613000",
+        "1xO:SPY250725P00603000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-07-31",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": -33.0,
+      "exit_val": 9.0,
+      "premium_basis": 33.0,
+      "pnl": 42.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250801P00621000",
+        "-2xO:SPY250801P00616000",
+        "1xO:SPY250801P00606000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-05",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": -77.0,
+      "exit_val": 21.0,
+      "premium_basis": 77.0,
+      "pnl": 98.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250808P00625000",
+        "-2xO:SPY250808P00620000",
+        "1xO:SPY250808P00610000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-07-31",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": -68.0,
+      "exit_val": 17.0,
+      "premium_basis": 68.0,
+      "pnl": 85.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250815P00629000",
+        "-2xO:SPY250815P00624000",
+        "1xO:SPY250815P00614000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-07-30",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": -38.0,
+      "exit_val": 142.0,
+      "premium_basis": 38.0,
+      "pnl": 180.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250822P00637000",
+        "-2xO:SPY250822P00632000",
+        "1xO:SPY250822P00622000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-29",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": -65.0,
+      "exit_val": 0.0,
+      "premium_basis": 65.0,
+      "pnl": 65.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250829P00631000",
+        "-2xO:SPY250829P00626000",
+        "1xO:SPY250829P00616000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": -92.0,
+      "exit_val": 0.0,
+      "premium_basis": 92.0,
+      "pnl": 92.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250905P00636000",
+        "-2xO:SPY250905P00631000",
+        "1xO:SPY250905P00621000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-09-08",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": -49.0,
+      "exit_val": 16.0,
+      "premium_basis": 49.0,
+      "pnl": 65.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250912P00643000",
+        "-2xO:SPY250912P00638000",
+        "1xO:SPY250912P00628000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-12",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": -14.0,
+      "exit_val": 5.0,
+      "premium_basis": 14.0,
+      "pnl": 19.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY250919P00642000",
+        "-2xO:SPY250919P00637000",
+        "1xO:SPY250919P00627000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-26",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": -79.0,
+      "exit_val": 0.0,
+      "premium_basis": 79.0,
+      "pnl": 79.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250926P00640000",
+        "-2xO:SPY250926P00635000",
+        "1xO:SPY250926P00625000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-09-12",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": -20.0,
+      "exit_val": 16.0,
+      "premium_basis": 20.0,
+      "pnl": 36.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251003P00649000",
+        "-2xO:SPY251003P00644000",
+        "1xO:SPY251003P00634000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": -42.0,
+      "exit_val": 328.0,
+      "premium_basis": 42.0,
+      "pnl": 370.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251010P00661000",
+        "-2xO:SPY251010P00656000",
+        "1xO:SPY251010P00646000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-15",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": -42.0,
+      "exit_val": 25.0,
+      "premium_basis": 42.0,
+      "pnl": 67.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251017P00667000",
+        "-2xO:SPY251017P00662000",
+        "1xO:SPY251017P00652000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-24",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": -87.0,
+      "exit_val": 0.0,
+      "premium_basis": 87.0,
+      "pnl": 87.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251024P00664000",
+        "-2xO:SPY251024P00659000",
+        "1xO:SPY251024P00649000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-16",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": -40.0,
+      "exit_val": 148.0,
+      "premium_basis": 40.0,
+      "pnl": 188.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251031P00672000",
+        "-2xO:SPY251031P00667000",
+        "1xO:SPY251031P00657000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-10-29",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": -8.0,
+      "exit_val": 14.0,
+      "premium_basis": 8.0,
+      "pnl": 22.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251107P00663000",
+        "-2xO:SPY251107P00658000",
+        "1xO:SPY251107P00648000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-13",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": -34.0,
+      "exit_val": 50.0,
+      "premium_basis": 34.0,
+      "pnl": 84.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251114P00671000",
+        "-2xO:SPY251114P00666000",
+        "1xO:SPY251114P00656000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": -70.0,
+      "exit_val": -440.0,
+      "premium_basis": 70.0,
+      "pnl": -370.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251121P00685000",
+        "-2xO:SPY251121P00680000",
+        "1xO:SPY251121P00670000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-18",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": -69.0,
+      "exit_val": 152.0,
+      "premium_basis": 69.0,
+      "pnl": 221.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251128P00683000",
+        "-2xO:SPY251128P00678000",
+        "1xO:SPY251128P00668000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-11-17",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": -59.0,
+      "exit_val": 87.0,
+      "premium_basis": 59.0,
+      "pnl": 146.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251205P00681000",
+        "-2xO:SPY251205P00676000",
+        "1xO:SPY251205P00666000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-18",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": -97.0,
+      "exit_val": 30.0,
+      "premium_basis": 97.0,
+      "pnl": 127.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251219P00669000",
+        "-2xO:SPY251219P00664000",
+        "1xO:SPY251219P00654000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-19",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": -50.0,
+      "exit_val": 38.0,
+      "premium_basis": 50.0,
+      "pnl": 88.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY251226P00680000",
+        "-2xO:SPY251226P00675000",
+        "1xO:SPY251226P00665000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2025-12-15",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": -18.0,
+      "exit_val": 39.0,
+      "premium_basis": 18.0,
+      "pnl": 57.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260102P00684000",
+        "-2xO:SPY260102P00679000",
+        "1xO:SPY260102P00669000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2026-01-09",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": -120.0,
+      "exit_val": 0.0,
+      "premium_basis": 120.0,
+      "pnl": 120.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260109P00681000",
+        "-2xO:SPY260109P00676000",
+        "1xO:SPY260109P00666000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-12",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": -48.0,
+      "exit_val": 12.0,
+      "premium_basis": 48.0,
+      "pnl": 60.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260116P00685000",
+        "-2xO:SPY260116P00680000",
+        "1xO:SPY260116P00670000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-16",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": -45.0,
+      "exit_val": 19.0,
+      "premium_basis": 45.0,
+      "pnl": 64.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260123P00688000",
+        "-2xO:SPY260123P00683000",
+        "1xO:SPY260123P00673000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-28",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": -57.0,
+      "exit_val": 16.0,
+      "premium_basis": 57.0,
+      "pnl": 73.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260130P00688000",
+        "-2xO:SPY260130P00683000",
+        "1xO:SPY260130P00673000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-02-06",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": -64.0,
+      "exit_val": 454.0,
+      "premium_basis": 64.0,
+      "pnl": 518.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260206P00695000",
+        "-2xO:SPY260206P00690000",
+        "1xO:SPY260206P00680000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-01-21",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": -57.0,
+      "exit_val": 166.0,
+      "premium_basis": 57.0,
+      "pnl": 223.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260213P00678000",
+        "-2xO:SPY260213P00673000",
+        "1xO:SPY260213P00663000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-01-28",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": -72.0,
+      "exit_val": 33.0,
+      "premium_basis": 72.0,
+      "pnl": 105.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260220P00693000",
+        "-2xO:SPY260220P00688000",
+        "1xO:SPY260220P00678000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-23",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": -75.0,
+      "exit_val": 34.0,
+      "premium_basis": 75.0,
+      "pnl": 109.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260227P00695000",
+        "-2xO:SPY260227P00690000",
+        "1xO:SPY260227P00680000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-02-18",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": -11.0,
+      "exit_val": 4.0,
+      "premium_basis": 11.0,
+      "pnl": 15.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260306P00694000",
+        "-2xO:SPY260306P00689000",
+        "1xO:SPY260306P00679000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-13",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 1,
+      "entry_val": -38.0,
+      "exit_val": -480.0,
+      "premium_basis": 38.0,
+      "pnl": -442.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260313P00683000",
+        "-2xO:SPY260313P00678000",
+        "1xO:SPY260313P00668000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-06",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": -24.0,
+      "exit_val": 11.0,
+      "premium_basis": 24.0,
+      "pnl": 35.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260320P00682000",
+        "-2xO:SPY260320P00677000",
+        "1xO:SPY260320P00667000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-05",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 1,
+      "entry_val": -54.0,
+      "exit_val": 31.0,
+      "premium_basis": 54.0,
+      "pnl": 85.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260327P00686000",
+        "-2xO:SPY260327P00681000",
+        "1xO:SPY260327P00671000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-03-20",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": -83.0,
+      "exit_val": 122.0,
+      "premium_basis": 83.0,
+      "pnl": 205.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260410P00669000",
+        "-2xO:SPY260410P00664000",
+        "1xO:SPY260410P00654000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-04-17",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 1,
+      "entry_val": -113.0,
+      "exit_val": 0.0,
+      "premium_basis": 113.0,
+      "pnl": 113.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260417P00655000",
+        "-2xO:SPY260417P00650000",
+        "1xO:SPY260417P00640000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-04-24",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 1,
+      "entry_val": -79.0,
+      "exit_val": 2.0,
+      "premium_basis": 79.0,
+      "pnl": 81.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260424P00632000",
+        "-2xO:SPY260424P00627000",
+        "1xO:SPY260424P00617000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-05-01",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": -144.0,
+      "exit_val": 0.0,
+      "premium_basis": 144.0,
+      "pnl": 144.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260501P00659000",
+        "-2xO:SPY260501P00654000",
+        "1xO:SPY260501P00644000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-05-08",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": -90.0,
+      "exit_val": 0.0,
+      "premium_basis": 90.0,
+      "pnl": 90.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260508P00686000",
+        "-2xO:SPY260508P00681000",
+        "1xO:SPY260508P00671000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-05-15",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 1,
+      "entry_val": -169.0,
+      "exit_val": 0.0,
+      "premium_basis": 169.0,
+      "pnl": 169.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260515P00709000",
+        "-2xO:SPY260515P00704000",
+        "1xO:SPY260515P00694000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-05-22",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 1,
+      "entry_val": -87.0,
+      "exit_val": 0.0,
+      "premium_basis": 87.0,
+      "pnl": 87.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260522P00715000",
+        "-2xO:SPY260522P00710000",
+        "1xO:SPY260522P00700000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-29",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 1,
+      "entry_val": -83.0,
+      "exit_val": 0.0,
+      "premium_basis": 83.0,
+      "pnl": 83.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260529P00718000",
+        "-2xO:SPY260529P00713000",
+        "1xO:SPY260529P00703000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-06-05",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": -67.0,
+      "exit_val": 412.0,
+      "premium_basis": 67.0,
+      "pnl": 479.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260605P00739000",
+        "-2xO:SPY260605P00734000",
+        "1xO:SPY260605P00724000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-06-12",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": -252.0,
+      "exit_val": 0.0,
+      "premium_basis": 252.0,
+      "pnl": 252.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260612P00739000",
+        "-2xO:SPY260612P00734000",
+        "1xO:SPY260612P00724000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-11",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": -95.0,
+      "exit_val": 1478.0,
+      "premium_basis": 95.0,
+      "pnl": 1573.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260626P00759000",
+        "-2xO:SPY260626P00754000",
+        "1xO:SPY260626P00744000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-06-24",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 1,
+      "entry_val": -92.0,
+      "exit_val": 459.0,
+      "premium_basis": 92.0,
+      "pnl": 551.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260710P00755000",
+        "-2xO:SPY260710P00750000",
+        "1xO:SPY260710P00740000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-06-24",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 1,
+      "entry_val": -83.0,
+      "exit_val": 286.0,
+      "premium_basis": 83.0,
+      "pnl": 369.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260717P00744000",
+        "-2xO:SPY260717P00739000",
+        "1xO:SPY260717P00729000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-23",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 1,
+      "entry_val": -112.0,
+      "exit_val": 70.0,
+      "premium_basis": 112.0,
+      "pnl": 182.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260724P00741000",
+        "-2xO:SPY260724P00736000",
+        "1xO:SPY260724P00726000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-22",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": -116.0,
+      "exit_val": 68.0,
+      "premium_basis": 116.0,
+      "pnl": 184.0,
+      "exit_reason": "TP_125PCT",
+      "legs": [
+        "1xO:SPY260731P00751000",
+        "-2xO:SPY260731P00746000",
+        "1xO:SPY260731P00736000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-08-05",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": -118.0,
+      "exit_val": 2.0,
+      "premium_basis": 118.0,
+      "pnl": 120.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260807P00749000",
+        "-2xO:SPY260807P00744000",
+        "1xO:SPY260807P00734000"
+      ]
+    },
+    {
+      "strategy": "Broken-Wing Put Butterfly",
+      "tp_pct": 125,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-08-05",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 1,
+      "entry_val": -144.0,
+      "exit_val": 11.0,
+      "premium_basis": 144.0,
+      "pnl": 155.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260814P00742000",
+        "-2xO:SPY260814P00737000",
+        "1xO:SPY260814P00727000"
+      ]
+    }
+  ]
+}

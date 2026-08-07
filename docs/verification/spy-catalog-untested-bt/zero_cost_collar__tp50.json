@@ -1,0 +1,1862 @@
+{
+  "strategy": "Zero-Cost Collar",
+  "tp_pct": 50,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 92,
+    "total_pnl": 21410.0,
+    "win_rate": 0.8913,
+    "avg_pnl": 232.72,
+    "tp_hits": 82,
+    "sl_hits": 0,
+    "expiry_exits": 10
+  },
+  "trades": [
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-08-13",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 2,
+      "entry_val": 107060.0,
+      "exit_val": 107394.0,
+      "premium_basis": 406.0,
+      "pnl": 334.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY240906P00528000",
+        "-2xO:SPY240906C00543000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-08-23",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 2,
+      "entry_val": 112286.0,
+      "exit_val": 112468.0,
+      "premium_basis": 364.0,
+      "pnl": 182.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY240913P00555000",
+        "-2xO:SPY240913C00570000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-19",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 2,
+      "entry_val": 112646.0,
+      "exit_val": 114036.0,
+      "premium_basis": 488.0,
+      "pnl": 1390.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY240920P00556000",
+        "-2xO:SPY240920C00571000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-12",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": 55549.0,
+      "exit_val": 55807.0,
+      "premium_basis": 341.0,
+      "pnl": 258.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY240927P00547000",
+        "-1xO:SPY240927C00562000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-09-11",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": 54981.0,
+      "exit_val": 55171.0,
+      "premium_basis": 340.0,
+      "pnl": 190.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY241004P00541000",
+        "-1xO:SPY241004C00556000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-09-19",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": 56577.0,
+      "exit_val": 56836.0,
+      "premium_basis": 293.0,
+      "pnl": 259.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY241011P00558000",
+        "-1xO:SPY241011C00573000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-09-27",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 2,
+      "entry_val": 114304.0,
+      "exit_val": 114498.0,
+      "premium_basis": 370.0,
+      "pnl": 194.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY241018P00565000",
+        "-2xO:SPY241018C00580000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-09",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 2,
+      "entry_val": 115146.0,
+      "exit_val": 115484.0,
+      "premium_basis": 394.0,
+      "pnl": 338.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY241025P00569000",
+        "-2xO:SPY241025C00584000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-10-09",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 2,
+      "entry_val": 114050.0,
+      "exit_val": 114548.0,
+      "premium_basis": 490.0,
+      "pnl": 498.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY241101P00563000",
+        "-2xO:SPY241101C00578000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-06",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 4,
+      "entry_val": 234168.0,
+      "exit_val": 235944.0,
+      "premium_basis": 440.0,
+      "pnl": 1776.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "400xSTK",
+        "4xO:SPY241108P00579000",
+        "-4xO:SPY241108C00594000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-06",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 2,
+      "entry_val": 117088.0,
+      "exit_val": 117730.0,
+      "premium_basis": 362.0,
+      "pnl": 642.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY241115P00579000",
+        "-2xO:SPY241115C00594000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-06",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 3,
+      "entry_val": 174723.0,
+      "exit_val": 175752.0,
+      "premium_basis": 474.0,
+      "pnl": 1029.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY241122P00576000",
+        "-3xO:SPY241122C00591000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-06",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 2,
+      "entry_val": 114364.0,
+      "exit_val": 115202.0,
+      "premium_basis": 402.0,
+      "pnl": 838.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY241129P00565000",
+        "-2xO:SPY241129C00580000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-11-26",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 3,
+      "entry_val": 180006.0,
+      "exit_val": 180282.0,
+      "premium_basis": 378.0,
+      "pnl": 276.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY241206P00594000",
+        "-3xO:SPY241206C00609000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-11-20",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 3,
+      "entry_val": 176841.0,
+      "exit_val": 177117.0,
+      "premium_basis": 396.0,
+      "pnl": 276.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY241213P00583000",
+        "-3xO:SPY241213C00598000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-11-26",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 2,
+      "entry_val": 119908.0,
+      "exit_val": 120116.0,
+      "premium_basis": 402.0,
+      "pnl": 208.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY241220P00593000",
+        "-2xO:SPY241220C00608000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-04",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 2,
+      "entry_val": 121136.0,
+      "exit_val": 121536.0,
+      "premium_basis": 410.0,
+      "pnl": 400.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY241227P00599000",
+        "-2xO:SPY241227C00614000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": 60733.0,
+      "exit_val": 60012.0,
+      "premium_basis": 265.0,
+      "pnl": -721.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250103P00600000",
+        "-1xO:SPY250103C00615000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 2,
+      "entry_val": 121846.0,
+      "exit_val": 120444.0,
+      "premium_basis": 488.0,
+      "pnl": -1402.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250110P00602000",
+        "-2xO:SPY250110C00617000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2024-12-24",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 3,
+      "entry_val": 178890.0,
+      "exit_val": 179643.0,
+      "premium_basis": 483.0,
+      "pnl": 753.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250117P00590000",
+        "-3xO:SPY250117C00605000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-03",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 7,
+      "entry_val": 412244.0,
+      "exit_val": 413826.0,
+      "premium_basis": 490.0,
+      "pnl": 1582.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "700xSTK",
+        "7xO:SPY250124P00583000",
+        "-7xO:SPY250124C00598000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-17",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 4,
+      "entry_val": 238644.0,
+      "exit_val": 239192.0,
+      "premium_basis": 500.0,
+      "pnl": 548.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "400xSTK",
+        "4xO:SPY250131P00590000",
+        "-4xO:SPY250131C00605000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-01-14",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 3,
+      "entry_val": 174867.0,
+      "exit_val": 175116.0,
+      "premium_basis": 450.0,
+      "pnl": 249.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250207P00576000",
+        "-3xO:SPY250207C00591000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-01-28",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 3,
+      "entry_val": 180192.0,
+      "exit_val": 180627.0,
+      "premium_basis": 381.0,
+      "pnl": 435.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250221P00594000",
+        "-3xO:SPY250221C00609000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-04",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 2,
+      "entry_val": 119910.0,
+      "exit_val": 120308.0,
+      "premium_basis": 356.0,
+      "pnl": 398.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250228P00593000",
+        "-2xO:SPY250228C00608000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-02-13",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 2,
+      "entry_val": 121410.0,
+      "exit_val": 121686.0,
+      "premium_basis": 440.0,
+      "pnl": 276.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250307P00600000",
+        "-2xO:SPY250307C00615000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 3,
+      "entry_val": 183882.0,
+      "exit_val": 184590.0,
+      "premium_basis": 435.0,
+      "pnl": 708.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250314P00606000",
+        "-3xO:SPY250314C00621000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 2,
+      "entry_val": 119884.0,
+      "exit_val": 118294.0,
+      "premium_basis": 442.0,
+      "pnl": -1590.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250321P00592000",
+        "-2xO:SPY250321C00607000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-03",
+      "exit_date": "2025-03-28",
+      "spot": 583.77,
+      "exp_near": "2025-03-28",
+      "mult": 1,
+      "entry_val": 58675.0,
+      "exit_val": 57922.0,
+      "premium_basis": 298.0,
+      "pnl": -753.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250328P00579000",
+        "-1xO:SPY250328C00594000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-03-25",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 2,
+      "entry_val": 113922.0,
+      "exit_val": 114244.0,
+      "premium_basis": 492.0,
+      "pnl": 322.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250411P00562000",
+        "-2xO:SPY250411C00577000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-01",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 3,
+      "entry_val": 168246.0,
+      "exit_val": 168504.0,
+      "premium_basis": 429.0,
+      "pnl": 258.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250425P00554000",
+        "-3xO:SPY250425C00569000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-04-15",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 4,
+      "entry_val": 216132.0,
+      "exit_val": 216380.0,
+      "premium_basis": 484.0,
+      "pnl": 248.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "400xSTK",
+        "4xO:SPY250509P00534000",
+        "-4xO:SPY250509C00549000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-04-22",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 3,
+      "entry_val": 154635.0,
+      "exit_val": 155325.0,
+      "premium_basis": 471.0,
+      "pnl": 690.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250516P00509000",
+        "-3xO:SPY250516C00524000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-01",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": 55394.0,
+      "exit_val": 55598.0,
+      "premium_basis": 309.0,
+      "pnl": 204.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250523P00546000",
+        "-1xO:SPY250523C00561000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-12",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": 56608.0,
+      "exit_val": 57004.0,
+      "premium_basis": 257.0,
+      "pnl": 396.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250530P00559000",
+        "-1xO:SPY250530C00574000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-06",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 2,
+      "entry_val": 119428.0,
+      "exit_val": 119718.0,
+      "premium_basis": 458.0,
+      "pnl": 290.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250613P00590000",
+        "-2xO:SPY250613C00605000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-03",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 2,
+      "entry_val": 118714.0,
+      "exit_val": 119110.0,
+      "premium_basis": 484.0,
+      "pnl": 396.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250620P00586000",
+        "-2xO:SPY250620C00601000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-06",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": 59597.0,
+      "exit_val": 59781.0,
+      "premium_basis": 326.0,
+      "pnl": 184.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250627P00588000",
+        "-1xO:SPY250627C00603000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-06-26",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": 60609.0,
+      "exit_val": 60808.0,
+      "premium_basis": 341.0,
+      "pnl": 199.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250711P00598000",
+        "-1xO:SPY250711C00613000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-06-24",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 2,
+      "entry_val": 120396.0,
+      "exit_val": 120724.0,
+      "premium_basis": 366.0,
+      "pnl": 328.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250718P00595000",
+        "-2xO:SPY250718C00610000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-07-10",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 2,
+      "entry_val": 124542.0,
+      "exit_val": 124818.0,
+      "premium_basis": 406.0,
+      "pnl": 276.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250801P00616000",
+        "-2xO:SPY250801C00631000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-07-17",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 2,
+      "entry_val": 125306.0,
+      "exit_val": 125524.0,
+      "premium_basis": 344.0,
+      "pnl": 218.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250808P00620000",
+        "-2xO:SPY250808C00635000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-07-23",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 2,
+      "entry_val": 126092.0,
+      "exit_val": 126492.0,
+      "premium_basis": 338.0,
+      "pnl": 400.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250815P00624000",
+        "-2xO:SPY250815C00639000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-12",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 3,
+      "entry_val": 191520.0,
+      "exit_val": 192417.0,
+      "premium_basis": 438.0,
+      "pnl": 897.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250822P00632000",
+        "-3xO:SPY250822C00647000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-08",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 3,
+      "entry_val": 189849.0,
+      "exit_val": 190377.0,
+      "premium_basis": 498.0,
+      "pnl": 528.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250829P00626000",
+        "-3xO:SPY250829C00641000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-08-12",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 2,
+      "entry_val": 127608.0,
+      "exit_val": 127930.0,
+      "premium_basis": 424.0,
+      "pnl": 322.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250905P00631000",
+        "-2xO:SPY250905C00646000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-08-22",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 3,
+      "entry_val": 193374.0,
+      "exit_val": 193680.0,
+      "premium_basis": 384.0,
+      "pnl": 306.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250912P00638000",
+        "-3xO:SPY250912C00653000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-08-26",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 3,
+      "entry_val": 193194.0,
+      "exit_val": 193506.0,
+      "premium_basis": 453.0,
+      "pnl": 312.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY250919P00637000",
+        "-3xO:SPY250919C00652000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-03",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 2,
+      "entry_val": 128526.0,
+      "exit_val": 128890.0,
+      "premium_basis": 472.0,
+      "pnl": 364.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY250926P00635000",
+        "-2xO:SPY250926C00650000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-09-11",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": 65199.0,
+      "exit_val": 65445.0,
+      "premium_basis": 316.0,
+      "pnl": 246.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY251003P00644000",
+        "-1xO:SPY251003C00659000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-09-30",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": 66384.0,
+      "exit_val": 66588.0,
+      "premium_basis": 293.0,
+      "pnl": 204.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY251010P00656000",
+        "-1xO:SPY251010C00671000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-02",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 2,
+      "entry_val": 133740.0,
+      "exit_val": 133968.0,
+      "premium_basis": 372.0,
+      "pnl": 228.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY251017P00662000",
+        "-2xO:SPY251017C00677000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-02",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 2,
+      "entry_val": 133186.0,
+      "exit_val": 133464.0,
+      "premium_basis": 450.0,
+      "pnl": 278.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY251024P00659000",
+        "-2xO:SPY251024C00674000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-08",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 3,
+      "entry_val": 201981.0,
+      "exit_val": 202266.0,
+      "premium_basis": 498.0,
+      "pnl": 285.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY251031P00667000",
+        "-3xO:SPY251031C00682000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-10-15",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 2,
+      "entry_val": 132978.0,
+      "exit_val": 133210.0,
+      "premium_basis": 370.0,
+      "pnl": 232.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY251107P00658000",
+        "-2xO:SPY251107C00673000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-10-21",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 3,
+      "entry_val": 201804.0,
+      "exit_val": 202023.0,
+      "premium_basis": 414.0,
+      "pnl": 219.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY251114P00666000",
+        "-3xO:SPY251114C00681000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-10-28",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 4,
+      "entry_val": 274564.0,
+      "exit_val": 274836.0,
+      "premium_basis": 468.0,
+      "pnl": 272.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "400xSTK",
+        "4xO:SPY251121P00680000",
+        "-4xO:SPY251121C00695000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-28",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 3,
+      "entry_val": 205407.0,
+      "exit_val": 205017.0,
+      "premium_basis": 405.0,
+      "pnl": -390.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY251128P00678000",
+        "-3xO:SPY251128C00693000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-11-28",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 4,
+      "entry_val": 273060.0,
+      "exit_val": 273692.0,
+      "premium_basis": 484.0,
+      "pnl": 632.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "400xSTK",
+        "4xO:SPY251205P00676000",
+        "-4xO:SPY251205C00691000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-11-24",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 2,
+      "entry_val": 133510.0,
+      "exit_val": 133722.0,
+      "premium_basis": 376.0,
+      "pnl": 212.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY251212P00661000",
+        "-2xO:SPY251212C00676000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-11-25",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": 67127.0,
+      "exit_val": 67258.0,
+      "premium_basis": 254.0,
+      "pnl": 131.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY251219P00664000",
+        "-1xO:SPY251219C00679000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-05",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": 68307.0,
+      "exit_val": 68453.0,
+      "premium_basis": 280.0,
+      "pnl": 146.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY251226P00675000",
+        "-1xO:SPY251226C00690000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2025-12-24",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": 68718.0,
+      "exit_val": 68946.0,
+      "premium_basis": 355.0,
+      "pnl": 228.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260102P00679000",
+        "-1xO:SPY260102C00694000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2025-12-24",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": 68394.0,
+      "exit_val": 68651.0,
+      "premium_basis": 321.0,
+      "pnl": 257.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260109P00676000",
+        "-1xO:SPY260109C00691000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2025-12-23",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 3,
+      "entry_val": 205908.0,
+      "exit_val": 206301.0,
+      "premium_basis": 459.0,
+      "pnl": 393.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY260116P00680000",
+        "-3xO:SPY260116C00695000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-06",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 3,
+      "entry_val": 206820.0,
+      "exit_val": 207324.0,
+      "premium_basis": 465.0,
+      "pnl": 504.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY260123P00683000",
+        "-3xO:SPY260123C00698000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-06",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 2,
+      "entry_val": 137916.0,
+      "exit_val": 138134.0,
+      "premium_basis": 372.0,
+      "pnl": 218.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260130P00683000",
+        "-2xO:SPY260130C00698000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-01-27",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 3,
+      "entry_val": 209016.0,
+      "exit_val": 209253.0,
+      "premium_basis": 468.0,
+      "pnl": 237.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY260206P00690000",
+        "-3xO:SPY260206C00705000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-01-22",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": 68038.0,
+      "exit_val": 68242.0,
+      "premium_basis": 280.0,
+      "pnl": 204.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260213P00673000",
+        "-1xO:SPY260213C00688000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-01-28",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 2,
+      "entry_val": 138978.0,
+      "exit_val": 139200.0,
+      "premium_basis": 432.0,
+      "pnl": 222.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260220P00688000",
+        "-2xO:SPY260220C00703000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-27",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 3,
+      "entry_val": 209085.0,
+      "exit_val": 207054.0,
+      "premium_basis": 462.0,
+      "pnl": -2031.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY260227P00690000",
+        "-3xO:SPY260227C00705000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-03-06",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 2,
+      "entry_val": 139140.0,
+      "exit_val": 137996.0,
+      "premium_basis": 350.0,
+      "pnl": -1144.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260306P00689000",
+        "-2xO:SPY260306C00704000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-02-18",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 2,
+      "entry_val": 137062.0,
+      "exit_val": 137330.0,
+      "premium_basis": 492.0,
+      "pnl": 268.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260313P00678000",
+        "-2xO:SPY260313C00693000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-02-25",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": 68505.0,
+      "exit_val": 68721.0,
+      "premium_basis": 266.0,
+      "pnl": 216.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260320P00677000",
+        "-1xO:SPY260320C00692000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-27",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 1,
+      "entry_val": 69036.0,
+      "exit_val": 66771.0,
+      "premium_basis": 398.0,
+      "pnl": -2265.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260327P00681000",
+        "-1xO:SPY260327C00696000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-04-08",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": 67257.0,
+      "exit_val": 67492.0,
+      "premium_basis": 354.0,
+      "pnl": 235.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260410P00664000",
+        "-1xO:SPY260410C00679000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-04-06",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 2,
+      "entry_val": 131454.0,
+      "exit_val": 131806.0,
+      "premium_basis": 378.0,
+      "pnl": 352.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260417P00650000",
+        "-2xO:SPY260417C00665000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-03-31",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 2,
+      "entry_val": 126728.0,
+      "exit_val": 127430.0,
+      "premium_basis": 334.0,
+      "pnl": 702.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260424P00627000",
+        "-2xO:SPY260424C00642000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-04-08",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": 66197.0,
+      "exit_val": 66493.0,
+      "premium_basis": 304.0,
+      "pnl": 296.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260501P00654000",
+        "-1xO:SPY260501C00669000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-04-14",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 2,
+      "entry_val": 137620.0,
+      "exit_val": 138088.0,
+      "premium_basis": 400.0,
+      "pnl": 468.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260508P00681000",
+        "-2xO:SPY260508C00696000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-04-30",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 2,
+      "entry_val": 142240.0,
+      "exit_val": 142672.0,
+      "premium_basis": 496.0,
+      "pnl": 432.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260515P00704000",
+        "-2xO:SPY260515C00719000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-04-29",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 2,
+      "entry_val": 143370.0,
+      "exit_val": 143652.0,
+      "premium_basis": 336.0,
+      "pnl": 282.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260522P00710000",
+        "-2xO:SPY260522C00725000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-06",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 2,
+      "entry_val": 144020.0,
+      "exit_val": 144476.0,
+      "premium_basis": 418.0,
+      "pnl": 456.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260529P00713000",
+        "-2xO:SPY260529C00728000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-05-14",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 3,
+      "entry_val": 222288.0,
+      "exit_val": 222666.0,
+      "premium_basis": 498.0,
+      "pnl": 378.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY260605P00734000",
+        "-3xO:SPY260605C00749000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-05-28",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": 74217.0,
+      "exit_val": 74430.0,
+      "premium_basis": 352.0,
+      "pnl": 213.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260612P00734000",
+        "-1xO:SPY260612C00749000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-26",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": 76171.0,
+      "exit_val": 75088.0,
+      "premium_basis": 317.0,
+      "pnl": -1083.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260626P00754000",
+        "-1xO:SPY260626C00769000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-07-10",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 1,
+      "entry_val": 75775.0,
+      "exit_val": 75495.0,
+      "premium_basis": 292.0,
+      "pnl": -280.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY260710P00750000",
+        "-1xO:SPY260710C00765000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-06-30",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 4,
+      "entry_val": 298208.0,
+      "exit_val": 298780.0,
+      "premium_basis": 452.0,
+      "pnl": 572.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "400xSTK",
+        "4xO:SPY260717P00739000",
+        "-4xO:SPY260717C00754000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-06-30",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 3,
+      "entry_val": 222696.0,
+      "exit_val": 223254.0,
+      "premium_basis": 396.0,
+      "pnl": 558.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "300xSTK",
+        "3xO:SPY260724P00736000",
+        "-3xO:SPY260724C00751000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-10",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 4,
+      "entry_val": 300976.0,
+      "exit_val": 301528.0,
+      "premium_basis": 464.0,
+      "pnl": 552.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "400xSTK",
+        "4xO:SPY260731P00746000",
+        "-4xO:SPY260731C00761000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-07-15",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 2,
+      "entry_val": 150168.0,
+      "exit_val": 150444.0,
+      "premium_basis": 334.0,
+      "pnl": 276.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260807P00744000",
+        "-2xO:SPY260807C00759000"
+      ]
+    },
+    {
+      "strategy": "Zero-Cost Collar",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-07-21",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 2,
+      "entry_val": 148814.0,
+      "exit_val": 149104.0,
+      "premium_basis": 396.0,
+      "pnl": 290.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "200xSTK",
+        "2xO:SPY260814P00737000",
+        "-2xO:SPY260814C00752000"
+      ]
+    }
+  ]
+}

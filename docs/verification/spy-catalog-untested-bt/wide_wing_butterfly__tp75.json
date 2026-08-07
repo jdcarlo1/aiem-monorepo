@@ -1,0 +1,1722 @@
+{
+  "strategy": "Wide-Wing Butterfly",
+  "tp_pct": 75,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 85,
+    "total_pnl": 43356.0,
+    "win_rate": 0.8,
+    "avg_pnl": 510.07,
+    "tp_hits": 65,
+    "sl_hits": 0,
+    "expiry_exits": 20
+  },
+  "trades": [
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-08-22",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 2,
+      "entry_val": 496.0,
+      "exit_val": 1282.0,
+      "premium_basis": 496.0,
+      "pnl": 786.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY240906C00523000",
+        "-4xO:SPY240906C00533000",
+        "2xO:SPY240906C00543000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-08-28",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 2,
+      "entry_val": 338.0,
+      "exit_val": 674.0,
+      "premium_basis": 338.0,
+      "pnl": 336.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY240913C00550000",
+        "-4xO:SPY240913C00560000",
+        "2xO:SPY240913C00570000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-18",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 2,
+      "entry_val": 488.0,
+      "exit_val": 910.0,
+      "premium_basis": 488.0,
+      "pnl": 422.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY240920C00551000",
+        "-4xO:SPY240920C00561000",
+        "2xO:SPY240920C00571000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-01",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 2,
+      "entry_val": 358.0,
+      "exit_val": 670.0,
+      "premium_basis": 358.0,
+      "pnl": 312.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY241011C00553000",
+        "-4xO:SPY241011C00563000",
+        "2xO:SPY241011C00573000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 2,
+      "entry_val": 494.0,
+      "exit_val": 8.0,
+      "premium_basis": 494.0,
+      "pnl": -486.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241018C00560000",
+        "-4xO:SPY241018C00570000",
+        "2xO:SPY241018C00580000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-01",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": -56.0,
+      "exit_val": 307.0,
+      "premium_basis": 56.0,
+      "pnl": 363.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY241025C00564000",
+        "-2xO:SPY241025C00574000",
+        "1xO:SPY241025C00584000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-10-15",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 4,
+      "entry_val": 432.0,
+      "exit_val": 864.0,
+      "premium_basis": 432.0,
+      "pnl": 432.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "4xO:SPY241101C00558000",
+        "-8xO:SPY241101C00568000",
+        "4xO:SPY241101C00578000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-08",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 2,
+      "entry_val": 334.0,
+      "exit_val": -46.0,
+      "premium_basis": 334.0,
+      "pnl": -380.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241108C00574000",
+        "-4xO:SPY241108C00584000",
+        "2xO:SPY241108C00594000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-10-22",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 6,
+      "entry_val": 498.0,
+      "exit_val": 1410.0,
+      "premium_basis": 498.0,
+      "pnl": 912.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "6xO:SPY241115C00574000",
+        "-12xO:SPY241115C00584000",
+        "6xO:SPY241115C00594000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-22",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 2,
+      "entry_val": 352.0,
+      "exit_val": 302.0,
+      "premium_basis": 352.0,
+      "pnl": -50.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241122C00571000",
+        "-4xO:SPY241122C00581000",
+        "2xO:SPY241122C00591000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-29",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 3,
+      "entry_val": 429.0,
+      "exit_val": -57.0,
+      "premium_basis": 429.0,
+      "pnl": -486.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY241129C00560000",
+        "-6xO:SPY241129C00570000",
+        "3xO:SPY241129C00580000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-11-27",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 2,
+      "entry_val": 460.0,
+      "exit_val": 844.0,
+      "premium_basis": 460.0,
+      "pnl": 384.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY241206C00589000",
+        "-4xO:SPY241206C00599000",
+        "2xO:SPY241206C00609000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-11-22",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 5,
+      "entry_val": 425.0,
+      "exit_val": 1215.0,
+      "premium_basis": 425.0,
+      "pnl": 790.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "5xO:SPY241213C00578000",
+        "-10xO:SPY241213C00588000",
+        "5xO:SPY241213C00598000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 2,
+      "entry_val": 464.0,
+      "exit_val": 506.0,
+      "premium_basis": 464.0,
+      "pnl": 42.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241220C00588000",
+        "-4xO:SPY241220C00598000",
+        "2xO:SPY241220C00608000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-24",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": 306.0,
+      "exit_val": 642.0,
+      "premium_basis": 306.0,
+      "pnl": 336.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY241227C00594000",
+        "-2xO:SPY241227C00604000",
+        "1xO:SPY241227C00614000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2024-12-26",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": 299.0,
+      "exit_val": 535.0,
+      "premium_basis": 299.0,
+      "pnl": 236.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250103C00595000",
+        "-2xO:SPY250103C00605000",
+        "1xO:SPY250103C00615000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": 345.0,
+      "exit_val": 0.0,
+      "premium_basis": 345.0,
+      "pnl": -345.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250110C00597000",
+        "-2xO:SPY250110C00607000",
+        "1xO:SPY250110C00617000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-03",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 3,
+      "entry_val": 480.0,
+      "exit_val": 840.0,
+      "premium_basis": 480.0,
+      "pnl": 360.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY250117C00585000",
+        "-6xO:SPY250117C00595000",
+        "3xO:SPY250117C00605000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-24",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": 359.0,
+      "exit_val": 110.0,
+      "premium_basis": 359.0,
+      "pnl": -249.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250124C00578000",
+        "-2xO:SPY250124C00588000",
+        "1xO:SPY250124C00598000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-29",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 2,
+      "entry_val": 396.0,
+      "exit_val": 1072.0,
+      "premium_basis": 396.0,
+      "pnl": 676.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY250131C00585000",
+        "-4xO:SPY250131C00595000",
+        "2xO:SPY250131C00605000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-01-16",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": -111.0,
+      "exit_val": 234.0,
+      "premium_basis": 111.0,
+      "pnl": 345.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250207C00571000",
+        "-2xO:SPY250207C00581000",
+        "1xO:SPY250207C00591000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-01-28",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 8,
+      "entry_val": 488.0,
+      "exit_val": 1952.0,
+      "premium_basis": 488.0,
+      "pnl": 1464.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "8xO:SPY250221C00589000",
+        "-16xO:SPY250221C00599000",
+        "8xO:SPY250221C00609000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-24",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 3,
+      "entry_val": 453.0,
+      "exit_val": 1269.0,
+      "premium_basis": 453.0,
+      "pnl": 816.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY250228C00588000",
+        "-6xO:SPY250228C00598000",
+        "3xO:SPY250228C00608000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 2,
+      "entry_val": 424.0,
+      "exit_val": 0.0,
+      "premium_basis": 424.0,
+      "pnl": -424.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250307C00595000",
+        "-4xO:SPY250307C00605000",
+        "2xO:SPY250307C00615000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-02-19",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 4,
+      "entry_val": 444.0,
+      "exit_val": 1048.0,
+      "premium_basis": 444.0,
+      "pnl": 604.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "4xO:SPY250314C00601000",
+        "-8xO:SPY250314C00611000",
+        "4xO:SPY250314C00621000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 2,
+      "entry_val": 430.0,
+      "exit_val": 0.0,
+      "premium_basis": 430.0,
+      "pnl": -430.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250321C00587000",
+        "-4xO:SPY250321C00597000",
+        "2xO:SPY250321C00607000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-03-20",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 2,
+      "entry_val": 396.0,
+      "exit_val": 828.0,
+      "premium_basis": 396.0,
+      "pnl": 432.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY250411C00557000",
+        "-4xO:SPY250411C00567000",
+        "2xO:SPY250411C00577000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-25",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 2,
+      "entry_val": 456.0,
+      "exit_val": 358.0,
+      "premium_basis": 456.0,
+      "pnl": -98.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250425C00549000",
+        "-4xO:SPY250425C00559000",
+        "2xO:SPY250425C00569000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-04-30",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 2,
+      "entry_val": 438.0,
+      "exit_val": 1808.0,
+      "premium_basis": 438.0,
+      "pnl": 1370.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY250509C00529000",
+        "-4xO:SPY250509C00539000",
+        "2xO:SPY250509C00549000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-05-05",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": -52.0,
+      "exit_val": 8.0,
+      "premium_basis": 52.0,
+      "pnl": 60.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250516C00504000",
+        "-2xO:SPY250516C00514000",
+        "1xO:SPY250516C00524000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-04-29",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": -185.0,
+      "exit_val": 95.0,
+      "premium_basis": 185.0,
+      "pnl": 280.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250523C00541000",
+        "-2xO:SPY250523C00551000",
+        "1xO:SPY250523C00561000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-30",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": 293.0,
+      "exit_val": 42.0,
+      "premium_basis": 293.0,
+      "pnl": -251.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250530C00554000",
+        "-2xO:SPY250530C00564000",
+        "1xO:SPY250530C00574000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-03",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 2,
+      "entry_val": 394.0,
+      "exit_val": 690.0,
+      "premium_basis": 394.0,
+      "pnl": 296.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY250613C00585000",
+        "-4xO:SPY250613C00595000",
+        "2xO:SPY250613C00605000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-05-29",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 3,
+      "entry_val": 381.0,
+      "exit_val": 675.0,
+      "premium_basis": 381.0,
+      "pnl": 294.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY250620C00581000",
+        "-6xO:SPY250620C00591000",
+        "3xO:SPY250620C00601000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-04",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 4,
+      "entry_val": 452.0,
+      "exit_val": 984.0,
+      "premium_basis": 452.0,
+      "pnl": 532.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "4xO:SPY250627C00583000",
+        "-8xO:SPY250627C00593000",
+        "4xO:SPY250627C00603000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-06-17",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 6,
+      "entry_val": 432.0,
+      "exit_val": 1134.0,
+      "premium_basis": 432.0,
+      "pnl": 702.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "6xO:SPY250711C00593000",
+        "-12xO:SPY250711C00603000",
+        "6xO:SPY250711C00613000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-18",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 3,
+      "entry_val": 423.0,
+      "exit_val": 0.0,
+      "premium_basis": 423.0,
+      "pnl": -423.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250718C00590000",
+        "-6xO:SPY250718C00600000",
+        "3xO:SPY250718C00610000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-07-15",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 3,
+      "entry_val": 420.0,
+      "exit_val": 1005.0,
+      "premium_basis": 420.0,
+      "pnl": 585.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY250801C00611000",
+        "-6xO:SPY250801C00621000",
+        "3xO:SPY250801C00631000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-05",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 2,
+      "entry_val": 396.0,
+      "exit_val": 706.0,
+      "premium_basis": 396.0,
+      "pnl": 310.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY250808C00615000",
+        "-4xO:SPY250808C00625000",
+        "2xO:SPY250808C00635000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-15",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 2,
+      "entry_val": 360.0,
+      "exit_val": 72.0,
+      "premium_basis": 360.0,
+      "pnl": -288.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250815C00619000",
+        "-4xO:SPY250815C00629000",
+        "2xO:SPY250815C00639000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-07-31",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 2,
+      "entry_val": 346.0,
+      "exit_val": 608.0,
+      "premium_basis": 346.0,
+      "pnl": 262.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY250822C00627000",
+        "-4xO:SPY250822C00637000",
+        "2xO:SPY250822C00647000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-05",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 19,
+      "entry_val": 494.0,
+      "exit_val": 4484.0,
+      "premium_basis": 494.0,
+      "pnl": 3990.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "19xO:SPY250829C00621000",
+        "-38xO:SPY250829C00631000",
+        "19xO:SPY250829C00641000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-08-19",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 2,
+      "entry_val": 370.0,
+      "exit_val": 726.0,
+      "premium_basis": 370.0,
+      "pnl": 356.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY250905C00626000",
+        "-4xO:SPY250905C00636000",
+        "2xO:SPY250905C00646000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-08-20",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 3,
+      "entry_val": 492.0,
+      "exit_val": 888.0,
+      "premium_basis": 492.0,
+      "pnl": 396.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY250912C00633000",
+        "-6xO:SPY250912C00643000",
+        "3xO:SPY250912C00653000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-19",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": 377.0,
+      "exit_val": 31.0,
+      "premium_basis": 377.0,
+      "pnl": -346.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250919C00632000",
+        "-2xO:SPY250919C00642000",
+        "1xO:SPY250919C00652000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-05",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 6,
+      "entry_val": 432.0,
+      "exit_val": 792.0,
+      "premium_basis": 432.0,
+      "pnl": 360.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "6xO:SPY250926C00630000",
+        "-12xO:SPY250926C00640000",
+        "6xO:SPY250926C00650000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-09-10",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 2,
+      "entry_val": 408.0,
+      "exit_val": 780.0,
+      "premium_basis": 408.0,
+      "pnl": 372.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY251003C00639000",
+        "-4xO:SPY251003C00649000",
+        "2xO:SPY251003C00659000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 2,
+      "entry_val": 448.0,
+      "exit_val": 554.0,
+      "premium_basis": 448.0,
+      "pnl": 106.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY251010C00651000",
+        "-4xO:SPY251010C00661000",
+        "2xO:SPY251010C00671000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-15",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 2,
+      "entry_val": 484.0,
+      "exit_val": 1012.0,
+      "premium_basis": 484.0,
+      "pnl": 528.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY251017C00657000",
+        "-4xO:SPY251017C00667000",
+        "2xO:SPY251017C00677000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-31",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 2,
+      "entry_val": 402.0,
+      "exit_val": 24.0,
+      "premium_basis": 402.0,
+      "pnl": -378.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY251031C00662000",
+        "-4xO:SPY251031C00672000",
+        "2xO:SPY251031C00682000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-10-14",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 2,
+      "entry_val": 356.0,
+      "exit_val": 758.0,
+      "premium_basis": 356.0,
+      "pnl": 402.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY251107C00653000",
+        "-4xO:SPY251107C00663000",
+        "2xO:SPY251107C00673000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-13",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 2,
+      "entry_val": 392.0,
+      "exit_val": 888.0,
+      "premium_basis": 392.0,
+      "pnl": 496.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY251114C00661000",
+        "-4xO:SPY251114C00671000",
+        "2xO:SPY251114C00681000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 3,
+      "entry_val": 489.0,
+      "exit_val": 0.0,
+      "premium_basis": 489.0,
+      "pnl": -489.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY251121C00675000",
+        "-6xO:SPY251121C00685000",
+        "3xO:SPY251121C00695000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-05",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 3,
+      "entry_val": 465.0,
+      "exit_val": 1089.0,
+      "premium_basis": 465.0,
+      "pnl": 624.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY251128C00673000",
+        "-6xO:SPY251128C00683000",
+        "3xO:SPY251128C00693000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-11-13",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 3,
+      "entry_val": 405.0,
+      "exit_val": 801.0,
+      "premium_basis": 405.0,
+      "pnl": 396.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY251205C00671000",
+        "-6xO:SPY251205C00681000",
+        "3xO:SPY251205C00691000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-04",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 3,
+      "entry_val": 423.0,
+      "exit_val": 798.0,
+      "premium_basis": 423.0,
+      "pnl": 375.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY251219C00659000",
+        "-6xO:SPY251219C00669000",
+        "3xO:SPY251219C00679000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-16",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 2,
+      "entry_val": 396.0,
+      "exit_val": 694.0,
+      "premium_basis": 396.0,
+      "pnl": 298.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY251226C00670000",
+        "-4xO:SPY251226C00680000",
+        "2xO:SPY251226C00690000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2025-12-09",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 5,
+      "entry_val": 440.0,
+      "exit_val": 1515.0,
+      "premium_basis": 440.0,
+      "pnl": 1075.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "5xO:SPY260102C00674000",
+        "-10xO:SPY260102C00684000",
+        "5xO:SPY260102C00694000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2025-12-19",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 3,
+      "entry_val": 447.0,
+      "exit_val": 810.0,
+      "premium_basis": 447.0,
+      "pnl": 363.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY260109C00671000",
+        "-6xO:SPY260109C00681000",
+        "3xO:SPY260109C00691000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-14",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 2,
+      "entry_val": 400.0,
+      "exit_val": 716.0,
+      "premium_basis": 400.0,
+      "pnl": 316.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY260116C00675000",
+        "-4xO:SPY260116C00685000",
+        "2xO:SPY260116C00695000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-07",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": 264.0,
+      "exit_val": 510.0,
+      "premium_basis": 264.0,
+      "pnl": 246.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY260123C00678000",
+        "-2xO:SPY260123C00688000",
+        "1xO:SPY260123C00698000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-30",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": 276.0,
+      "exit_val": 692.0,
+      "premium_basis": 276.0,
+      "pnl": 416.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY260130C00678000",
+        "-2xO:SPY260130C00688000",
+        "1xO:SPY260130C00698000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-01-23",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 2,
+      "entry_val": 354.0,
+      "exit_val": 626.0,
+      "premium_basis": 354.0,
+      "pnl": 272.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY260206C00685000",
+        "-4xO:SPY260206C00695000",
+        "2xO:SPY260206C00705000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-02-13",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": 498.0,
+      "exit_val": 525.0,
+      "premium_basis": 498.0,
+      "pnl": 27.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260213C00668000",
+        "-2xO:SPY260213C00678000",
+        "1xO:SPY260213C00688000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-17",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 2,
+      "entry_val": 382.0,
+      "exit_val": 704.0,
+      "premium_basis": 382.0,
+      "pnl": 322.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY260220C00683000",
+        "-4xO:SPY260220C00693000",
+        "2xO:SPY260220C00703000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-11",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 4,
+      "entry_val": 496.0,
+      "exit_val": 1008.0,
+      "premium_basis": 496.0,
+      "pnl": 512.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "4xO:SPY260227C00685000",
+        "-8xO:SPY260227C00695000",
+        "4xO:SPY260227C00705000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-02-10",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 4,
+      "entry_val": 440.0,
+      "exit_val": 1160.0,
+      "premium_basis": 440.0,
+      "pnl": 720.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "4xO:SPY260306C00684000",
+        "-8xO:SPY260306C00694000",
+        "4xO:SPY260306C00704000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-10",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 3,
+      "entry_val": 417.0,
+      "exit_val": 870.0,
+      "premium_basis": 417.0,
+      "pnl": 453.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY260313C00673000",
+        "-6xO:SPY260313C00683000",
+        "3xO:SPY260313C00693000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-02-24",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 125,
+      "entry_val": 500.0,
+      "exit_val": 13500.0,
+      "premium_basis": 500.0,
+      "pnl": 13000.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "125xO:SPY260320C00672000",
+        "-250xO:SPY260320C00682000",
+        "125xO:SPY260320C00692000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-04-10",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 2,
+      "entry_val": 354.0,
+      "exit_val": 130.0,
+      "premium_basis": 354.0,
+      "pnl": -224.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY260410C00659000",
+        "-4xO:SPY260410C00669000",
+        "2xO:SPY260410C00679000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-03-25",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 11,
+      "entry_val": 462.0,
+      "exit_val": 957.0,
+      "premium_basis": 462.0,
+      "pnl": 495.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "11xO:SPY260417C00645000",
+        "-22xO:SPY260417C00655000",
+        "11xO:SPY260417C00665000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-04-20",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 7,
+      "entry_val": 455.0,
+      "exit_val": 1141.0,
+      "premium_basis": 455.0,
+      "pnl": 686.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "7xO:SPY260501C00649000",
+        "-14xO:SPY260501C00659000",
+        "7xO:SPY260501C00669000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-04-17",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 3,
+      "entry_val": 435.0,
+      "exit_val": 870.0,
+      "premium_basis": 435.0,
+      "pnl": 435.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY260508C00676000",
+        "-6xO:SPY260508C00686000",
+        "3xO:SPY260508C00696000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-04-21",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 5,
+      "entry_val": 455.0,
+      "exit_val": 925.0,
+      "premium_basis": 455.0,
+      "pnl": 470.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "5xO:SPY260515C00699000",
+        "-10xO:SPY260515C00709000",
+        "5xO:SPY260515C00719000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-05-22",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 2,
+      "entry_val": 352.0,
+      "exit_val": 50.0,
+      "premium_basis": 352.0,
+      "pnl": -302.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY260522C00705000",
+        "-4xO:SPY260522C00715000",
+        "2xO:SPY260522C00725000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-18",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 2,
+      "entry_val": 386.0,
+      "exit_val": 798.0,
+      "premium_basis": 386.0,
+      "pnl": 412.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY260529C00708000",
+        "-4xO:SPY260529C00718000",
+        "2xO:SPY260529C00728000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-05-12",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 4,
+      "entry_val": 496.0,
+      "exit_val": 1032.0,
+      "premium_basis": 496.0,
+      "pnl": 536.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "4xO:SPY260605C00729000",
+        "-8xO:SPY260605C00739000",
+        "4xO:SPY260605C00749000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-05-19",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 4,
+      "entry_val": 424.0,
+      "exit_val": 1448.0,
+      "premium_basis": 424.0,
+      "pnl": 1024.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "4xO:SPY260612C00729000",
+        "-8xO:SPY260612C00739000",
+        "4xO:SPY260612C00749000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-03",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 3,
+      "entry_val": 384.0,
+      "exit_val": 1107.0,
+      "premium_basis": 384.0,
+      "pnl": 723.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY260626C00749000",
+        "-6xO:SPY260626C00759000",
+        "3xO:SPY260626C00769000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-07-06",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 2,
+      "entry_val": 400.0,
+      "exit_val": 950.0,
+      "premium_basis": 400.0,
+      "pnl": 550.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY260710C00745000",
+        "-4xO:SPY260710C00755000",
+        "2xO:SPY260710C00765000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-06-23",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 5,
+      "entry_val": 460.0,
+      "exit_val": 980.0,
+      "premium_basis": 460.0,
+      "pnl": 520.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "5xO:SPY260717C00734000",
+        "-10xO:SPY260717C00744000",
+        "5xO:SPY260717C00754000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-07",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 2,
+      "entry_val": 362.0,
+      "exit_val": 880.0,
+      "premium_basis": 362.0,
+      "pnl": 518.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY260724C00731000",
+        "-4xO:SPY260724C00741000",
+        "2xO:SPY260724C00751000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-16",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 3,
+      "entry_val": 459.0,
+      "exit_val": 1104.0,
+      "premium_basis": 459.0,
+      "pnl": 645.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY260731C00741000",
+        "-6xO:SPY260731C00751000",
+        "3xO:SPY260731C00761000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-07-31",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 2,
+      "entry_val": 406.0,
+      "exit_val": 712.0,
+      "premium_basis": 406.0,
+      "pnl": 306.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY260807C00739000",
+        "-4xO:SPY260807C00749000",
+        "2xO:SPY260807C00759000"
+      ]
+    },
+    {
+      "strategy": "Wide-Wing Butterfly",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-07-21",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 15,
+      "entry_val": 495.0,
+      "exit_val": 1020.0,
+      "premium_basis": 495.0,
+      "pnl": 525.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "15xO:SPY260814C00732000",
+        "-30xO:SPY260814C00742000",
+        "15xO:SPY260814C00752000"
+      ]
+    }
+  ]
+}

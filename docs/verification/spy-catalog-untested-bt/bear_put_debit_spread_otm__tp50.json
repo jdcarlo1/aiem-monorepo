@@ -1,0 +1,1789 @@
+{
+  "strategy": "Bear Put Debit Spread OTM",
+  "tp_pct": 50,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 93,
+    "total_pnl": 12549.0,
+    "win_rate": 0.6129,
+    "avg_pnl": 134.94,
+    "tp_hits": 56,
+    "sl_hits": 0,
+    "expiry_exits": 37
+  },
+  "trades": [
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-09-06",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 3,
+      "entry_val": 411.0,
+      "exit_val": 0.0,
+      "premium_basis": 411.0,
+      "pnl": -411.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY240906P00528000",
+        "-3xO:SPY240906P00523000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-03",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 3,
+      "entry_val": 393.0,
+      "exit_val": 618.0,
+      "premium_basis": 393.0,
+      "pnl": 225.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY240913P00555000",
+        "-3xO:SPY240913P00550000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-03",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 3,
+      "entry_val": 402.0,
+      "exit_val": 663.0,
+      "premium_basis": 402.0,
+      "pnl": 261.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY240920P00556000",
+        "-3xO:SPY240920P00551000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-27",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 2,
+      "entry_val": 376.0,
+      "exit_val": 0.0,
+      "premium_basis": 376.0,
+      "pnl": -376.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY240927P00547000",
+        "-2xO:SPY240927P00542000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-11",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 3,
+      "entry_val": 399.0,
+      "exit_val": 0.0,
+      "premium_basis": 399.0,
+      "pnl": -399.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY241011P00558000",
+        "-3xO:SPY241011P00553000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 4,
+      "entry_val": 476.0,
+      "exit_val": 0.0,
+      "premium_basis": 476.0,
+      "pnl": -476.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY241018P00565000",
+        "-4xO:SPY241018P00560000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-25",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 4,
+      "entry_val": 500.0,
+      "exit_val": 0.0,
+      "premium_basis": 500.0,
+      "pnl": -500.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY241025P00569000",
+        "-4xO:SPY241025P00564000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-11-01",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 3,
+      "entry_val": 477.0,
+      "exit_val": 0.0,
+      "premium_basis": 477.0,
+      "pnl": -477.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY241101P00563000",
+        "-3xO:SPY241101P00558000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-10-31",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 3,
+      "entry_val": 402.0,
+      "exit_val": 759.0,
+      "premium_basis": 402.0,
+      "pnl": 357.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY241108P00579000",
+        "-3xO:SPY241108P00574000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-10-23",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 4,
+      "entry_val": 452.0,
+      "exit_val": 804.0,
+      "premium_basis": 452.0,
+      "pnl": 352.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY241115P00579000",
+        "-4xO:SPY241115P00574000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-01",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 3,
+      "entry_val": 414.0,
+      "exit_val": 672.0,
+      "premium_basis": 414.0,
+      "pnl": 258.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY241122P00576000",
+        "-3xO:SPY241122P00571000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-29",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 2,
+      "entry_val": 378.0,
+      "exit_val": 0.0,
+      "premium_basis": 378.0,
+      "pnl": -378.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241129P00565000",
+        "-2xO:SPY241129P00560000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-11-15",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 3,
+      "entry_val": 387.0,
+      "exit_val": 981.0,
+      "premium_basis": 387.0,
+      "pnl": 594.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY241206P00594000",
+        "-3xO:SPY241206P00589000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-13",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 3,
+      "entry_val": 384.0,
+      "exit_val": 0.0,
+      "premium_basis": 384.0,
+      "pnl": -384.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY241213P00583000",
+        "-3xO:SPY241213P00578000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-18",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 3,
+      "entry_val": 399.0,
+      "exit_val": 1110.0,
+      "premium_basis": 399.0,
+      "pnl": 711.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY241220P00593000",
+        "-3xO:SPY241220P00588000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-18",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 4,
+      "entry_val": 464.0,
+      "exit_val": 2200.0,
+      "premium_basis": 464.0,
+      "pnl": 1736.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY241227P00599000",
+        "-4xO:SPY241227P00594000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2024-12-18",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 3,
+      "entry_val": 429.0,
+      "exit_val": 1110.0,
+      "premium_basis": 429.0,
+      "pnl": 681.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250103P00600000",
+        "-3xO:SPY250103P00595000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2024-12-18",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 3,
+      "entry_val": 399.0,
+      "exit_val": 1215.0,
+      "premium_basis": 399.0,
+      "pnl": 816.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250110P00602000",
+        "-3xO:SPY250110P00597000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2024-12-31",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 4,
+      "entry_val": 492.0,
+      "exit_val": 860.0,
+      "premium_basis": 492.0,
+      "pnl": 368.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY250117P00590000",
+        "-4xO:SPY250117P00585000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2024-12-31",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 12,
+      "entry_val": 492.0,
+      "exit_val": 1380.0,
+      "premium_basis": 492.0,
+      "pnl": 888.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "12xO:SPY250124P00583000",
+        "-12xO:SPY250124P00578000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-10",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 3,
+      "entry_val": 393.0,
+      "exit_val": 672.0,
+      "premium_basis": 393.0,
+      "pnl": 279.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250131P00590000",
+        "-3xO:SPY250131P00585000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-02-07",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 3,
+      "entry_val": 459.0,
+      "exit_val": 0.0,
+      "premium_basis": 459.0,
+      "pnl": -459.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250207P00576000",
+        "-3xO:SPY250207P00571000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-14",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 3,
+      "entry_val": 480.0,
+      "exit_val": 0.0,
+      "premium_basis": 480.0,
+      "pnl": -480.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250214P00598000",
+        "-3xO:SPY250214P00593000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 3,
+      "entry_val": 405.0,
+      "exit_val": 3.0,
+      "premium_basis": 405.0,
+      "pnl": -402.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250221P00594000",
+        "-3xO:SPY250221P00589000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-27",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 3,
+      "entry_val": 435.0,
+      "exit_val": 1134.0,
+      "premium_basis": 435.0,
+      "pnl": 699.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250228P00593000",
+        "-3xO:SPY250228P00588000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-02-25",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 3,
+      "entry_val": 408.0,
+      "exit_val": 726.0,
+      "premium_basis": 408.0,
+      "pnl": 318.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250307P00600000",
+        "-3xO:SPY250307P00595000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-02-21",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 4,
+      "entry_val": 468.0,
+      "exit_val": 792.0,
+      "premium_basis": 468.0,
+      "pnl": 324.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY250314P00606000",
+        "-4xO:SPY250314P00601000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-03",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 3,
+      "entry_val": 444.0,
+      "exit_val": 1095.0,
+      "premium_basis": 444.0,
+      "pnl": 651.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250321P00592000",
+        "-3xO:SPY250321P00587000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-03-18",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 3,
+      "entry_val": 477.0,
+      "exit_val": 732.0,
+      "premium_basis": 477.0,
+      "pnl": 255.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250411P00562000",
+        "-3xO:SPY250411P00557000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-03",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 4,
+      "entry_val": 436.0,
+      "exit_val": 1804.0,
+      "premium_basis": 436.0,
+      "pnl": 1368.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY250425P00554000",
+        "-4xO:SPY250425P00549000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-04-15",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 4,
+      "entry_val": 452.0,
+      "exit_val": 776.0,
+      "premium_basis": 452.0,
+      "pnl": 324.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY250509P00534000",
+        "-4xO:SPY250509P00529000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-05-16",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 3,
+      "entry_val": 462.0,
+      "exit_val": 0.0,
+      "premium_basis": 462.0,
+      "pnl": -462.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250516P00509000",
+        "-3xO:SPY250516P00504000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-23",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 4,
+      "entry_val": 412.0,
+      "exit_val": 0.0,
+      "premium_basis": 412.0,
+      "pnl": -412.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY250523P00546000",
+        "-4xO:SPY250523P00541000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-30",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 3,
+      "entry_val": 468.0,
+      "exit_val": 0.0,
+      "premium_basis": 468.0,
+      "pnl": -468.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250530P00559000",
+        "-3xO:SPY250530P00554000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-05-13",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 5,
+      "entry_val": 430.0,
+      "exit_val": 655.0,
+      "premium_basis": 430.0,
+      "pnl": 225.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "5xO:SPY250606P00578000",
+        "-5xO:SPY250606P00573000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-05-22",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 3,
+      "entry_val": 471.0,
+      "exit_val": 750.0,
+      "premium_basis": 471.0,
+      "pnl": 279.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY250613P00590000",
+        "-3xO:SPY250613P00585000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 3,
+      "entry_val": 444.0,
+      "exit_val": 3.0,
+      "premium_basis": 444.0,
+      "pnl": -441.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250620P00586000",
+        "-3xO:SPY250620P00581000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 3,
+      "entry_val": 441.0,
+      "exit_val": 0.0,
+      "premium_basis": 441.0,
+      "pnl": -441.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250627P00588000",
+        "-3xO:SPY250627P00583000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-06-17",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 4,
+      "entry_val": 428.0,
+      "exit_val": 952.0,
+      "premium_basis": 428.0,
+      "pnl": 524.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY250711P00598000",
+        "-4xO:SPY250711P00593000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-18",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 3,
+      "entry_val": 378.0,
+      "exit_val": 0.0,
+      "premium_basis": 378.0,
+      "pnl": -378.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250718P00595000",
+        "-3xO:SPY250718P00590000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-30",
+      "exit_date": "2025-07-25",
+      "spot": 617.85,
+      "exp_near": "2025-07-25",
+      "mult": 4,
+      "entry_val": 468.0,
+      "exit_val": 0.0,
+      "premium_basis": 468.0,
+      "pnl": -468.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY250725P00613000",
+        "-4xO:SPY250725P00608000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-07-08",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 14,
+      "entry_val": 490.0,
+      "exit_val": 2198.0,
+      "premium_basis": 490.0,
+      "pnl": 1708.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "14xO:SPY250801P00616000",
+        "-14xO:SPY250801P00611000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-08",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 3,
+      "entry_val": 408.0,
+      "exit_val": 0.0,
+      "premium_basis": 408.0,
+      "pnl": -408.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250808P00620000",
+        "-3xO:SPY250808P00615000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-15",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 3,
+      "entry_val": 432.0,
+      "exit_val": 0.0,
+      "premium_basis": 432.0,
+      "pnl": -432.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250815P00624000",
+        "-3xO:SPY250815P00619000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-01",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 4,
+      "entry_val": 428.0,
+      "exit_val": 824.0,
+      "premium_basis": 428.0,
+      "pnl": 396.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY250822P00632000",
+        "-4xO:SPY250822P00627000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-29",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 4,
+      "entry_val": 472.0,
+      "exit_val": 0.0,
+      "premium_basis": 472.0,
+      "pnl": -472.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY250829P00626000",
+        "-4xO:SPY250829P00621000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 3,
+      "entry_val": 408.0,
+      "exit_val": 0.0,
+      "premium_basis": 408.0,
+      "pnl": -408.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250905P00631000",
+        "-3xO:SPY250905P00626000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-08-21",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 4,
+      "entry_val": 436.0,
+      "exit_val": 752.0,
+      "premium_basis": 436.0,
+      "pnl": 316.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY250912P00638000",
+        "-4xO:SPY250912P00633000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-19",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 4,
+      "entry_val": 416.0,
+      "exit_val": 0.0,
+      "premium_basis": 416.0,
+      "pnl": -416.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY250919P00637000",
+        "-4xO:SPY250919P00632000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-26",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 3,
+      "entry_val": 384.0,
+      "exit_val": 0.0,
+      "premium_basis": 384.0,
+      "pnl": -384.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY250926P00635000",
+        "-3xO:SPY250926P00630000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-10-03",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 3,
+      "entry_val": 378.0,
+      "exit_val": 0.0,
+      "premium_basis": 378.0,
+      "pnl": -378.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY251003P00644000",
+        "-3xO:SPY251003P00639000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 3,
+      "entry_val": 393.0,
+      "exit_val": 525.0,
+      "premium_basis": 393.0,
+      "pnl": 132.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY251010P00656000",
+        "-3xO:SPY251010P00651000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-09-25",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 3,
+      "entry_val": 378.0,
+      "exit_val": 594.0,
+      "premium_basis": 378.0,
+      "pnl": 216.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY251017P00662000",
+        "-3xO:SPY251017P00657000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-10",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 3,
+      "entry_val": 447.0,
+      "exit_val": 924.0,
+      "premium_basis": 447.0,
+      "pnl": 477.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY251024P00659000",
+        "-3xO:SPY251024P00654000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-10",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 4,
+      "entry_val": 468.0,
+      "exit_val": 936.0,
+      "premium_basis": 468.0,
+      "pnl": 468.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY251031P00667000",
+        "-4xO:SPY251031P00662000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-10-14",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 4,
+      "entry_val": 456.0,
+      "exit_val": 716.0,
+      "premium_basis": 456.0,
+      "pnl": 260.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY251107P00658000",
+        "-4xO:SPY251107P00653000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-14",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 4,
+      "entry_val": 424.0,
+      "exit_val": 0.0,
+      "premium_basis": 424.0,
+      "pnl": -424.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY251114P00666000",
+        "-4xO:SPY251114P00661000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-04",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 3,
+      "entry_val": 408.0,
+      "exit_val": 618.0,
+      "premium_basis": 408.0,
+      "pnl": 210.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY251121P00680000",
+        "-3xO:SPY251121P00675000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-06",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 3,
+      "entry_val": 420.0,
+      "exit_val": 726.0,
+      "premium_basis": 420.0,
+      "pnl": 306.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY251128P00678000",
+        "-3xO:SPY251128P00673000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-11-13",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 4,
+      "entry_val": 460.0,
+      "exit_val": 924.0,
+      "premium_basis": 460.0,
+      "pnl": 464.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY251205P00676000",
+        "-4xO:SPY251205P00671000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-11-19",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 6,
+      "entry_val": 450.0,
+      "exit_val": 810.0,
+      "premium_basis": 450.0,
+      "pnl": 360.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "6xO:SPY251212P00661000",
+        "-6xO:SPY251212P00656000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-19",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 3,
+      "entry_val": 459.0,
+      "exit_val": 0.0,
+      "premium_basis": 459.0,
+      "pnl": -459.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY251219P00664000",
+        "-3xO:SPY251219P00659000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-17",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 4,
+      "entry_val": 468.0,
+      "exit_val": 1200.0,
+      "premium_basis": 468.0,
+      "pnl": 732.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY251226P00675000",
+        "-4xO:SPY251226P00670000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2025-12-17",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 3,
+      "entry_val": 462.0,
+      "exit_val": 912.0,
+      "premium_basis": 462.0,
+      "pnl": 450.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260102P00679000",
+        "-3xO:SPY260102P00674000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2025-12-17",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 3,
+      "entry_val": 432.0,
+      "exit_val": 873.0,
+      "premium_basis": 432.0,
+      "pnl": 441.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260109P00676000",
+        "-3xO:SPY260109P00671000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-16",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 4,
+      "entry_val": 468.0,
+      "exit_val": 0.0,
+      "premium_basis": 468.0,
+      "pnl": -468.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "4xO:SPY260116P00680000",
+        "-4xO:SPY260116P00675000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-20",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 4,
+      "entry_val": 472.0,
+      "exit_val": 1096.0,
+      "premium_basis": 472.0,
+      "pnl": 624.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY260123P00683000",
+        "-4xO:SPY260123P00678000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-20",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 3,
+      "entry_val": 378.0,
+      "exit_val": 696.0,
+      "premium_basis": 378.0,
+      "pnl": 318.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260130P00683000",
+        "-3xO:SPY260130P00678000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-01-21",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 3,
+      "entry_val": 405.0,
+      "exit_val": 687.0,
+      "premium_basis": 405.0,
+      "pnl": 282.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260206P00690000",
+        "-3xO:SPY260206P00685000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-02-05",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 3,
+      "entry_val": 378.0,
+      "exit_val": 618.0,
+      "premium_basis": 378.0,
+      "pnl": 240.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260213P00673000",
+        "-3xO:SPY260213P00668000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-05",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 3,
+      "entry_val": 399.0,
+      "exit_val": 750.0,
+      "premium_basis": 399.0,
+      "pnl": 351.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260220P00688000",
+        "-3xO:SPY260220P00683000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-05",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 3,
+      "entry_val": 390.0,
+      "exit_val": 795.0,
+      "premium_basis": 390.0,
+      "pnl": 405.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260227P00690000",
+        "-3xO:SPY260227P00685000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-02-12",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 4,
+      "entry_val": 416.0,
+      "exit_val": 972.0,
+      "premium_basis": 416.0,
+      "pnl": 556.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY260306P00689000",
+        "-4xO:SPY260306P00684000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-12",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 2,
+      "entry_val": 350.0,
+      "exit_val": 872.0,
+      "premium_basis": 350.0,
+      "pnl": 522.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "2xO:SPY260313P00678000",
+        "-2xO:SPY260313P00673000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-12",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 3,
+      "entry_val": 423.0,
+      "exit_val": 738.0,
+      "premium_basis": 423.0,
+      "pnl": 315.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260320P00677000",
+        "-3xO:SPY260320P00672000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-03",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 4,
+      "entry_val": 440.0,
+      "exit_val": 688.0,
+      "premium_basis": 440.0,
+      "pnl": 248.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "4xO:SPY260327P00681000",
+        "-4xO:SPY260327P00676000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-03-18",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 3,
+      "entry_val": 390.0,
+      "exit_val": 732.0,
+      "premium_basis": 390.0,
+      "pnl": 342.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260410P00664000",
+        "-3xO:SPY260410P00659000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-03-27",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 3,
+      "entry_val": 444.0,
+      "exit_val": 804.0,
+      "premium_basis": 444.0,
+      "pnl": 360.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260417P00650000",
+        "-3xO:SPY260417P00645000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-04-24",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 2,
+      "entry_val": 366.0,
+      "exit_val": -2.0,
+      "premium_basis": 366.0,
+      "pnl": -368.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY260424P00627000",
+        "-2xO:SPY260424P00622000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-05-01",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 2,
+      "entry_val": 340.0,
+      "exit_val": 0.0,
+      "premium_basis": 340.0,
+      "pnl": -340.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY260501P00654000",
+        "-2xO:SPY260501P00649000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-05-08",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 3,
+      "entry_val": 423.0,
+      "exit_val": 0.0,
+      "premium_basis": 423.0,
+      "pnl": -423.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY260508P00681000",
+        "-3xO:SPY260508P00676000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-05-15",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 2,
+      "entry_val": 376.0,
+      "exit_val": 0.0,
+      "premium_basis": 376.0,
+      "pnl": -376.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY260515P00704000",
+        "-2xO:SPY260515P00699000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-04-29",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 3,
+      "entry_val": 429.0,
+      "exit_val": 774.0,
+      "premium_basis": 429.0,
+      "pnl": 345.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260522P00710000",
+        "-3xO:SPY260522P00705000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-29",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 3,
+      "entry_val": 423.0,
+      "exit_val": 0.0,
+      "premium_basis": 423.0,
+      "pnl": -423.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY260529P00713000",
+        "-3xO:SPY260529P00708000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-06-05",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 3,
+      "entry_val": 399.0,
+      "exit_val": 69.0,
+      "premium_basis": 399.0,
+      "pnl": -330.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY260605P00734000",
+        "-3xO:SPY260605P00729000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-06-12",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 2,
+      "entry_val": 482.0,
+      "exit_val": 0.0,
+      "premium_basis": 482.0,
+      "pnl": -482.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY260612P00734000",
+        "-2xO:SPY260612P00729000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-08",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 3,
+      "entry_val": 453.0,
+      "exit_val": 1476.0,
+      "premium_basis": 453.0,
+      "pnl": 1023.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260626P00754000",
+        "-3xO:SPY260626P00749000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-06-23",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 3,
+      "entry_val": 498.0,
+      "exit_val": 1053.0,
+      "premium_basis": 498.0,
+      "pnl": 555.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260710P00750000",
+        "-3xO:SPY260710P00745000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-06-25",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 3,
+      "entry_val": 459.0,
+      "exit_val": 918.0,
+      "premium_basis": 459.0,
+      "pnl": 459.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260717P00739000",
+        "-3xO:SPY260717P00734000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-02",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 3,
+      "entry_val": 477.0,
+      "exit_val": 759.0,
+      "premium_basis": 477.0,
+      "pnl": 282.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260724P00736000",
+        "-3xO:SPY260724P00731000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-23",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 3,
+      "entry_val": 399.0,
+      "exit_val": 1281.0,
+      "premium_basis": 399.0,
+      "pnl": 882.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260731P00746000",
+        "-3xO:SPY260731P00741000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-07-24",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 3,
+      "entry_val": 444.0,
+      "exit_val": 729.0,
+      "premium_basis": 444.0,
+      "pnl": 285.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "3xO:SPY260807P00744000",
+        "-3xO:SPY260807P00739000"
+      ]
+    },
+    {
+      "strategy": "Bear Put Debit Spread OTM",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-08-05",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 3,
+      "entry_val": 489.0,
+      "exit_val": 18.0,
+      "premium_basis": 489.0,
+      "pnl": -471.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY260814P00737000",
+        "-3xO:SPY260814P00732000"
+      ]
+    }
+  ]
+}

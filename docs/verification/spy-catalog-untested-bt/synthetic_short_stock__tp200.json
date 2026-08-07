@@ -1,0 +1,1846 @@
+{
+  "strategy": "Synthetic Short Stock",
+  "tp_pct": 200,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 96,
+    "total_pnl": 68896.0,
+    "win_rate": 0.7292,
+    "avg_pnl": 717.67,
+    "tp_hits": 67,
+    "sl_hits": 0,
+    "expiry_exits": 29
+  },
+  "trades": [
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-09-06",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 1,
+      "entry_val": -156.0,
+      "exit_val": -824.0,
+      "premium_basis": 156.0,
+      "pnl": -668.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240906C00533000",
+        "1xO:SPY240906P00533000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-08-22",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": -120.0,
+      "exit_val": 175.0,
+      "premium_basis": 120.0,
+      "pnl": 295.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY240913C00560000",
+        "1xO:SPY240913P00560000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-08-28",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": -50.0,
+      "exit_val": 191.0,
+      "premium_basis": 50.0,
+      "pnl": 241.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY240920C00561000",
+        "1xO:SPY240920P00561000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-04",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": -69.0,
+      "exit_val": 155.0,
+      "premium_basis": 69.0,
+      "pnl": 224.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY240927C00552000",
+        "1xO:SPY240927P00552000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-10-04",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": -107.0,
+      "exit_val": -2536.0,
+      "premium_basis": 107.0,
+      "pnl": -2429.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241004C00546000",
+        "1xO:SPY241004P00546000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-09-18",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 33,
+      "entry_val": 495.0,
+      "exit_val": 4983.0,
+      "premium_basis": 495.0,
+      "pnl": 4488.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-33xO:SPY241011C00563000",
+        "33xO:SPY241011P00563000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 1,
+      "entry_val": -144.0,
+      "exit_val": -1469.0,
+      "premium_basis": 144.0,
+      "pnl": -1325.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241018C00570000",
+        "1xO:SPY241018P00570000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-01",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": 332.0,
+      "premium_basis": 130.0,
+      "pnl": 462.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241025C00574000",
+        "1xO:SPY241025P00574000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-11-01",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": -198.0,
+      "exit_val": -378.0,
+      "premium_basis": 198.0,
+      "pnl": -180.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241101C00568000",
+        "1xO:SPY241101P00568000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-10-23",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 1,
+      "entry_val": -260.0,
+      "exit_val": 472.0,
+      "premium_basis": 260.0,
+      "pnl": 732.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241108C00584000",
+        "1xO:SPY241108P00584000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-10-23",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": -189.0,
+      "exit_val": 402.0,
+      "premium_basis": 189.0,
+      "pnl": 591.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241115C00584000",
+        "1xO:SPY241115P00584000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-10-31",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": -189.0,
+      "exit_val": 980.0,
+      "premium_basis": 189.0,
+      "pnl": 1169.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241122C00581000",
+        "1xO:SPY241122P00581000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-29",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 1,
+      "entry_val": -198.0,
+      "exit_val": -3266.0,
+      "premium_basis": 198.0,
+      "pnl": -3068.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241129C00570000",
+        "1xO:SPY241129P00570000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-11-14",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": -183.0,
+      "exit_val": 383.0,
+      "premium_basis": 183.0,
+      "pnl": 566.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241206C00599000",
+        "1xO:SPY241206P00599000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-13",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": -242.0,
+      "exit_val": -1634.0,
+      "premium_basis": 242.0,
+      "pnl": -1392.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241213C00588000",
+        "1xO:SPY241213P00588000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-18",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": 1522.0,
+      "premium_basis": 130.0,
+      "pnl": 1652.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241220C00598000",
+        "1xO:SPY241220P00598000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-10",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": -64.0,
+      "exit_val": 132.0,
+      "premium_basis": 64.0,
+      "pnl": 196.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY241227C00604000",
+        "1xO:SPY241227P00604000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2024-12-10",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 31,
+      "entry_val": 496.0,
+      "exit_val": 4557.0,
+      "premium_basis": 496.0,
+      "pnl": 4061.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-31xO:SPY250103C00605000",
+        "31xO:SPY250103P00605000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2024-12-17",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": -14.0,
+      "exit_val": 226.0,
+      "premium_basis": 14.0,
+      "pnl": 240.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250110C00607000",
+        "1xO:SPY250110P00607000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2024-12-30",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": -201.0,
+      "exit_val": 577.0,
+      "premium_basis": 201.0,
+      "pnl": 778.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250117C00595000",
+        "1xO:SPY250117P00595000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-10",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": -201.0,
+      "exit_val": 689.0,
+      "premium_basis": 201.0,
+      "pnl": 890.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250124C00588000",
+        "1xO:SPY250124P00588000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-07",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": -252.0,
+      "exit_val": 423.0,
+      "premium_basis": 252.0,
+      "pnl": 675.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250131C00595000",
+        "1xO:SPY250131P00595000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-02-07",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": -253.0,
+      "exit_val": -2000.0,
+      "premium_basis": 253.0,
+      "pnl": -1747.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250207C00581000",
+        "1xO:SPY250207P00581000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-03",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": -227.0,
+      "exit_val": 355.0,
+      "premium_basis": 227.0,
+      "pnl": 582.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250214C00603000",
+        "1xO:SPY250214P00603000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": -258.0,
+      "exit_val": -129.0,
+      "premium_basis": 258.0,
+      "pnl": 129.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250221C00599000",
+        "1xO:SPY250221P00599000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-25",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": -189.0,
+      "exit_val": 272.0,
+      "premium_basis": 189.0,
+      "pnl": 461.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250228C00598000",
+        "1xO:SPY250228P00598000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-02-21",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": -129.0,
+      "exit_val": 380.0,
+      "premium_basis": 129.0,
+      "pnl": 509.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250307C00605000",
+        "1xO:SPY250307P00605000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-02-21",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": -220.0,
+      "exit_val": 927.0,
+      "premium_basis": 220.0,
+      "pnl": 1147.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250314C00611000",
+        "1xO:SPY250314P00611000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-02-27",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 1,
+      "entry_val": -182.0,
+      "exit_val": 1075.0,
+      "premium_basis": 182.0,
+      "pnl": 1257.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250321C00597000",
+        "1xO:SPY250321P00597000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-03",
+      "exit_date": "2025-03-04",
+      "spot": 583.77,
+      "exp_near": "2025-03-28",
+      "mult": 1,
+      "entry_val": -105.0,
+      "exit_val": 526.0,
+      "premium_basis": 105.0,
+      "pnl": 631.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250328C00584000",
+        "1xO:SPY250328P00584000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-10",
+      "exit_date": "2025-03-11",
+      "spot": 560.58,
+      "exp_near": "2025-04-04",
+      "mult": 1,
+      "entry_val": -28.0,
+      "exit_val": 412.0,
+      "premium_basis": 28.0,
+      "pnl": 440.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250404C00561000",
+        "1xO:SPY250404P00561000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-03-18",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": -72.0,
+      "exit_val": 708.0,
+      "premium_basis": 72.0,
+      "pnl": 780.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250411C00567000",
+        "1xO:SPY250411P00567000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-03",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": 2016.0,
+      "premium_basis": 130.0,
+      "pnl": 2146.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250425C00559000",
+        "1xO:SPY250425P00559000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-04-16",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 1,
+      "entry_val": -132.0,
+      "exit_val": 1401.0,
+      "premium_basis": 132.0,
+      "pnl": 1533.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250509C00539000",
+        "1xO:SPY250509P00539000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-05-16",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": -109.0,
+      "exit_val": -7706.0,
+      "premium_basis": 109.0,
+      "pnl": -7597.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250516C00514000",
+        "1xO:SPY250516P00514000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-23",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": -120.0,
+      "exit_val": -2776.0,
+      "premium_basis": 120.0,
+      "pnl": -2656.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250523C00551000",
+        "1xO:SPY250523P00551000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-06",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": -86.0,
+      "exit_val": 371.0,
+      "premium_basis": 86.0,
+      "pnl": 457.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250530C00564000",
+        "1xO:SPY250530P00564000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-05-23",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": -175.0,
+      "exit_val": 325.0,
+      "premium_basis": 175.0,
+      "pnl": 500.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250606C00583000",
+        "1xO:SPY250606P00583000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-05-21",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": -105.0,
+      "exit_val": 1029.0,
+      "premium_basis": 105.0,
+      "pnl": 1134.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250613C00595000",
+        "1xO:SPY250613P00595000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-05-28",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": 298.0,
+      "premium_basis": 130.0,
+      "pnl": 428.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250620C00591000",
+        "1xO:SPY250620P00591000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": -16.0,
+      "exit_val": -2065.0,
+      "premium_basis": 16.0,
+      "pnl": -2049.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250627C00593000",
+        "1xO:SPY250627P00593000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-06-17",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": -12.0,
+      "exit_val": 538.0,
+      "premium_basis": 12.0,
+      "pnl": 550.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250711C00603000",
+        "1xO:SPY250711P00603000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-18",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": -206.0,
+      "exit_val": -2749.0,
+      "premium_basis": 206.0,
+      "pnl": -2543.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250718C00600000",
+        "1xO:SPY250718P00600000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-30",
+      "exit_date": "2025-07-25",
+      "spot": 617.85,
+      "exp_near": "2025-07-25",
+      "mult": 1,
+      "entry_val": -164.0,
+      "exit_val": -1879.0,
+      "premium_basis": 164.0,
+      "pnl": -1715.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250725C00618000",
+        "1xO:SPY250725P00618000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-08-01",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": -101.0,
+      "exit_val": -88.0,
+      "premium_basis": 101.0,
+      "pnl": 13.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250801C00621000",
+        "1xO:SPY250801P00621000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-07-15",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": -148.0,
+      "exit_val": 168.0,
+      "premium_basis": 148.0,
+      "pnl": 316.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250808C00625000",
+        "1xO:SPY250808P00625000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-01",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": -188.0,
+      "exit_val": 628.0,
+      "premium_basis": 188.0,
+      "pnl": 816.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250815C00629000",
+        "1xO:SPY250815P00629000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-07-31",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": -200.0,
+      "exit_val": 322.0,
+      "premium_basis": 200.0,
+      "pnl": 522.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250822C00637000",
+        "1xO:SPY250822P00637000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-29",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": -257.0,
+      "exit_val": -1382.0,
+      "premium_basis": 257.0,
+      "pnl": -1125.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250829C00631000",
+        "1xO:SPY250829P00631000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": -166.0,
+      "exit_val": -1090.0,
+      "premium_basis": 166.0,
+      "pnl": -924.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250905C00636000",
+        "1xO:SPY250905P00636000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-08-20",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": -237.0,
+      "exit_val": 311.0,
+      "premium_basis": 237.0,
+      "pnl": 548.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY250912C00643000",
+        "1xO:SPY250912P00643000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-19",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": -197.0,
+      "exit_val": -2184.0,
+      "premium_basis": 197.0,
+      "pnl": -1987.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250919C00642000",
+        "1xO:SPY250919P00642000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-26",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": -184.0,
+      "exit_val": -2146.0,
+      "premium_basis": 184.0,
+      "pnl": -1962.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250926C00640000",
+        "1xO:SPY250926P00640000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-10-03",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 13,
+      "entry_val": 494.0,
+      "exit_val": -26858.0,
+      "premium_basis": 494.0,
+      "pnl": -27352.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-13xO:SPY251003C00649000",
+        "13xO:SPY251003P00649000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-09-17",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 18,
+      "entry_val": 486.0,
+      "exit_val": 3456.0,
+      "premium_basis": 486.0,
+      "pnl": 2970.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-18xO:SPY251010C00661000",
+        "18xO:SPY251010P00661000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-09-23",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": -132.0,
+      "exit_val": 165.0,
+      "premium_basis": 132.0,
+      "pnl": 297.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251017C00667000",
+        "1xO:SPY251017P00667000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-10",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": -170.0,
+      "exit_val": 996.0,
+      "premium_basis": 170.0,
+      "pnl": 1166.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251024C00664000",
+        "1xO:SPY251024P00664000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-10",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": -164.0,
+      "exit_val": 1733.0,
+      "premium_basis": 164.0,
+      "pnl": 1897.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251031C00672000",
+        "1xO:SPY251031P00672000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-11-07",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": -189.0,
+      "exit_val": -873.0,
+      "premium_basis": 189.0,
+      "pnl": -684.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251107C00663000",
+        "1xO:SPY251107P00663000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-14",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": -230.0,
+      "exit_val": -126.0,
+      "premium_basis": 230.0,
+      "pnl": 104.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251114C00671000",
+        "1xO:SPY251114P00671000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-04",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": -246.0,
+      "exit_val": 836.0,
+      "premium_basis": 246.0,
+      "pnl": 1082.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251121C00685000",
+        "1xO:SPY251121P00685000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-04",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": -241.0,
+      "exit_val": 562.0,
+      "premium_basis": 241.0,
+      "pnl": 803.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251128C00683000",
+        "1xO:SPY251128P00683000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-11-13",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": -279.0,
+      "exit_val": 739.0,
+      "premium_basis": 279.0,
+      "pnl": 1018.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251205C00681000",
+        "1xO:SPY251205P00681000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-11-18",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 1,
+      "entry_val": -217.0,
+      "exit_val": 367.0,
+      "premium_basis": 217.0,
+      "pnl": 584.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251212C00666000",
+        "1xO:SPY251212P00666000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-19",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": -140.0,
+      "exit_val": -1113.0,
+      "premium_basis": 140.0,
+      "pnl": -973.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251219C00669000",
+        "1xO:SPY251219P00669000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-16",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": -32.0,
+      "exit_val": 256.0,
+      "premium_basis": 32.0,
+      "pnl": 288.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY251226C00680000",
+        "1xO:SPY251226P00680000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2025-12-15",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 6,
+      "entry_val": 480.0,
+      "exit_val": 2532.0,
+      "premium_basis": 480.0,
+      "pnl": 2052.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-6xO:SPY260102C00684000",
+        "6xO:SPY260102P00684000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2025-12-16",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": -40.0,
+      "exit_val": 160.0,
+      "premium_basis": 40.0,
+      "pnl": 200.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260109C00681000",
+        "1xO:SPY260109P00681000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-16",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": -210.0,
+      "exit_val": -649.0,
+      "premium_basis": 210.0,
+      "pnl": -439.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260116C00685000",
+        "1xO:SPY260116P00685000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2025-12-31",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": -180.0,
+      "exit_val": 434.0,
+      "premium_basis": 180.0,
+      "pnl": 614.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260123C00688000",
+        "1xO:SPY260123P00688000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-20",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": -139.0,
+      "exit_val": 899.0,
+      "premium_basis": 139.0,
+      "pnl": 1038.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260130C00688000",
+        "1xO:SPY260130P00688000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-01-14",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": -220.0,
+      "exit_val": 280.0,
+      "premium_basis": 220.0,
+      "pnl": 500.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260206C00695000",
+        "1xO:SPY260206P00695000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-02-13",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": -129.0,
+      "exit_val": -382.0,
+      "premium_basis": 129.0,
+      "pnl": -253.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260213C00678000",
+        "1xO:SPY260213P00678000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-03",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": -162.0,
+      "exit_val": 189.0,
+      "premium_basis": 162.0,
+      "pnl": 351.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260220C00693000",
+        "1xO:SPY260220P00693000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-03",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": -280.0,
+      "exit_val": 355.0,
+      "premium_basis": 280.0,
+      "pnl": 635.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260227C00695000",
+        "1xO:SPY260227P00695000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-02-12",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": -236.0,
+      "exit_val": 1113.0,
+      "premium_basis": 236.0,
+      "pnl": 1349.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260306C00694000",
+        "1xO:SPY260306P00694000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-03",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 1,
+      "entry_val": -106.0,
+      "exit_val": 257.0,
+      "premium_basis": 106.0,
+      "pnl": 363.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260313C00683000",
+        "1xO:SPY260313P00683000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-03",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": -155.0,
+      "exit_val": 196.0,
+      "premium_basis": 155.0,
+      "pnl": 351.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260320C00682000",
+        "1xO:SPY260320P00682000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-03",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 125,
+      "entry_val": 500.0,
+      "exit_val": 76875.0,
+      "premium_basis": 500.0,
+      "pnl": 76375.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-125xO:SPY260327C00686000",
+        "125xO:SPY260327P00686000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-03-18",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": -37.0,
+      "exit_val": 796.0,
+      "premium_basis": 37.0,
+      "pnl": 833.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260410C00669000",
+        "1xO:SPY260410P00669000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-03-26",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 1,
+      "entry_val": -234.0,
+      "exit_val": 505.0,
+      "premium_basis": 234.0,
+      "pnl": 739.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260417C00655000",
+        "1xO:SPY260417P00655000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-04-24",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 1,
+      "entry_val": -177.0,
+      "exit_val": -8193.0,
+      "premium_basis": 177.0,
+      "pnl": -8016.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260424C00632000",
+        "1xO:SPY260424P00632000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-05-01",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": -6324.0,
+      "premium_basis": 130.0,
+      "pnl": -6194.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260501C00659000",
+        "1xO:SPY260501P00659000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-05-08",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": -199.0,
+      "exit_val": -5145.0,
+      "premium_basis": 199.0,
+      "pnl": -4946.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260508C00686000",
+        "1xO:SPY260508P00686000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-05-15",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 1,
+      "entry_val": -167.0,
+      "exit_val": -2844.0,
+      "premium_basis": 167.0,
+      "pnl": -2677.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260515C00709000",
+        "1xO:SPY260515P00709000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-04-29",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 1,
+      "entry_val": -194.0,
+      "exit_val": 431.0,
+      "premium_basis": 194.0,
+      "pnl": 625.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260522C00715000",
+        "1xO:SPY260522P00715000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-29",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 1,
+      "entry_val": -148.0,
+      "exit_val": -3908.0,
+      "premium_basis": 148.0,
+      "pnl": -3760.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260529C00718000",
+        "1xO:SPY260529P00718000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-05-19",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": -197.0,
+      "exit_val": 310.0,
+      "premium_basis": 197.0,
+      "pnl": 507.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260605C00739000",
+        "1xO:SPY260605P00739000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-05-19",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": -105.0,
+      "exit_val": 366.0,
+      "premium_basis": 105.0,
+      "pnl": 471.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260612C00739000",
+        "1xO:SPY260612P00739000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-03",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 55,
+      "entry_val": 495.0,
+      "exit_val": 24090.0,
+      "premium_basis": 495.0,
+      "pnl": 23595.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-55xO:SPY260626C00759000",
+        "55xO:SPY260626P00759000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-06-16",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 1,
+      "entry_val": -1.0,
+      "exit_val": 471.0,
+      "premium_basis": 1.0,
+      "pnl": 472.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260710C00755000",
+        "1xO:SPY260710P00755000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-06-23",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 1,
+      "entry_val": -329.0,
+      "exit_val": 784.0,
+      "premium_basis": 329.0,
+      "pnl": 1113.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260717C00744000",
+        "1xO:SPY260717P00744000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-24",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 1,
+      "entry_val": -223.0,
+      "exit_val": 236.0,
+      "premium_basis": 223.0,
+      "pnl": 459.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260724C00741000",
+        "1xO:SPY260724P00741000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-08",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": -277.0,
+      "exit_val": 420.0,
+      "premium_basis": 277.0,
+      "pnl": 697.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260731C00751000",
+        "1xO:SPY260731P00751000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-07-17",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": -208.0,
+      "exit_val": 472.0,
+      "premium_basis": 208.0,
+      "pnl": 680.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260807C00749000",
+        "1xO:SPY260807P00749000"
+      ]
+    },
+    {
+      "strategy": "Synthetic Short Stock",
+      "tp_pct": 200,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-07-29",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 1,
+      "entry_val": -259.0,
+      "exit_val": 911.0,
+      "premium_basis": 259.0,
+      "pnl": 1170.0,
+      "exit_reason": "TP_200PCT",
+      "legs": [
+        "-1xO:SPY260814C00742000",
+        "1xO:SPY260814P00742000"
+      ]
+    }
+  ]
+}

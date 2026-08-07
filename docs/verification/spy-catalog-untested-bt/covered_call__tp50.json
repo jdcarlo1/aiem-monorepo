@@ -1,0 +1,1846 @@
+{
+  "strategy": "Covered Call",
+  "tp_pct": 50,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 96,
+    "total_pnl": 29361.0,
+    "win_rate": 0.9271,
+    "avg_pnl": 305.84,
+    "tp_hits": 88,
+    "sl_hits": 0,
+    "expiry_exits": 8
+  },
+  "trades": [
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-08-13",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 1,
+      "entry_val": 52522.0,
+      "exit_val": 53009.0,
+      "premium_basis": 805.0,
+      "pnl": 487.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY240906C00538000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-08-30",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": 55449.0,
+      "exit_val": 55913.0,
+      "premium_basis": 512.0,
+      "pnl": 464.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY240913C00565000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-13",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 55534.0,
+      "exit_val": 55994.0,
+      "premium_basis": 545.0,
+      "pnl": 460.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY240920C00566000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-11",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": 54584.0,
+      "exit_val": 54899.0,
+      "premium_basis": 624.0,
+      "pnl": 315.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY240927C00557000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-09-11",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": 53923.0,
+      "exit_val": 54384.0,
+      "premium_basis": 718.0,
+      "pnl": 461.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241004C00551000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-09-19",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": 55739.0,
+      "exit_val": 56198.0,
+      "premium_basis": 545.0,
+      "pnl": 459.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241011C00568000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-09-30",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 1,
+      "entry_val": 56442.0,
+      "exit_val": 56732.0,
+      "premium_basis": 525.0,
+      "pnl": 290.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241018C00575000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-09",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": 56810.0,
+      "exit_val": 57117.0,
+      "premium_basis": 566.0,
+      "pnl": 307.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241025C00579000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-10-09",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": 56027.0,
+      "exit_val": 56498.0,
+      "premium_basis": 753.0,
+      "pnl": 471.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241101C00573000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-06",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 1,
+      "entry_val": 57607.0,
+      "exit_val": 58674.0,
+      "premium_basis": 825.0,
+      "pnl": 1067.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241108C00589000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-06",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": 57628.0,
+      "exit_val": 58425.0,
+      "premium_basis": 735.0,
+      "pnl": 797.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241115C00589000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-06",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": 57229.0,
+      "exit_val": 58004.0,
+      "premium_basis": 854.0,
+      "pnl": 775.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241122C00586000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-06",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 1,
+      "entry_val": 56065.0,
+      "exit_val": 56996.0,
+      "premium_basis": 916.0,
+      "pnl": 931.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241129C00575000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-11-26",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": 59318.0,
+      "exit_val": 59766.0,
+      "premium_basis": 558.0,
+      "pnl": 448.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241206C00604000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-11-22",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": 58175.0,
+      "exit_val": 58634.0,
+      "premium_basis": 640.0,
+      "pnl": 459.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241213C00593000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-11-29",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": 59250.0,
+      "exit_val": 59624.0,
+      "premium_basis": 503.0,
+      "pnl": 374.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241220C00603000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-04",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": 59964.0,
+      "exit_val": 60240.0,
+      "premium_basis": 399.0,
+      "pnl": 276.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY241227C00609000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2024-12-11",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": 60082.0,
+      "exit_val": 60303.0,
+      "premium_basis": 386.0,
+      "pnl": 221.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250103C00610000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": 60242.0,
+      "exit_val": 58048.0,
+      "premium_basis": 437.0,
+      "pnl": -2194.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250110C00612000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2024-12-24",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": 58819.0,
+      "exit_val": 59272.0,
+      "premium_basis": 650.0,
+      "pnl": 453.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250117C00600000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-06",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": 58155.0,
+      "exit_val": 58711.0,
+      "premium_basis": 667.0,
+      "pnl": 556.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250124C00593000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-17",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": 58863.0,
+      "exit_val": 59226.0,
+      "premium_basis": 673.0,
+      "pnl": 363.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250131C00600000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-01-15",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": 57305.0,
+      "exit_val": 57892.0,
+      "premium_basis": 834.0,
+      "pnl": 587.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250207C00586000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-01-23",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": 59702.0,
+      "exit_val": 60085.0,
+      "premium_basis": 603.0,
+      "pnl": 383.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250214C00608000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-01-30",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": 59198.0,
+      "exit_val": 59613.0,
+      "premium_basis": 739.0,
+      "pnl": 415.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250221C00604000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-05",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": 59002.0,
+      "exit_val": 59473.0,
+      "premium_basis": 775.0,
+      "pnl": 471.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250228C00603000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-02-13",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": 59910.0,
+      "exit_val": 60224.0,
+      "premium_basis": 575.0,
+      "pnl": 314.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250307C00610000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": 60590.0,
+      "exit_val": 56280.0,
+      "premium_basis": 559.0,
+      "pnl": -4310.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250314C00616000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 1,
+      "entry_val": 58928.0,
+      "exit_val": 56397.0,
+      "premium_basis": 793.0,
+      "pnl": -2531.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250321C00602000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-03",
+      "exit_date": "2025-03-28",
+      "spot": 583.77,
+      "exp_near": "2025-03-28",
+      "mult": 1,
+      "entry_val": 57477.0,
+      "exit_val": 55565.0,
+      "premium_basis": 900.0,
+      "pnl": -1912.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250328C00589000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-10",
+      "exit_date": "2025-03-17",
+      "spot": 560.58,
+      "exp_near": "2025-04-04",
+      "mult": 1,
+      "entry_val": 54920.0,
+      "exit_val": 55709.0,
+      "premium_basis": 1138.0,
+      "pnl": 789.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250404C00566000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-03-24",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": 55876.0,
+      "exit_val": 56327.0,
+      "premium_basis": 839.0,
+      "pnl": 451.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250411C00572000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-25",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 1,
+      "entry_val": 55053.0,
+      "exit_val": 55063.0,
+      "premium_basis": 886.0,
+      "pnl": 10.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250425C00564000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-07",
+      "exit_date": "2025-04-09",
+      "spot": 504.38,
+      "exp_near": "2025-05-02",
+      "mult": 1,
+      "entry_val": 48555.0,
+      "exit_val": 51541.0,
+      "premium_basis": 1883.0,
+      "pnl": 2986.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250502C00509000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-04-24",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 1,
+      "entry_val": 52626.0,
+      "exit_val": 53299.0,
+      "premium_basis": 1286.0,
+      "pnl": 673.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250509C00544000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-04-22",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": 49927.0,
+      "exit_val": 50697.0,
+      "premium_basis": 1461.0,
+      "pnl": 770.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250516C00519000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-02",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": 54054.0,
+      "exit_val": 54844.0,
+      "premium_basis": 1031.0,
+      "pnl": 790.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250523C00556000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-12",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": 55432.0,
+      "exit_val": 56443.0,
+      "premium_basis": 919.0,
+      "pnl": 1011.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250530C00569000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-05-15",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": 57548.0,
+      "exit_val": 57976.0,
+      "premium_basis": 751.0,
+      "pnl": 428.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250606C00588000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-03",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": 58738.0,
+      "exit_val": 59210.0,
+      "premium_basis": 747.0,
+      "pnl": 472.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250613C00600000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-03",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": 58369.0,
+      "exit_val": 58876.0,
+      "premium_basis": 746.0,
+      "pnl": 507.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250620C00596000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-06",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": 58595.0,
+      "exit_val": 59100.0,
+      "premium_basis": 676.0,
+      "pnl": 505.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250627C00598000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-06-24",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": 59643.0,
+      "exit_val": 59964.0,
+      "premium_basis": 625.0,
+      "pnl": 321.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250711C00608000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-06-25",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": 59226.0,
+      "exit_val": 59663.0,
+      "premium_basis": 789.0,
+      "pnl": 437.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250718C00605000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-07-10",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": 61312.0,
+      "exit_val": 61715.0,
+      "premium_basis": 756.0,
+      "pnl": 403.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250801C00626000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-07-21",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": 61757.0,
+      "exit_val": 62119.0,
+      "premium_basis": 724.0,
+      "pnl": 362.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250808C00630000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-07-24",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": 62174.0,
+      "exit_val": 62539.0,
+      "premium_basis": 703.0,
+      "pnl": 365.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250815C00634000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-12",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": 63101.0,
+      "exit_val": 63716.0,
+      "premium_basis": 593.0,
+      "pnl": 615.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250822C00642000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-11",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": 62386.0,
+      "exit_val": 62777.0,
+      "premium_basis": 731.0,
+      "pnl": 391.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250829C00636000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-08-12",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": 62919.0,
+      "exit_val": 63292.0,
+      "premium_basis": 673.0,
+      "pnl": 373.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250905C00641000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-08-27",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": 63686.0,
+      "exit_val": 64056.0,
+      "premium_basis": 644.0,
+      "pnl": 370.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250912C00648000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-08-28",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": 63628.0,
+      "exit_val": 63999.0,
+      "premium_basis": 619.0,
+      "pnl": 371.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250919C00647000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-04",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": 63325.0,
+      "exit_val": 63877.0,
+      "premium_basis": 702.0,
+      "pnl": 552.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY250926C00645000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-09-11",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": 64364.0,
+      "exit_val": 64782.0,
+      "premium_basis": 519.0,
+      "pnl": 418.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251003C00654000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-09-22",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": 65530.0,
+      "exit_val": 65844.0,
+      "premium_basis": 561.0,
+      "pnl": 314.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251010C00666000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-02",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": 65988.0,
+      "exit_val": 66358.0,
+      "premium_basis": 696.0,
+      "pnl": 370.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251017C00672000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-03",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": 65699.0,
+      "exit_val": 66055.0,
+      "premium_basis": 669.0,
+      "pnl": 356.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251024C00669000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-23",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": 66432.0,
+      "exit_val": 66839.0,
+      "premium_basis": 729.0,
+      "pnl": 407.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251031C00677000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-10-20",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": 65428.0,
+      "exit_val": 65908.0,
+      "premium_basis": 876.0,
+      "pnl": 480.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251107C00668000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-10-24",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": 66274.0,
+      "exit_val": 66746.0,
+      "premium_basis": 856.0,
+      "pnl": 472.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251114C00676000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": 67746.0,
+      "exit_val": 65902.0,
+      "premium_basis": 778.0,
+      "pnl": -1844.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251121C00690000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-26",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": 67477.0,
+      "exit_val": 67963.0,
+      "premium_basis": 857.0,
+      "pnl": 486.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251128C00688000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-11-26",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": 67293.0,
+      "exit_val": 67720.0,
+      "premium_basis": 851.0,
+      "pnl": 427.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251205C00686000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-11-25",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 1,
+      "entry_val": 65553.0,
+      "exit_val": 66243.0,
+      "premium_basis": 1014.0,
+      "pnl": 690.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251212C00671000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-11-26",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": 65888.0,
+      "exit_val": 66453.0,
+      "premium_basis": 985.0,
+      "pnl": 565.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251219C00674000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-05",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": 67272.0,
+      "exit_val": 67720.0,
+      "premium_basis": 755.0,
+      "pnl": 448.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY251226C00685000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2025-12-11",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": 67719.0,
+      "exit_val": 68121.0,
+      "premium_basis": 644.0,
+      "pnl": 402.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260102C00689000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2025-12-22",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": 67427.0,
+      "exit_val": 67826.0,
+      "premium_basis": 646.0,
+      "pnl": 399.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260109C00686000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2025-12-24",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": 67858.0,
+      "exit_val": 68201.0,
+      "premium_basis": 625.0,
+      "pnl": 343.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260116C00690000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-06",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": 68160.0,
+      "exit_val": 68527.0,
+      "premium_basis": 625.0,
+      "pnl": 367.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260123C00693000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-09",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": 68083.0,
+      "exit_val": 68514.0,
+      "premium_basis": 689.0,
+      "pnl": 431.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260130C00693000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-01-27",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": 68796.0,
+      "exit_val": 69159.0,
+      "premium_basis": 720.0,
+      "pnl": 363.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260206C00700000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-01-21",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": 66798.0,
+      "exit_val": 67305.0,
+      "premium_basis": 960.0,
+      "pnl": 507.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260213C00683000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-09",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": 68549.0,
+      "exit_val": 68924.0,
+      "premium_basis": 724.0,
+      "pnl": 375.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260220C00698000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-25",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": 68730.0,
+      "exit_val": 69260.0,
+      "premium_basis": 811.0,
+      "pnl": 530.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260227C00700000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-02-25",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": 68535.0,
+      "exit_val": 68979.0,
+      "premium_basis": 860.0,
+      "pnl": 444.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260306C00699000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-02-25",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 1,
+      "entry_val": 67331.0,
+      "exit_val": 68064.0,
+      "premium_basis": 954.0,
+      "pnl": 733.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260313C00688000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-02-25",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": 67168.0,
+      "exit_val": 67812.0,
+      "premium_basis": 1071.0,
+      "pnl": 644.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260320C00687000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-27",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 1,
+      "entry_val": 67694.0,
+      "exit_val": 63408.0,
+      "premium_basis": 944.0,
+      "pnl": -4286.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260327C00691000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-04-08",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": 65788.0,
+      "exit_val": 67120.0,
+      "premium_basis": 1115.0,
+      "pnl": 1332.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260410C00674000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-04-06",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 1,
+      "entry_val": 64178.0,
+      "exit_val": 64976.0,
+      "premium_basis": 1360.0,
+      "pnl": 798.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260417C00660000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-03-31",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 1,
+      "entry_val": 61747.0,
+      "exit_val": 62723.0,
+      "premium_basis": 1450.0,
+      "pnl": 976.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260424C00637000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-04-08",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": 64717.0,
+      "exit_val": 65651.0,
+      "premium_basis": 1176.0,
+      "pnl": 934.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260501C00664000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-04-15",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": 67732.0,
+      "exit_val": 68385.0,
+      "premium_basis": 878.0,
+      "pnl": 653.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260508C00691000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-04-29",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 1,
+      "entry_val": 69945.0,
+      "exit_val": 70447.0,
+      "premium_basis": 927.0,
+      "pnl": 502.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260515C00714000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-05-05",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 1,
+      "entry_val": 70517.0,
+      "exit_val": 71154.0,
+      "premium_basis": 1000.0,
+      "pnl": 637.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260522C00720000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-06",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 1,
+      "entry_val": 70874.0,
+      "exit_val": 71444.0,
+      "premium_basis": 927.0,
+      "pnl": 570.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260529C00723000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-05-21",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": 72924.0,
+      "exit_val": 73455.0,
+      "premium_basis": 1006.0,
+      "pnl": 531.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260605C00744000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-05-26",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": 72975.0,
+      "exit_val": 73740.0,
+      "premium_basis": 890.0,
+      "pnl": 765.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260612C00744000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-26",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": 75090.0,
+      "exit_val": 72898.0,
+      "premium_basis": 764.0,
+      "pnl": -2192.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260626C00764000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-07-09",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 1,
+      "entry_val": 74714.0,
+      "exit_val": 75169.0,
+      "premium_basis": 769.0,
+      "pnl": 455.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260710C00760000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-06-30",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 1,
+      "entry_val": 73418.0,
+      "exit_val": 73937.0,
+      "premium_basis": 1021.0,
+      "pnl": 519.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260717C00749000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-06",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 1,
+      "entry_val": 73132.0,
+      "exit_val": 73848.0,
+      "premium_basis": 968.0,
+      "pnl": 716.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260724C00746000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-15",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": 74261.0,
+      "exit_val": 74721.0,
+      "premium_basis": 867.0,
+      "pnl": 460.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260731C00756000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-07-31",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": 74001.0,
+      "exit_val": 74542.0,
+      "premium_basis": 916.0,
+      "pnl": 541.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260807C00754000"
+      ]
+    },
+    {
+      "strategy": "Covered Call",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-07-31",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 1,
+      "entry_val": 73219.0,
+      "exit_val": 73933.0,
+      "premium_basis": 990.0,
+      "pnl": 714.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "-1xO:SPY260814C00747000"
+      ]
+    }
+  ]
+}
