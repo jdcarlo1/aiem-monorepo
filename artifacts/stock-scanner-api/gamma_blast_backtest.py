@@ -56,7 +56,9 @@ except ImportError:
 POLYGON_BASE = "https://api.polygon.io"
 RATE_SLEEP = 0.22
 
-CONFIG = {
+# Baseline knobs — keep every run's full config + trade log so we can
+# compare variable sweeps later (do not discard results).
+DEFAULT_CONFIG = {
     "ticker": "SPY",
     "risk_per_trade": 100.0,
     "take_profit_multiplier": 3.0,
@@ -69,6 +71,11 @@ CONFIG = {
     "risk_free_rate": 0.05,
     "iv_estimate": 0.20,
 }
+
+# Mutable copy used by the engine (overridden per CLI / sweep variant).
+CONFIG = dict(DEFAULT_CONFIG)
+
+ARCHIVE_DIR_NAME = "gamma-blast"
 
 
 def _api_key() -> str:
@@ -354,6 +361,20 @@ def trading_days_back(n: int, end: Optional[date] = None) -> list:
     return list(reversed(out))
 
 
+def _jsonable_trades(trades: list) -> list:
+    """Serialize timestamps so full ledgers survive for later variable sweeps."""
+    out = []
+    for t in trades:
+        row = dict(t)
+        for k, v in list(row.items()):
+            if hasattr(v, "isoformat"):
+                row[k] = v.isoformat()
+            elif isinstance(v, (np.floating, np.integer)):
+                row[k] = float(v) if isinstance(v, np.floating) else int(v)
+        out.append(row)
+    return out
+
+
 def summarize(trades: list, mode: str) -> dict:
     banner = (
         "=== SYNTHETIC MODE — logic check only; NOT real P&L ==="
@@ -395,6 +416,132 @@ def summarize(trades: list, mode: str) -> dict:
     }
 
 
+def archive_root() -> Path:
+    root = Path(__file__).resolve().parents[2]
+    ver = root / "docs" / "verification" / ARCHIVE_DIR_NAME
+    ver.mkdir(parents=True, exist_ok=True)
+    return ver
+
+
+def save_run_archive(
+    *,
+    mode: str,
+    days: list,
+    days_with_bars: int,
+    trades: list,
+    summary: dict,
+    label: str,
+    out_override: str = "",
+) -> Path:
+    """
+    Persist FULL run (config + every trade + summary). Never summary-only —
+    needed so Joel can re-sweep variables later without re-pulling history.
+    """
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    end = days[-1].isoformat() if days else "na"
+    base = f"gamma-blast-{label}-{mode}-{end}-{stamp}"
+    if out_override:
+        path = Path(out_override)
+        path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        path = archive_root() / f"{base}.json"
+
+    payload = {
+        "strategy": "GAMMA_BLAST",
+        "label": label,
+        "saved_utc": stamp,
+        "pricing_mode": mode,
+        "disclaimer": (
+            "synthetic = logic check only, not real P&L"
+            if mode == "synthetic"
+            else "real = Polygon 1-min option aggregates"
+        ),
+        "days_requested": len(days),
+        "days_with_bars": days_with_bars,
+        "start": days[0].isoformat() if days else None,
+        "end": end,
+        "config": dict(CONFIG),
+        "default_config": dict(DEFAULT_CONFIG),
+        "summary": summary,
+        "trades": _jsonable_trades(trades),
+        "trade_count": len(trades),
+    }
+    path.write_text(json.dumps(payload, indent=2, default=str))
+
+    # Rolling pointer to latest run for easy follow-up sweeps
+    latest = archive_root() / f"LATEST-{mode}.json"
+    latest.write_text(json.dumps({"path": str(path), **payload}, indent=2, default=str))
+
+    # Append index row for comparing variants later
+    index_path = archive_root() / "RUN_INDEX.jsonl"
+    with index_path.open("a") as f:
+        f.write(
+            json.dumps(
+                {
+                    "saved_utc": stamp,
+                    "path": str(path),
+                    "label": label,
+                    "mode": mode,
+                    "trades": summary.get("trades"),
+                    "total_pnl": summary.get("total_pnl"),
+                    "win_rate": summary.get("win_rate"),
+                    "config": dict(CONFIG),
+                },
+                default=str,
+            )
+            + "\n"
+        )
+    print(f"[gamma_blast] ARCHIVED full ledger → {path}")
+    print(f"[gamma_blast] LATEST pointer → {latest}")
+    print(f"[gamma_blast] index append → {index_path}")
+    return path
+
+
+def apply_config_overrides(args) -> str:
+    """Apply CLI knobs onto CONFIG; return a short label for the archive name."""
+    global CONFIG
+    CONFIG = dict(DEFAULT_CONFIG)
+    overrides = {}
+    if args.risk_per_trade is not None:
+        CONFIG["risk_per_trade"] = float(args.risk_per_trade)
+        overrides["risk"] = CONFIG["risk_per_trade"]
+    if args.take_profit is not None:
+        CONFIG["take_profit_multiplier"] = float(args.take_profit)
+        overrides["tp"] = CONFIG["take_profit_multiplier"]
+    if args.stop_loss is not None:
+        CONFIG["stop_loss_pct"] = float(args.stop_loss)
+        overrides["sl"] = CONFIG["stop_loss_pct"]
+    if args.range_threshold is not None:
+        CONFIG["range_threshold"] = float(args.range_threshold)
+        overrides["range"] = CONFIG["range_threshold"]
+    if args.breakout_threshold is not None:
+        CONFIG["breakout_threshold"] = float(args.breakout_threshold)
+        overrides["brk"] = CONFIG["breakout_threshold"]
+    if args.time_stop is not None:
+        CONFIG["time_stop_minutes"] = int(args.time_stop)
+        overrides["tstop"] = CONFIG["time_stop_minutes"]
+    if not overrides:
+        return args.label or "baseline"
+    tag = args.label or "custom"
+    bits = "-".join(f"{k}{v}" for k, v in overrides.items())
+    return f"{tag}-{bits}"
+
+
+def run_window(mode: str, day_list: list) -> tuple[list, int]:
+    all_trades = []
+    days_with_bars = 0
+    for d in day_list:
+        bars = fetch_spy_1m(d)
+        if bars.empty:
+            print(f"  {d}: no SPY bars (skip)")
+            continue
+        days_with_bars += 1
+        day_trades = run_backtest_day(bars, mode, d)
+        print(f"  {d}: bars={len(bars)} trades={len(day_trades)}")
+        all_trades.extend(day_trades)
+    return all_trades, days_with_bars
+
+
 def main():
     ap = argparse.ArgumentParser(description="Gamma Blast Polygon backtest (AIEM handoff)")
     ap.add_argument("--days", type=int, default=20, help="Trading days lookback")
@@ -407,51 +554,78 @@ def main():
     ap.add_argument(
         "--out",
         default="",
-        help="Optional JSON summary path (default docs/verification/...)",
+        help="Optional explicit archive path (still writes LATEST + RUN_INDEX)",
+    )
+    ap.add_argument("--label", default="", help="Archive label (e.g. baseline, sweep-tp2)")
+    ap.add_argument("--risk-per-trade", type=float, default=None)
+    ap.add_argument("--take-profit", type=float, default=None, help="Premium multiple, e.g. 3.0")
+    ap.add_argument("--stop-loss", type=float, default=None, help="Fraction of premium, e.g. 0.50")
+    ap.add_argument("--range-threshold", type=float, default=None)
+    ap.add_argument("--breakout-threshold", type=float, default=None)
+    ap.add_argument("--time-stop", type=int, default=None, help="Minutes")
+    ap.add_argument(
+        "--sweep-quick",
+        action="store_true",
+        help="Run a small TP/SL grid and archive each variant (keeps all results)",
     )
     args = ap.parse_args()
 
     days = trading_days_back(args.days)
+
+    if args.sweep_quick:
+        # Small grid for later "best settings" comparison — every variant archived.
+        grid = [
+            {"take_profit_multiplier": tp, "stop_loss_pct": sl}
+            for tp in (2.0, 3.0, 4.0)
+            for sl in (0.35, 0.50, 0.65)
+        ]
+        print(
+            f"[gamma_blast] SWEEP mode={args.mode} days={args.days} "
+            f"variants={len(grid)} range={days[0]}→{days[-1]}"
+        )
+        if args.mode == "synthetic":
+            print("[gamma_blast] WARNING: synthetic — compare ranks, not dollar P&L.")
+        for i, knobs in enumerate(grid, 1):
+            global CONFIG
+            CONFIG = dict(DEFAULT_CONFIG)
+            CONFIG.update(knobs)
+            label = f"sweep-tp{knobs['take_profit_multiplier']}-sl{knobs['stop_loss_pct']}"
+            print(f"\n--- variant {i}/{len(grid)} {label} ---")
+            trades, n_bars = run_window(args.mode, days)
+            summary = summarize(trades, args.mode)
+            save_run_archive(
+                mode=args.mode,
+                days=days,
+                days_with_bars=n_bars,
+                trades=trades,
+                summary=summary,
+                label=label,
+            )
+        print(f"\n[gamma_blast] sweep complete — see {archive_root()}/RUN_INDEX.jsonl")
+        return 0
+
+    label = apply_config_overrides(args)
     print(
-        f"[gamma_blast] mode={args.mode} days={args.days} "
-        f"range={days[0]}→{days[-1]} ticker={CONFIG['ticker']}"
+        f"[gamma_blast] mode={args.mode} days={args.days} label={label} "
+        f"range={days[0]}→{days[-1]} ticker={CONFIG['ticker']} "
+        f"risk=${CONFIG['risk_per_trade']}"
     )
     if args.mode == "synthetic":
         print(
             "[gamma_blast] WARNING: synthetic Black-Scholes — report as logic check only."
         )
 
-    all_trades = []
-    days_with_bars = 0
-    for d in days:
-        bars = fetch_spy_1m(d)
-        if bars.empty:
-            print(f"  {d}: no SPY bars (skip)")
-            continue
-        days_with_bars += 1
-        day_trades = run_backtest_day(bars, args.mode, d)
-        print(f"  {d}: bars={len(bars)} trades={len(day_trades)}")
-        all_trades.extend(day_trades)
-
+    all_trades, days_with_bars = run_window(args.mode, days)
     summary = summarize(all_trades, args.mode)
-    summary.update(
-        {
-            "days_requested": args.days,
-            "days_with_bars": days_with_bars,
-            "start": days[0].isoformat(),
-            "end": days[-1].isoformat(),
-            "config": CONFIG,
-        }
+    save_run_archive(
+        mode=args.mode,
+        days=days,
+        days_with_bars=days_with_bars,
+        trades=all_trades,
+        summary=summary,
+        label=label,
+        out_override=args.out,
     )
-
-    out = args.out
-    if not out:
-        root = Path(__file__).resolve().parents[2]
-        ver = root / "docs" / "verification"
-        ver.mkdir(parents=True, exist_ok=True)
-        out = str(ver / f"gamma-blast-backtest-{args.mode}-{days[-1].isoformat()}.json")
-    Path(out).write_text(json.dumps(summary, indent=2, default=str))
-    print(f"[gamma_blast] wrote {out}")
     return 0 if days_with_bars else 1
 
 

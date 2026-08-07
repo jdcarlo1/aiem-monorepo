@@ -27,6 +27,20 @@ cd artifacts/stock-scanner-api
 python gamma_blast_backtest.py --days 20 --mode synthetic
 # after Options entitlement confirmed:
 python gamma_blast_backtest.py --days 20 --mode real
+# optional quick TP/SL grid (every variant kept):
+python gamma_blast_backtest.py --days 20 --mode synthetic --sweep-quick
 ```
 
-Summary JSON lands under `docs/verification/gamma-blast-backtest-*.json`.
+## Results are kept for variable sweeps
+
+Every run archives **full trade ledger + config** under:
+
+`docs/verification/gamma-blast/`
+
+| File | Purpose |
+|------|---------|
+| `gamma-blast-<label>-<mode>-<end>-<stamp>.json` | Full run (config + every trade + summary) |
+| `LATEST-<mode>.json` | Pointer to newest run |
+| `RUN_INDEX.jsonl` | Append-only index for comparing variants |
+
+Do **not** throw these away — Joel wants to change knobs (TP/SL/range/breakout/time-stop) and rank which settings work best. CLI overrides: `--take-profit`, `--stop-loss`, `--range-threshold`, `--breakout-threshold`, `--time-stop`, `--risk-per-trade`, `--label`.
