@@ -1,30 +1,26 @@
 #!/usr/bin/env python3
-"""F3 SPY 0DTE — real option pricing backtest (reference).
+"""F3 SPY 0DTE — real option pricing backtest (reference stub).
 
+Full runner: artifacts/stock-scanner-api/f3_bag_backtest.py
 Live paper ledger: artifacts/stock-scanner-api/aim_f3_spy_0dte.py
-Terminals: AIEM Pattern Lab + OE Strategies page.
+Handoff: docs/verification/REPLIT_RUN_F3_BAG_BACKTEST.md
 
-Set POLYGON_API_KEY and TRADIER_API_TOKEN (or TRADIER_API_TOKEN_2) in the env.
-This file is the offline backtest companion; paste/run the full real-pricing
-script the user provided, or extend this runner.
-
-Rules summary:
-  PM direction → ORB 9:30-9:44 → breakout with PM → ATM long call/put
-  $200 notional, exit 16:00, no stop/target. Real premiums only.
+Set POLYGON_API_KEY then:
+  python artifacts/stock-scanner-api/f3_bag_backtest.py --days 63 --stop 0.65
 """
 import os
+import runpy
 import sys
+from pathlib import Path
 
 def main():
-    if not os.getenv("POLYGON_API_KEY") or not (
-        os.getenv("TRADIER_API_TOKEN") or os.getenv("TRADIER_API_TOKEN_2")
-    ):
-        print("Set POLYGON_API_KEY and TRADIER_API_TOKEN to run the full backtest.")
-        print("Live paper path uses Tradier chain premiums via aim_f3_spy_0dte.py")
+    if not (os.getenv("POLYGON_API_KEY") or os.getenv("POLYGON_KEY")):
+        print("Set POLYGON_API_KEY and run:")
+        print("  python artifacts/stock-scanner-api/f3_bag_backtest.py --days 63 --stop 0.65")
         sys.exit(2)
-    print("Use the full F3 real-options script from the 2026-08-06 directive paste,")
-    print("or import helpers from aim_f3_spy_0dte for live premium/PM direction.")
-    sys.exit(0)
+    target = Path(__file__).resolve().parents[1] / "artifacts" / "stock-scanner-api" / "f3_bag_backtest.py"
+    sys.argv = [str(target)] + sys.argv[1:]
+    runpy.run_path(str(target), run_name="__main__")
 
 if __name__ == "__main__":
     main()
