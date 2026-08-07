@@ -69,45 +69,46 @@ export function Sidebar() {
     : 'Chain UNVERIFIED';
 
   const labelClass = chainUnknown
-    ? 'text-xs text-muted-foreground font-mono'
+    ? 'text-sm text-muted-foreground font-mono'
     : chainVerified
-    ? 'text-xs text-muted-foreground font-mono'
-    : 'text-xs text-destructive font-mono font-semibold';
+    ? 'text-sm text-muted-foreground font-mono'
+    : 'text-sm text-destructive font-mono font-semibold';
 
   return (
-    <aside className="w-56 bg-sidebar border-r border-sidebar-border flex flex-col">
-      <div className="p-4 border-b border-sidebar-border">
-        <h1 className="text-lg font-bold text-sidebar-foreground tracking-tight">
+    <aside className="w-60 shrink-0 h-full bg-sidebar border-r border-sidebar-border flex flex-col">
+      <div className="px-4 py-5 border-b border-sidebar-border relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/15 via-transparent to-transparent pointer-events-none" />
+        <h1 className="relative text-xl font-bold text-sidebar-foreground tracking-tight">
           Options Engine
         </h1>
-        <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+        <p className="relative text-sm text-muted-foreground mt-1 font-mono">
           Terminal v2.1
         </p>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 overflow-y-auto p-3 space-y-1.5">
         {navigation.map((item) => {
           const [isActive] = useRoute(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition-colors ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded text-[15px] font-medium transition-colors ${
                 isActive
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_0_0_0_1px_hsla(191,100%,52%,0.25)]'
                   : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
               }`}
               data-testid={`nav-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
             >
-              <item.icon className="w-4 h-4" />
-              {item.name}
+              <item.icon className="w-5 h-5 shrink-0" />
+              <span className="truncate">{item.name}</span>
             </Link>
           );
         })}
       </nav>
 
       <div className="p-3 border-t border-sidebar-border">
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
           <div className={dotClass} />
           <span className={labelClass}>{dotLabel}</span>
         </div>

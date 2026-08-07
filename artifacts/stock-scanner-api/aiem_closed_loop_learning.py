@@ -430,6 +430,41 @@ def maybe_run_ppo_training() -> dict:
         return {"trained": False, "reason": msg}
 
 
+def ensure_ppo_trained_column(db_url: Optional[str] = None) -> None:
+    """Durable column for per-trade close-funnel PPO outcome (not audit-text only)."""
+    url = db_url or _DB_URL
+    if not url:
+        raise RuntimeError("DATABASE_URL / AIEM_DATABASE_URL required")
+    with psycopg2.connect(url, connect_timeout=4) as c, c.cursor() as cu:
+        cu.execute(
+            "ALTER TABLE aiem_paper_trades "
+            "ADD COLUMN IF NOT EXISTS ppo_trained BOOLEAN"
+        )
+        cu.execute(
+            "ALTER TABLE aiem_paper_trades "
+            "ADD COLUMN IF NOT EXISTS ppo_trained_at TIMESTAMPTZ"
+        )
+        c.commit()
+
+
+def persist_ppo_trained(trade_id: int, ppo_trained: bool) -> None:
+    """Write close-funnel PPO outcome onto the paper trade row."""
+    try:
+        ensure_ppo_trained_column()
+        with _conn(timeout=3) as c, c.cursor() as cu:
+            cu.execute(
+                """
+                UPDATE aiem_paper_trades
+                SET ppo_trained = %s,
+                    ppo_trained_at = NOW()
+                WHERE id = %s
+                """,
+                (bool(ppo_trained), int(trade_id)),
+            )
+    except Exception as e:
+        print(f"[closed_loop] persist_ppo_trained error (non-fatal): {e}")
+
+
 def _get_ppo_version() -> int:
     try:
         with _conn(timeout=3) as c, c.cursor() as cu:

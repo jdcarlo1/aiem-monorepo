@@ -21,7 +21,7 @@ Architecture
   Health endpoint: GET /health → JSON (port 5053).
 
 Schedule (ET, Mon-Fri)
-  09:40 — seed daily candidates (top bearish setups from options_structure_scan)
+  09:40 — seed daily candidates (balanced CALL momentum/CALL_SKEW + PUT FEAR_PREMIUM)
   09:45 — execute pipeline for each seeded job
   16:46 — grade expired alerts (Stage 9 / Stage 10 — learning loop)
   00:05 — clean up jobs older than 30 days
@@ -73,6 +73,10 @@ except Exception as _chkp_init_e:
         f"[scheduler] checkpoint module init failed: {_chkp_init_e}")
     _chkp = None
 _SCHEDULER_NAME      = "aiem_options_scheduler"
+# Bumped when liquidity path changes — appears in NO_LIQUID errors so Neon
+# proves which build Replit actually published (2026-08-05: live TB was still
+# on pre-walk code at line 1952; this tag must appear after Tradier publish).
+_OE_LIQ_BUILD        = "tradier-expiry-walk-v2"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -114,22 +118,29 @@ log.info(
 def _tg(text: str) -> bool:
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    ok = False
     if not token or not chat_id:
         log.warning("[telegram] token/chat_id not configured")
-        return False
+    else:
+        try:
+            payload = json.dumps({"chat_id": chat_id, "text": text,
+                                  "parse_mode": "HTML"}).encode()
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                ok = r.status == 200
+        except Exception as e:
+            log.warning(f"[telegram] send failed: {e}")
+            ok = False
     try:
-        payload = json.dumps({"chat_id": chat_id, "text": text,
-                              "parse_mode": "HTML"}).encode()
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.status == 200
-    except Exception as e:
-        log.warning(f"[telegram] send failed: {e}")
-        return False
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source="options_scheduler", sent_ok=ok)
+    except Exception:
+        pass
+    return ok
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DB BOOTSTRAP
@@ -323,6 +334,13 @@ def _bootstrap_db() -> None:
                 log.info("[bootstrap] oe_execution_plans (Phase 6 trigger engine) ready")
             except Exception as _ote_be:
                 log.warning(f"[bootstrap] trigger_engine bootstrap skipped: {_ote_be}")
+            # Operational controls schema (fail-open — never block scheduler boot)
+            try:
+                from aiem_operational_controls import install_schema as _oc_install
+                _oc_install()
+                log.info("[bootstrap] aiem_operational_controls schema ready")
+            except Exception as _oc_be:
+                log.warning(f"[bootstrap] operational_controls install_schema skipped: {_oc_be}")
             return
         except Exception as e:
             last_exc = e
@@ -336,7 +354,12 @@ def _bootstrap_db() -> None:
 # HEARTBEAT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _write_heartbeat(success: bool, error: str = None) -> None:
+def _write_heartbeat(success: bool, error: str = None, *, soft: bool = False) -> None:
+    """
+    soft=True: deliberate NO_TRADE / gate rejection — update last_attempt + last_error
+    but do NOT increment consecutive_failures (and do not clear last_success).
+    Used so NO_LIQUID_CONTRACTS on illiquid names does not look like a crash loop.
+    """
     try:
         # Capture scheduler liveness BEFORE opening the DB connection so the
         # flag reflects the state at the moment of the heartbeat write, not
@@ -345,7 +368,16 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
             _scheduler_ref.running if _scheduler_ref is not None else False
         )
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
-            if success:
+            if soft:
+                cur.execute("""
+                    INSERT INTO job_heartbeats
+                        (job_name, last_attempt, last_error, consecutive_failures)
+                    VALUES (%s, NOW(), %s, 0)
+                    ON CONFLICT (job_name) DO UPDATE
+                    SET last_attempt=NOW(), last_error=%s
+                """, (_HEARTBEAT_JOB_NAME, error or "soft_no_trade",
+                      error or "soft_no_trade"))
+            elif success:
                 cur.execute("""
                     INSERT INTO job_heartbeats (job_name, last_success, last_attempt, consecutive_failures)
                     VALUES (%s, NOW(), NOW(), 0)
@@ -378,14 +410,23 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
                     )
                 """)
                 _jal_detail = f"sched_running={_sched_running}"
-                if not success:
+                if soft:
+                    _jal_status = "success"
+                    _jal_detail = (
+                        f"sched_running={_sched_running}; soft_no_trade; "
+                        f"{error or 'gate_reject'}"
+                    )
+                elif not success:
+                    _jal_status = "failure"
                     _jal_detail = f"sched_running={_sched_running}; {error or 'unknown'}"
+                else:
+                    _jal_status = "success"
                 cur.execute("""
                     INSERT INTO job_attempt_log (job_name, attempt_time, status, error_text)
                     VALUES (%s, NOW(), %s, %s)
                 """, (
                     _HEARTBEAT_JOB_NAME,
-                    'success' if success else 'failure',
+                    _jal_status,
                     _jal_detail,
                 ))
             except Exception as _jal_e:
@@ -590,17 +631,162 @@ def recover_stale_jobs() -> dict:
 # SEED DAILY CANDIDATES
 # ─────────────────────────────────────────────────────────────────────────────
 
-def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
+# Leveraged / inverse ETFs — noisy for single-name CALL selection.
+# Shared list with AIEM pre-move scanner (TQQQ allowed — explicit user target).
+try:
+    from aiem_pre_move_signals import LEVERAGED_ETF_DENYLIST as _LEVERAGED_ETF_DENYLIST
+except Exception:
+    _LEVERAGED_ETF_DENYLIST = (
+        "SQQQ", "UPRO", "SPXU", "SOXL", "SOXS", "TECL", "TECS",
+        "TNA", "TZA", "FAS", "FAZ", "UDOW", "SDOW", "QLD", "QID",
+        "SPXL", "SPXS", "LABU", "LABD", "DPST",
+    )
+
+
+def _seed_lane_limits(limit: int) -> tuple:
+    """Split daily seed budget: CALL-heavy (pre-move + CALL_SKEW).
+
+    limit=15 → (10 CALL, 5 PUT); limit=8 → (5 CALL, 3 PUT).
+    """
+    limit = max(2, int(limit))
+    call_n = max(1, (limit * 2) // 3)  # ~2/3 CALL
+    put_n = max(1, limit - call_n)
+    return call_n, put_n
+
+
+def _fetch_washout_call_seed_rows(cur, call_n: int) -> list:
+    """Leading pre-move setups from PMD — wide net, not a tiny top-N."""
+    try:
+        import aiem_pre_move_signals as _pms
+        asof = _pms.latest_pmd_date(cur)
+        if not asof:
+            return []
+        # Prefer the union so washout + thrust + continuation all seed.
+        # call_n is a soft cap after ranking; pull a wide pool first.
+        setups = _pms.scan_all_pre_move(
+            cur, asof=asof,
+            washout_limit=max(call_n * 4, 40),
+            continuation_limit=max(call_n, 15),
+            thrust_limit=max(call_n, 15),
+            build_limit=max(call_n * 3, 40),
+            ignite_limit=max(call_n * 3, 40),
+        )[: max(call_n, 1)]
+        return [
+            (
+                s["ticker"], asof, s.get("d2_pct") or s.get("gap_pct"),
+                "PRE_MOVE", str(s.get("source", "WASHOUT")).upper(), "CALL",
+            )
+            for s in setups
+        ]
+    except Exception as _we:
+        log.warning(f"[seed] washout CALL lane failed: {_we}")
+        return []
+
+
+def _fetch_call_seed_rows(cur, oss_scan_date, call_n: int) -> list:
+    """Bullish CALL lane: washout leaders first, then OSS momentum/CALL_SKEW.
+
+    Prior seed ordered only by pc_skew_pp DESC → exclusively FEAR_PREMIUM puts.
+    Washout lane catches AEHR/NBIS/MU-class names days before the rip even when
+    they are absent from options_structure_scan.
+    """
+    washout_n = max(2, (call_n + 1) // 2)
+    oss_n = max(1, call_n - washout_n)
+    washout_rows = _fetch_washout_call_seed_rows(cur, washout_n)
+
+    cur.execute(
+        """
+        SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag,
+               'CALL' AS seed_lane
+        FROM options_structure_scan o
+        JOIN polygon_market_daily p
+            ON p.ticker = o.ticker
+           AND p.scan_date = (
+                SELECT MAX(scan_date) FROM polygon_market_daily
+                WHERE scan_date < o.scan_date
+           )
+        WHERE o.scan_date = %s
+          AND o.pc_skew_pp IS NOT NULL
+          AND o.front_iv BETWEEN 15 AND 100
+          AND o.spot > 10
+          AND o.pc_skew_tag <> 'FEAR_PREMIUM'
+          AND o.ticker <> ALL(%s)
+          AND (
+                o.pc_skew_tag = 'CALL_SKEW'
+                OR o.spot > p.close_price * 1.015
+              )
+        ORDER BY (
+            COALESCE(
+              ((o.spot - p.close_price) / NULLIF(p.close_price, 0)) * 100.0, 0
+            ) * 4.0
+            + CASE WHEN o.pc_skew_tag = 'CALL_SKEW' THEN 15 ELSE 0 END
+            + GREATEST(0, -o.pc_skew_pp) * 0.3
+            + CASE WHEN COALESCE(p.close_strength, 0) >= 0.7 THEN 10 ELSE 0 END
+          ) DESC,
+          ((o.spot - p.close_price) / NULLIF(p.close_price, 0)) DESC NULLS LAST,
+          o.pc_skew_pp ASC NULLS LAST
+        LIMIT %s
+        """,
+        (oss_scan_date, list(_LEVERAGED_ETF_DENYLIST), oss_n),
+    )
+    oss_rows = cur.fetchall()
+    return _merge_seed_lanes(washout_rows, oss_rows)
+
+
+def _fetch_put_seed_rows(cur, oss_scan_date, put_n: int) -> list:
+    """Bearish PUT lane: FEAR_PREMIUM / highest put skew (prior primary path)."""
+    cur.execute(
+        """
+        SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag,
+               'PUT' AS seed_lane
+        FROM options_structure_scan o
+        JOIN polygon_market_daily p
+            ON p.ticker = o.ticker
+           AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+        WHERE o.scan_date = %s
+          AND o.pc_skew_pp IS NOT NULL
+          AND o.front_iv > 0
+          AND o.spot > 10
+          AND o.pc_skew_tag = 'FEAR_PREMIUM'
+        ORDER BY o.pc_skew_pp DESC
+        LIMIT %s
+        """,
+        (oss_scan_date, put_n),
+    )
+    return cur.fetchall()
+
+
+def _merge_seed_lanes(call_rows: list, put_rows: list) -> list:
+    """CALL rows first (bullish priority), then PUTs; drop ticker dupes."""
+    merged = []
+    seen = set()
+    for row in list(call_rows or []) + list(put_rows or []):
+        tkr = row[0]
+        if tkr in seen:
+            continue
+        seen.add(tkr)
+        merged.append(row)
+    return merged
+
+
+def seed_daily_candidates(scan_date: date = None, limit: int = 15) -> dict:
     """
     Insert PENDING jobs for today's top options candidates.
+
+    Balanced lanes (2026-08-04 fix):
+      CALL — morning momentum / CALL_SKEW (was previously never seeded)
+      PUT  — FEAR_PREMIUM high put skew (prior sole ranking)
+
     UNIQUE(ticker, scan_date) prevents duplicates across calls.
-    Returns {seeded: N, skipped_duplicates: M}
+    Returns {seeded: N, skipped_duplicates: M, candidates: [...], lanes: {...}}
     """
     scan_date = scan_date or datetime.now(_ET).date()
     seeded = 0
     dupes  = 0
     candidates = []
+    call_n, put_n = _seed_lane_limits(limit)
     _double_zero = False   # True when both primary and fallback queries return 0 rows
+    _lane_meta = {"call": [], "put": []}
 
     # Stage 7: SEED_STAGE — write-before-work, before candidate query runs
     try:
@@ -608,30 +794,22 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             _s7_tid = _chkp.get_or_set_trace_id(scan_date, _DB_URL,
                                                   new_trace_id=str(uuid.uuid4()))
             _chkp.chk(_s7_tid, "SEED_STAGE",
-                       {"scan_date": str(scan_date), "limit": limit}, _DB_URL)
+                       {"scan_date": str(scan_date), "limit": limit,
+                        "call_n": call_n, "put_n": put_n}, _DB_URL)
     except Exception as _s7e:
         log.warning(f"[seed] checkpoint SEED_STAGE failed: {_s7e}")
 
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
-            # Top FEAR_PREMIUM bearish candidates with both OSS + PMD data.
-            # polygon_market_daily is EOD data — it never has today's date on
-            # the same calendar day.  Join on the latest available date so
+            # polygon_market_daily is EOD — join prior/latest available date so
             # a VM restart after 09:45 (missed-seed recovery) still seeds.
-            cur.execute("""
-                SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag
-                FROM options_structure_scan o
-                JOIN polygon_market_daily p
-                    ON p.ticker = o.ticker
-                   AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
-                WHERE o.scan_date = %s
-                  AND o.pc_skew_pp IS NOT NULL
-                  AND o.front_iv > 0
-                  AND o.spot > 10
-                ORDER BY o.pc_skew_pp DESC
-                LIMIT %s
-            """, (scan_date, limit))
-            candidates = cur.fetchall()
+            call_rows = _fetch_call_seed_rows(cur, scan_date, call_n)
+            put_rows = _fetch_put_seed_rows(cur, scan_date, put_n)
+            candidates = _merge_seed_lanes(call_rows, put_rows)
+            _lane_meta = {
+                "call": [r[0] for r in call_rows],
+                "put": [r[0] for r in put_rows],
+            }
 
             # Fallback: if today's scan_date has 0 eligible OSS rows (OSS scan not
             # yet run, or init-before-query race where startup seeded jobs before the
@@ -640,30 +818,30 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             if not candidates:
                 log.warning(f"[seed] 0 eligible OSS rows for scan_date={scan_date}; "
                             f"retrying with MAX(scan_date) fallback")
-                cur.execute("""
-                    SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag
-                    FROM options_structure_scan o
-                    JOIN polygon_market_daily p
-                        ON p.ticker = o.ticker
-                       AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
-                    WHERE o.scan_date = (SELECT MAX(scan_date) FROM options_structure_scan)
-                      AND o.pc_skew_pp IS NOT NULL
-                      AND o.front_iv > 0
-                      AND o.spot > 10
-                    ORDER BY o.pc_skew_pp DESC
-                    LIMIT %s
-                """, (limit,))
-                candidates = cur.fetchall()
+                cur.execute("SELECT MAX(scan_date) FROM options_structure_scan")
+                _fb_date = cur.fetchone()[0]
+                if _fb_date is not None:
+                    call_rows = _fetch_call_seed_rows(cur, _fb_date, call_n)
+                    put_rows = _fetch_put_seed_rows(cur, _fb_date, put_n)
+                    candidates = _merge_seed_lanes(call_rows, put_rows)
+                    _lane_meta = {
+                        "call": [r[0] for r in call_rows],
+                        "put": [r[0] for r in put_rows],
+                    }
                 if candidates:
                     log.info(f"[seed] fallback: found {len(candidates)} rows for "
-                             f"MAX scan_date={candidates[0][1]}")
+                             f"MAX scan_date={candidates[0][1]} "
+                             f"call={_lane_meta['call']} put={_lane_meta['put']}")
                 else:
                     log.warning(f"[seed] fallback also returned 0 rows — "
                                 f"double-zero condition; OSS has no qualifying rows on any date")
                     _double_zero = True
+            else:
+                log.info(f"[seed] lanes call={_lane_meta['call']} put={_lane_meta['put']}")
 
             for row in candidates:
-                ticker, sd, _, _, _ = row
+                ticker, sd = row[0], row[1]
+                lane = row[5] if len(row) > 5 else "?"
                 try:
                     cur.execute("""
                         INSERT INTO options_pipeline_jobs
@@ -673,10 +851,12 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
                     """, (ticker, scan_date))
                     if cur.rowcount > 0:
                         seeded += 1
-                        log.info(f"[seed] seeded {ticker} for {scan_date} (source OSS row {sd})")
+                        log.info(f"[seed] seeded {ticker} for {scan_date} "
+                                 f"(lane={lane} source OSS row {sd})")
                     else:
                         dupes += 1
-                        log.info(f"[seed] skip duplicate {ticker} for {scan_date} (source OSS row {sd})")
+                        log.info(f"[seed] skip duplicate {ticker} for {scan_date} "
+                                 f"(lane={lane} source OSS row {sd})")
                 except Exception as ie:
                     log.warning(f"[seed] insert error {ticker}: {ie}")
 
@@ -703,12 +883,14 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
         return {"seeded": 0, "skipped_duplicates": 0, "error": str(e)}
 
     log.info(f"[seed] scan_date={scan_date}  seeded={seeded}  skipped={dupes}  "
-             f"candidates={[r[0] for r in candidates]}")
+             f"candidates={[r[0] for r in candidates]}  lanes={_lane_meta}")
     if seeded:
         _tg(
             f"📋 <b>OPTIONS PIPELINE: Daily Jobs Seeded</b>\n"
             f"scan_date={scan_date}  seeded={seeded}  skipped_dupes={dupes}\n"
-            f"Tickers: {', '.join(r[0] for r in candidates[:seeded])}"
+            f"CALL lane: {', '.join(_lane_meta.get('call') or []) or '—'}\n"
+            f"PUT lane: {', '.join(_lane_meta.get('put') or []) or '—'}\n"
+            f"Tickers: {', '.join(r[0] for r in candidates)}"
         )
     elif _double_zero:
         _tg(
@@ -745,7 +927,9 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
         log.warning(f"[seed] daily_pipeline_runs write failed: {_de}")
 
     ret = {"seeded": seeded, "skipped_duplicates": dupes,
-           "candidates": [r[0] for r in candidates]}
+           "candidates": [r[0] for r in candidates],
+           "lanes": _lane_meta,
+           "call_n": call_n, "put_n": put_n}
     if _double_zero:
         ret["error"] = "zero_candidates"
     return ret
@@ -1185,9 +1369,29 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             log.debug(f"[registry] stage1 snapped 11 indicators trace_id={trace_id}")
 
         # ── Stage 2: Stock analysis ────────────────────────────────────────────
-        stock_direction = "BEAR" if (
-            close_price < vwap and close_str < 0.4 and pc_skew_tag == "FEAR_PREMIUM"
-        ) else "BULL"
+        # Morning momentum: OSS spot vs prior PMD close. Prior-day close_strength
+        # alone missed 2026-08-04 rippers (e.g. IDXX +8.9% with weak prior CS).
+        try:
+            _spot_f = float(spot) if spot is not None else 0.0
+            _close_f = float(close_price) if close_price is not None else 0.0
+            morning_mom = ((_spot_f - _close_f) / _close_f) if _close_f > 0 else 0.0
+        except (TypeError, ValueError):
+            morning_mom = 0.0
+
+        # BEAR only when fear + weak prior session AND not already ripping open.
+        if (
+            close_price < vwap and close_str < 0.4
+            and pc_skew_tag == "FEAR_PREMIUM" and morning_mom < 0.0
+        ):
+            stock_direction = "BEAR"
+        elif (
+            pc_skew_tag == "CALL_SKEW"
+            or morning_mom >= 0.015
+            or (close_price >= vwap and close_str >= 0.55)
+        ):
+            stock_direction = "BULL"
+        else:
+            stock_direction = "BULL"
 
         market_regime = (
             "LONG_GAMMA_FEAR_PREMIUM" if (pc_skew_tag == "FEAR_PREMIUM" and gex_regime == "SHORT_GAMMA")
@@ -1195,16 +1399,27 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             else "NEUTRAL"
         )
 
+        # Lift effective close_strength when morning already strong so CALL D10
+        # is not crushed by a weak prior-day print.
+        effective_cs = float(close_str or 0.5)
+        if morning_mom >= 0.015:
+            effective_cs = max(effective_cs, min(0.95, 0.55 + morning_mom * 5.0))
+
+        vwap_position = "BELOW_VWAP" if close_price < vwap else "ABOVE_VWAP"
+        if morning_mom >= 0.015:
+            vwap_position = "ABOVE_VWAP"
+
         stock_data = {
             "stock_direction": stock_direction,
             "market_regime":   market_regime,
             "iv_rank":         None,
             "iv_crush_risk":   "MODERATE_INVERTED_TERM" if term_tag == "INVERTED" else "LOW",
-            "vwap_position":   "BELOW_VWAP" if close_price < vwap else "ABOVE_VWAP",
+            "vwap_position":   vwap_position,
             "sector_strength": "LAGGING_SECTOR" if stock_direction == "BEAR" else "LEADING",
             "market_breadth":  "NEGATIVE" if stock_direction == "BEAR" else "POSITIVE",
-            "close_strength":  close_str,
+            "close_strength":  effective_cs,
             "pc_skew_tag":     pc_skew_tag,
+            "morning_momentum_pct": morning_mom,
         }
 
         # ── REGISTRY: Stage 2 — Technical-indicator + Market-regime engines ───
@@ -1314,11 +1529,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         try:
             from aiem_pattern_engine import detect_for_ticker as _detect_pat
             pattern_result = _detect_pat(ticker, thesis=stock_direction, lookback=60)
-            pattern_score  = pattern_result.get("pattern_score", 0.5)
+            # .get(key, default) does NOT apply default when key exists with value None.
+            # 2026-08-04: all 5 options jobs crashed here —
+            #   TypeError: '>' not supported between instances of 'NoneType' and 'float'
+            # when pattern_score was explicitly None.
+            _ps_raw = pattern_result.get("pattern_score")
+            pattern_score = 0.5 if _ps_raw is None else float(_ps_raw)
             log.info(f"[exec] [{trace_id}] pattern_score={pattern_score:.3f} "
                      f"({len(pattern_result.get('all_patterns', []))} patterns detected)")
         except Exception as _pat_e:
             log.debug(f"[exec] [{trace_id}] pattern detection skipped: {_pat_e}")
+            pattern_score = 0.5
 
         # ── REGISTRY: Stage PAT — Candlestick engine + Chart-pattern engine ───
         if _reg_ready:
@@ -1656,9 +1877,36 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             return S * _math.exp(0.5 * sig ** 2 * T - d1_t * sig_sqrt_T)
 
         # ── Real-chain helpers (Directive_RealChain_RevC 2026-08-02) ────────────
+        # Gate profile (OE_GATE_PROFILE): balanced default opens morning
+        # opportunity without removing hard liquidity floors entirely.
+        try:
+            from aiem_options_gate_profile import (
+                resolve_gate_profile as _resolve_gate_profile,
+                describe_gate_profile as _describe_gate_profile,
+            )
+            _GATE_CFG = _resolve_gate_profile()
+            log.info(
+                f"[exec] [{trace_id}] gate profile: {_describe_gate_profile(_GATE_CFG)}"
+            )
+        except Exception as _gp_e:
+            log.warning(f"[exec] [{trace_id}] gate profile load failed: {_gp_e}")
+            _GATE_CFG = {
+                "profile": "balanced",
+                "min_dte": 5,
+                "score_min": 50.0,
+                "margin_min": 8.0,
+                "allow_one_sided_quotes": True,
+                "allow_single_leg": True,
+                "one_sided_bid_frac": 0.85,
+            }
+
         _DELTA_TARGET = 0.35
         _LIQ_IV_MAX   = 3.0
-        _MIN_DTE_CHAIN = 5
+        _MIN_DTE_CHAIN = int(_GATE_CFG.get("min_dte", 5) or 5)
+        _ALLOW_ONE_SIDED = bool(_GATE_CFG.get("allow_one_sided_quotes", True))
+        _ONE_SIDED_BID_FRAC = float(_GATE_CFG.get("one_sided_bid_frac", 0.85) or 0.85)
+        _SCORE_MIN = float(_GATE_CFG.get("score_min", 50.0) or 50.0)
+        _MARGIN_MIN = float(_GATE_CFG.get("margin_min", 8.0) or 8.0)
 
         def _pick_expiry(chain, min_dte=_MIN_DTE_CHAIN):
             """Nearest expiration with dte >= min_dte from the chain itself."""
@@ -1670,9 +1918,23 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             })
             return exps[0][1] if exps else None
 
+        def _all_expiries(chain, min_dte=_MIN_DTE_CHAIN):
+            """All expiries with dte >= min_dte, nearest first."""
+            return [
+                exp for (_dte, exp) in sorted({
+                    (c.get("dte"), c.get("expiration_date"))
+                    for c in (chain or [])
+                    if c.get("expiration_date") and c.get("dte") is not None
+                    and c.get("dte") >= min_dte
+                })
+            ]
+
         def _liquid_chain(chain, typ, expiry):
             """Filter to liquid contracts of given type and expiry.
-            Predicate: bid>0, ask>0, 0<iv<=3.0, abs(delta)>0.
+            Predicate: ask>0, 0<iv<=3.0, abs(delta)>0.
+            When allow_one_sided_quotes: bid may be 0/None early in the session
+            (common on thin morning movers) — synthesize bid = ask * frac so
+            mid/spread math works without inventing a free fill.
             No OI/volume/spread gates — those are downstream gate concerns.
             """
             out = []
@@ -1683,12 +1945,23 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     continue
                 b, a = c.get("bid"), c.get("ask")
                 iv, d = c.get("implied_volatility"), c.get("delta")
-                if not b or not a or b <= 0 or a <= 0:
+                if a is None or a <= 0:
                     continue
+                one_sided = False
+                if b is None or b <= 0:
+                    if not _ALLOW_ONE_SIDED:
+                        continue
+                    # Synthetic bid keeps spread inside profile max for paper path.
+                    b = round(float(a) * _ONE_SIDED_BID_FRAC, 4)
+                    one_sided = True
                 if iv is None or iv <= 0 or iv > _LIQ_IV_MAX:
                     continue
                 if d is None or abs(d) == 0.0:
                     continue
+                if one_sided or b != c.get("bid"):
+                    c = dict(c)
+                    c["bid"] = b
+                    c["_quote_one_sided"] = True
                 out.append(c)
             return out
 
@@ -1700,80 +1973,272 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                                float(c.get("strike") or 0.0)),
             )
 
+        def _apply_leg(picked, side):
+            """Populate call_* or put_* locals from a liquid contract dict."""
+            nonlocal call_strike, call_bid, call_ask, call_mid, call_spread
+            nonlocal call_delta_bs, call_probability_itm, call_iv, call_oi, call_vol, call_exp
+            nonlocal put_strike, put_bid, put_ask, put_mid, put_spread
+            nonlocal put_delta_bs, put_probability_itm, put_iv, put_oi, put_vol, put_exp
+            if side == "call":
+                call_strike       = float(picked["strike"])
+                call_delta_bs     = float(picked["delta"])
+                call_probability_itm = call_delta_bs
+                call_bid          = float(picked["bid"])
+                call_ask          = float(picked["ask"])
+                call_mid          = round((call_bid + call_ask) / 2.0, 2)
+                call_spread       = round((call_ask - call_bid) / call_mid, 4) if call_mid else None
+                call_iv           = float(picked["implied_volatility"])
+                call_oi           = int(picked.get("open_interest") or 0)
+                call_vol          = int(picked.get("volume") or 0)
+                call_exp          = picked["expiration_date"]
+            else:
+                put_strike        = float(picked["strike"])
+                put_delta_bs      = float(picked["delta"])
+                put_probability_itm = abs(float(picked["delta"]))
+                put_bid           = float(picked["bid"])
+                put_ask           = float(picked["ask"])
+                put_mid           = round((put_bid + put_ask) / 2.0, 2)
+                put_spread        = round((put_ask - put_bid) / put_mid, 4) if put_mid else None
+                put_iv            = float(picked["implied_volatility"])
+                put_oi            = int(picked.get("open_interest") or 0)
+                put_vol           = int(picked.get("volume") or 0)
+                put_exp           = picked["expiration_date"]
+
+        def _clear_leg(side, expiry):
+            nonlocal call_strike, call_bid, call_ask, call_mid, call_spread
+            nonlocal call_delta_bs, call_probability_itm, call_oi, call_vol, call_exp
+            nonlocal put_strike, put_bid, put_ask, put_mid, put_spread
+            nonlocal put_delta_bs, put_probability_itm, put_oi, put_vol, put_exp
+            if side == "call":
+                call_strike = None
+                call_bid = call_ask = call_mid = call_spread = None
+                call_delta_bs = call_probability_itm = None
+                call_oi = call_vol = None
+                call_exp = expiry
+            else:
+                put_strike = None
+                put_bid = put_ask = put_mid = put_spread = None
+                put_delta_bs = put_probability_itm = None
+                put_oi = put_vol = None
+                put_exp = expiry
+
+        def _select_legs(contracts, expiries):
+            """Try each expiry until at least one liquid call or put is found."""
+            nonlocal _poly_exp
+            best_call = best_put = None
+            used_exp = expiries[0] if expiries else None
+            for exp in (expiries or [None]):
+                cc = _liquid_chain(contracts, "call", exp) if exp else []
+                pc = _liquid_chain(contracts, "put", exp) if exp else []
+                if cc or pc:
+                    used_exp = exp
+                    best_call = _pick_by_delta(cc, _DELTA_TARGET) if cc else None
+                    best_put = _pick_by_delta(pc, _DELTA_TARGET) if pc else None
+                    break
+            _poly_exp = used_exp
+            if best_call:
+                _apply_leg(best_call, "call")
+            else:
+                _clear_leg("call", used_exp)
+                _NO_CAND("NO_LIQUID_CALL_CONTRACT", ticker, used_exp)
+            if best_put:
+                _apply_leg(best_put, "put")
+            else:
+                _clear_leg("put", used_exp)
+                _NO_CAND("NO_LIQUID_PUT_CONTRACT", ticker, used_exp)
+            return best_call is not None or best_put is not None
+
+        def _tradier_chain_as_contracts(sym, scan_dt, diag=None):
+            """
+            Fetch Tradier options chain(s) and normalize to Polygon-like contract
+            dicts. Used when Polygon returns contracts but bid/ask/greeks are
+            empty (common on plans without options quotes — 2026-08-05 BMY/NEE
+            had 140–250 contracts, strategies_evaluated=0, then NO_LIQUID).
+
+            Walks *listed* expirations from Tradier /expirations (DTE 5–21),
+            not a guessed Friday calendar — weeklies and monthlies both qualify.
+            """
+            tok = "".join(os.environ.get("TRADIER_API_TOKEN_2",
+                           os.environ.get("TRADIER_API_TOKEN", "")).split())
+            if diag is not None:
+                diag["tradier_token_present"] = bool(tok)
+            if not tok:
+                log.warning(
+                    f"[exec] Tradier fallback skipped for {sym}: "
+                    f"TRADIER_API_TOKEN(_2) not set in process env"
+                )
+                if diag is not None:
+                    diag["tradier_skip"] = "NO_TOKEN"
+                return []
+
+            headers = {"Authorization": f"Bearer {tok}",
+                       "Accept": "application/json"}
+            # 1) Listed expirations (authoritative), fall back to Friday guess.
+            exp_dates = []
+            try:
+                exp_url = (
+                    f"https://api.tradier.com/v1/markets/options/expirations"
+                    f"?symbol={sym}&includeAllRoots=true"
+                )
+                req = urllib.request.Request(exp_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    raw = json.loads(resp.read())
+                dates = (raw.get("expirations") or {}).get("date") or []
+                if isinstance(dates, str):
+                    dates = [dates]
+                for ds in dates:
+                    try:
+                        ed = datetime.strptime(ds, "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                    dte = (ed - scan_dt).days
+                    if 5 <= dte <= 21:
+                        exp_dates.append((dte, ed))
+                exp_dates.sort()
+                if diag is not None:
+                    diag["tradier_expirations_api"] = len(dates)
+                    diag["tradier_expiries_in_window"] = [
+                        ed.isoformat() for (_d, ed) in exp_dates
+                    ]
+            except Exception as _tex:
+                log.warning(f"[exec] Tradier expirations {sym}: {_tex}")
+                if diag is not None:
+                    diag["tradier_expirations_error"] = str(_tex)[:120]
+
+            if not exp_dates:
+                # Friday fallback if expirations endpoint fails/empty.
+                for dte in range(5, 22):
+                    ed = scan_dt + timedelta(days=dte)
+                    if ed.weekday() == 4:
+                        exp_dates.append((dte, ed))
+                if diag is not None:
+                    diag["tradier_expiries_source"] = "friday_guess"
+            else:
+                if diag is not None:
+                    diag["tradier_expiries_source"] = "expirations_api"
+
+            out = []
+            for dte, exp in exp_dates:
+                url = (
+                    f"https://api.tradier.com/v1/markets/options/chains"
+                    f"?symbol={sym}&expiration={exp.strftime('%Y-%m-%d')}&greeks=true"
+                )
+                try:
+                    req = urllib.request.Request(url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=8) as resp:
+                        raw = json.loads(resp.read())
+                    opts = (raw.get("options") or {}).get("option") or []
+                    if isinstance(opts, dict):
+                        opts = [opts]
+                    for o in opts:
+                        grk = o.get("greeks") or {}
+                        bid = float(o.get("bid") or 0)
+                        ask = float(o.get("ask") or 0)
+                        iv  = grk.get("mid_iv") or grk.get("smv_vol")
+                        delta = grk.get("delta")
+                        if bid <= 0 or ask <= 0 or iv is None or delta is None:
+                            continue
+                        try:
+                            iv_f = float(iv)
+                            d_f  = float(delta)
+                        except (TypeError, ValueError):
+                            continue
+                        if iv_f <= 0 or iv_f > _LIQ_IV_MAX or abs(d_f) == 0.0:
+                            continue
+                        out.append({
+                            "contract_type":   (o.get("option_type") or "").lower(),
+                            "expiration_date": exp.strftime("%Y-%m-%d"),
+                            "dte":             dte,
+                            "strike":          float(o.get("strike") or 0),
+                            "bid":             bid,
+                            "ask":             ask,
+                            "implied_volatility": iv_f,
+                            "delta":           d_f,
+                            "open_interest":   int(o.get("open_interest") or 0),
+                            "volume":          int(o.get("volume") or 0),
+                        })
+                except Exception as _td_e:
+                    log.warning(
+                        f"[exec] Tradier chain fallback {sym} {exp}: {_td_e}"
+                    )
+            if diag is not None:
+                diag["tradier_quoted_contracts"] = len(out)
+            return out
+
         # ── Strike selection: real chain, nearest-to-target delta ─────────────
         # Source: options_chain fetched above from Polygon (Stage OC).
-        # _poly_exp avoids name collision with the Tradier _exp date computed below.
+        # Walk expiries (not just the nearest) before declaring NO_LIQUID.
+        # If Polygon contracts exist but quotes/greeks are blank, fall back to
+        # Tradier — otherwise liquid names (BMY/AMGN/NEE) false-reject.
         _all_contracts = (options_chain.get("calls", [])
                           + options_chain.get("puts", []))
         _poly_exp = _pick_expiry(_all_contracts)
+        _expiries = _all_expiries(_all_contracts)
+        _liq_diag = {
+            "oe_liq_build": _OE_LIQ_BUILD,
+            "poly_contracts": len(_all_contracts),
+            "poly_expiries": list(_expiries or []),
+            "poly_nearest_exp": _poly_exp,
+        }
 
-        if not _poly_exp:
-            call_strike = put_strike = None
+        # Initialize leg locals before helpers mutate them via nonlocal.
+        call_strike = put_strike = None
+        call_bid = call_ask = call_mid = call_spread = None
+        call_delta_bs = call_probability_itm = call_iv = call_oi = call_vol = None
+        call_exp = None
+        put_bid = put_ask = put_mid = put_spread = None
+        put_delta_bs = put_probability_itm = put_iv = put_oi = put_vol = None
+        put_exp = None
+
+        if not _expiries:
             _NO_CAND("NO_EXPIRY_WITH_MIN_DTE", ticker, None)
-
-        # ---- CALL leg ----
-        _cc = (_liquid_chain(_all_contracts, "call", _poly_exp)
-               if _poly_exp else [])
-        if not _cc:
-            call_strike = None
-            call_bid = call_ask = call_mid = call_spread = None
-            call_delta_bs = call_probability_itm = None
-            call_oi = call_vol = None
-            call_exp = _poly_exp
-            _NO_CAND("NO_LIQUID_CALL_CONTRACT", ticker, _poly_exp)
+            _liq_diag["poly_select"] = "NO_EXPIRY"
         else:
-            _p = _pick_by_delta(_cc, _DELTA_TARGET)
-            call_strike       = float(_p["strike"])
-            call_delta_bs     = float(_p["delta"])          # Polygon: positive for calls
-            call_probability_itm = call_delta_bs
-            call_bid          = float(_p["bid"])
-            call_ask          = float(_p["ask"])
-            call_mid          = round((call_bid + call_ask) / 2.0, 2)
-            call_spread       = round((call_ask - call_bid) / call_mid, 4)
-            call_iv           = float(_p["implied_volatility"])
-            call_oi           = int(_p.get("open_interest") or 0)
-            call_vol          = int(_p.get("volume") or 0)
-            call_exp          = _p["expiration_date"]
+            _poly_ok = _select_legs(_all_contracts, _expiries)
+            _liq_diag["poly_liquid_leg"] = bool(_poly_ok)
+            _liq_diag["poly_call"] = call_strike
+            _liq_diag["poly_put"] = put_strike
 
-        # ---- PUT leg ----
-        _pc = (_liquid_chain(_all_contracts, "put", _poly_exp)
-               if _poly_exp else [])
-        if not _pc:
-            put_strike = None
-            put_bid = put_ask = put_mid = put_spread = None
-            put_delta_bs = put_probability_itm = None
-            put_oi = put_vol = None
-            put_exp = _poly_exp
-            _NO_CAND("NO_LIQUID_PUT_CONTRACT", ticker, _poly_exp)
-        else:
-            _p = _pick_by_delta(_pc, _DELTA_TARGET)
-            put_strike        = float(_p["strike"])
-            put_delta_bs      = float(_p["delta"])          # Polygon: negative for puts
-            put_probability_itm = abs(float(_p["delta"]))
-            put_bid           = float(_p["bid"])
-            put_ask           = float(_p["ask"])
-            put_mid           = round((put_bid + put_ask) / 2.0, 2)
-            put_spread        = round((put_ask - put_bid) / put_mid, 4)
-            put_iv            = float(_p["implied_volatility"])
-            put_oi            = int(_p.get("open_interest") or 0)
-            put_vol           = int(_p.get("volume") or 0)
-            put_exp           = _p["expiration_date"]
+        # Tradier quote fallback when Polygon chain had rows but zero liquid legs.
+        if call_strike is None and put_strike is None:
+            _td_contracts = _tradier_chain_as_contracts(
+                ticker, scan_date, diag=_liq_diag
+            )
+            if _td_contracts:
+                log.info(
+                    f"[exec] [{trace_id}] Polygon liquid_chain empty — "
+                    f"Tradier fallback returned {len(_td_contracts)} quoted contracts "
+                    f"build={_OE_LIQ_BUILD}"
+                )
+                _td_exps = _all_expiries(_td_contracts)
+                _liq_diag["tradier_expiries_used"] = list(_td_exps or [])
+                _select_legs(_td_contracts, _td_exps)
+                _liq_diag["tradier_call"] = call_strike
+                _liq_diag["tradier_put"] = put_strike
+                if call_strike is not None or put_strike is not None:
+                    _NO_CAND("POLY_QUOTE_FALLBACK_TRADIER", ticker, _poly_exp)
+            else:
+                log.warning(
+                    f"[exec] [{trace_id}] Tradier fallback returned 0 contracts "
+                    f"for {ticker} diag={_liq_diag}"
+                )
 
         # ── C5/FIX-1: No-liquid early exit ────────────────────────────────────
         # When both legs fail the liquidity gate (bid=0/ask=0 during market
         # closure or no contracts pass the predicate), there is no tradeable
         # strike for either direction.  Continuing would propagate None into
-        # arithmetic at lines 1906-1934 and _bs_d1d2 at line 1742, causing
-        # TypeError crashes instead of a clean NO_TRADE decision.
+        # arithmetic and _bs_d1d2, causing TypeError crashes instead of a clean
+        # NO_TRADE decision.
         # The "not ready_for_decision:" prefix routes through the NO_TRADE_GATES
-        # path (outer except, line 2986) so the job status is searchable and
-        # the Telegram alert reads "Options: NO TRADE (Hard Gates)" not a crash.
+        # path (outer except) so the job status is searchable and the Telegram
+        # alert reads "Options: NO TRADE (Hard Gates)" not a crash.
         if call_strike is None and put_strike is None:
             raise ValueError(
                 "not ready_for_decision: NO_LIQUID_CONTRACTS — "
                 "liquidity gate rejected all contracts on both legs "
                 f"(bid=0/ask=0 or no contracts passed predicate; "
-                f"expiry={_poly_exp}; ticker={ticker})"
+                f"expiry={_poly_exp}; ticker={ticker}; "
+                f"diag={json.dumps(_liq_diag, default=str)[:400]})"
             )
 
         # Black-Scholes greeks — computed live from spot + front_iv (vary per ticker/date)
@@ -2177,18 +2642,26 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         # ── Stage 5: REQ6 scoring ──────────────────────────────────────────────
         call_scoring = _pipe.compute_req6_score(call_data, "CALL", stock_data, iv_rank, verify_result)
         put_scoring  = _pipe.compute_req6_score(put_data,  "PUT",  stock_data, iv_rank, verify_result)
-        call_score   = call_scoring["score"]
-        put_score    = put_scoring["score"]
+        # Coerce None scores to 0.0 so Stage 6 comparisons never TypeError
+        # (mirrors the 2026-08-04 pattern_score NoneType>float failure class).
+        call_score   = float(call_scoring.get("score") or 0.0)
+        put_score    = float(put_scoring.get("score") or 0.0)
+        # Ineligible leg (missing quotes / hard-gate fail) must not invent a
+        # phantom opponent score that eats margin on single-leg morning movers.
+        if not verify_result.get("call_eligible", True):
+            call_score = 0.0
+        if not verify_result.get("put_eligible", True):
+            put_score = 0.0
         margin       = abs(call_score - put_score)
 
         # ── REGISTRY: Stage 5 — REQ6 scoring (Recommendation engine inputs) ───
         if _reg_ready:
             _rc("REQ6", "REQ6_CALL_SCORE",  call_score, call_score/100.0,
-                "BULLISH" if call_score >= 55 else "BEARISH")
+                "BULLISH" if call_score >= _SCORE_MIN else "BEARISH")
             _rc("REQ6", "REQ6_PUT_SCORE",   put_score,  put_score/100.0,
-                "BEARISH" if put_score >= 55 else "NEUTRAL")
+                "BEARISH" if put_score >= _SCORE_MIN else "NEUTRAL")
             _rc("REQ6", "REQ6_MARGIN",      margin, margin/100.0,
-                "BULLISH" if margin >= 10 else "NEUTRAL")
+                "BULLISH" if margin >= _MARGIN_MIN else "NEUTRAL")
             # Capture each of the 12 dimension scores (from call_scoring / put_scoring)
             for _dim_name, _dim_val in (call_scoring.get("dimensions") or {}).items():
                 _d_cid = f"REQ6_CALL_{str(_dim_name).upper().replace(' ','_')[:30]}"
@@ -2204,12 +2677,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         # DETERMINISTIC TIE-BREAKING (Item 8):
         # call_score >= put_score → LONG_CALL (>= gives CALL precedence on exact tie).
         # put_score > call_score (strict) → LONG_PUT.
-        # Both require score >= 55 AND margin >= 10; otherwise → NO_TRADE.
+        # Thresholds from OE_GATE_PROFILE (default balanced: score>=50, margin>=8).
         # Scores are round(x,1) from compute_req6_score — no float ambiguity.
         # Identical inputs always produce identical scores → identical direction.
-        if call_score >= put_score and call_score >= 55 and margin >= 10:
+        if call_score >= put_score and call_score >= _SCORE_MIN and margin >= _MARGIN_MIN:
             direction = "LONG_CALL"
-        elif put_score > call_score and put_score >= 55 and margin >= 10:
+        elif put_score > call_score and put_score >= _SCORE_MIN and margin >= _MARGIN_MIN:
             direction = "LONG_PUT"
         else:
             direction = "NO_TRADE"
@@ -2221,11 +2694,11 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 "BEARISH" if direction == "LONG_PUT" else "NEUTRAL",
                 txt=direction)
             _rc("DECISION", "DECISION_CALL_SCORE",  call_score, call_score/100.0,
-                "BULLISH" if call_score >= 55 else "NEUTRAL")
+                "BULLISH" if call_score >= _SCORE_MIN else "NEUTRAL")
             _rc("DECISION", "DECISION_PUT_SCORE",   put_score,  put_score/100.0,
-                "BEARISH" if put_score >= 55 else "NEUTRAL")
+                "BEARISH" if put_score >= _SCORE_MIN else "NEUTRAL")
             _rc("DECISION", "DECISION_MARGIN",      margin, margin/100.0,
-                "BULLISH" if margin >= 10 else "NEUTRAL")
+                "BULLISH" if margin >= _MARGIN_MIN else "NEUTRAL")
             log.debug(f"[registry] stage6 snapped direction={direction} trace_id={trace_id}")
 
         # ── Trace: DECISION ────────────────────────────────────────────────────
@@ -2654,6 +3127,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 )
             except Exception as _st_rg_e:
                 log.debug(f"[scheduler_trace] RISK_GATE: {_st_rg_e}")
+
+        # ── Kill switch (fail-closed on active switch; ImportError = fail-open) ─
+        try:
+            from aiem_operational_controls import kill_switch_reason
+            _ks = kill_switch_reason(ticker)
+            if _ks:
+                raise ValueError(f"kill_switch_blocked: {_ks}")
+        except ImportError:
+            pass
 
         # ── Stage 8: DB persist ────────────────────────────────────────────────
         save_result = _pipe.save_options_alert(
@@ -3100,7 +3582,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except Exception as _st_fg_e:
                 log.debug(f"[scheduler_trace] PAPER_EXEC hard-gate: {_st_fg_e}")
 
-        _write_heartbeat(False, err_msg_with_tb)
+        _write_heartbeat(False, err_msg_with_tb, soft=_is_gate_reject)
         # ── Phase 4: record operational incident ─────────────────────────────
         if _p4_ready:
             try:
@@ -3916,6 +4398,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
             "scheduler": "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped",
             "service":   _SCHEDULER_NAME,
             "ts":        datetime.utcnow().isoformat() + "Z",
+            "oe_liq_build": _OE_LIQ_BUILD,
             "oe_scheduler_enabled": os.environ.get("OE_SCHEDULER_ENABLED", "unset"),
             "replit_deployment":    os.environ.get("REPLIT_DEPLOYMENT", "unset"),
         }

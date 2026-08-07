@@ -188,6 +188,41 @@ def evaluate_held_out(policy: DeepQPolicy,
     return total / matched if matched else 0.0
 
 
+# Promote-to-live gates (fail closed). A deep policy must beat these before
+# is_live=TRUE is allowed — cold-start / degenerate "always exit" policies stay offline.
+MIN_PROMOTE_TRAIN_SAMPLES = 500
+MIN_PROMOTE_HELD_OUT_AVG_REWARD = 0.0
+
+
+def check_promote_gates(
+    n_samples: int,
+    held_out_score: float,
+    probe_report: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[bool, str]:
+    """Return (ok, reason). ok=False means must not set is_live=TRUE."""
+    if int(n_samples or 0) < MIN_PROMOTE_TRAIN_SAMPLES:
+        return False, (
+            f"n_samples={n_samples} < MIN_PROMOTE_TRAIN_SAMPLES="
+            f"{MIN_PROMOTE_TRAIN_SAMPLES}"
+        )
+    if float(held_out_score) < MIN_PROMOTE_HELD_OUT_AVG_REWARD:
+        return False, (
+            f"held_out_avg_reward={held_out_score} < "
+            f"MIN_PROMOTE_HELD_OUT_AVG_REWARD={MIN_PROMOTE_HELD_OUT_AVG_REWARD}"
+        )
+    actions = [
+        (p or {}).get("chosen_action")
+        for p in (probe_report or [])
+        if (p or {}).get("chosen_action") is not None
+    ]
+    if actions and len(set(actions)) == 1:
+        return False, (
+            f"degenerate_probe: all {len(actions)} probe states chose "
+            f"action={actions[0]!r}"
+        )
+    return True, "ok"
+
+
 def save_policy_version(
     policy_name: str,
     policy: DeepQPolicy,
@@ -196,6 +231,13 @@ def save_policy_version(
     probe_report: List[Dict[str, Any]],
     promote: bool = False,
 ) -> int:
+    promote_effective = bool(promote)
+    if promote_effective:
+        ok, reason = check_promote_gates(n_samples, held_out_score, probe_report)
+        if not ok:
+            print(f"[deep_rl_policy] promote blocked — saving with is_live=FALSE: {reason}")
+            promote_effective = False
+
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -204,7 +246,7 @@ def save_policy_version(
             )
             version = cur.fetchone()[0]
 
-            if promote:
+            if promote_effective:
                 cur.execute(
                     "UPDATE deep_rl_policy_versions SET is_live = FALSE WHERE policy_name = %s",
                     (policy_name,),
@@ -221,7 +263,7 @@ def save_policy_version(
                 (
                     policy_name, version, policy.serialize(),
                     json.dumps(policy.feature_names),
-                    n_samples, held_out_score, promote,
+                    n_samples, held_out_score, promote_effective,
                     json.dumps(probe_report),
                 ),
             )

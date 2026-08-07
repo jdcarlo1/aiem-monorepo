@@ -210,8 +210,11 @@ def layer9_score_as_of(ticker_hist: pd.DataFrame, as_of_date):
 
     hist_df = pit.rename(columns={"close": "Close", "volume": "Volume",
                                    "high": "High", "low": "Low"})
-    result = compute_layer9_score(ticker="__pit__", history_df=hist_df,
-                                   lookback=min(60, len(pit) - 1))
+    result = compute_layer9_score(
+        ticker="__pit__", history_df=hist_df,
+        lookback=min(60, len(pit) - 1),
+        db_url=os.environ.get("DATABASE_URL") or os.environ.get("AIEM_DATABASE_URL"),
+    )
     if result.get("error"):
         return None
     return {

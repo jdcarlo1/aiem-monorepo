@@ -1,0 +1,106 @@
+===== A1 sha256 + length =====
+b115f314c8cae3ee123d4e3c93daee5e7a008627ad088c53a645d6bc704e7c49 docs/verification/spy-asymmetric-bt/RANKING_NOSTOP_TPGRID_2026-08-07.json bytes 57479
+ranked_best_first_len 138
+===== A1 verbatim rank hits =====
+{
+  "rank": 1,
+  "of": 138,
+  "item": {
+    "label": "07_long_put_butterfly__tp200",
+    "strategy": "07_long_put_butterfly",
+    "tp_pct": 200,
+    "trades": 91,
+    "total_pnl": 104676.0,
+    "win_rate": 0.6374,
+    "avg_pnl": 1150.29,
+    "tp_hits": 52,
+    "expiry_exits": 39,
+    "path": "/workspace/docs/verification/spy-asymmetric-bt/07_long_put_butterfly__tp200.json"
+  }
+}
+{
+  "rank": 7,
+  "of": 138,
+  "item": {
+    "label": "06_long_call_butterfly__tp100",
+    "strategy": "06_long_call_butterfly",
+    "tp_pct": 100,
+    "trades": 92,
+    "total_pnl": 76186.0,
+    "win_rate": 0.8478,
+    "avg_pnl": 828.11,
+    "tp_hits": 78,
+    "expiry_exits": 14,
+    "path": "/workspace/docs/verification/spy-asymmetric-bt/06_long_call_butterfly__tp100.json"
+  }
+}
+{
+  "rank": 13,
+  "of": 138,
+  "item": {
+    "label": "23_put_ladder_defined_risk__tp150",
+    "strategy": "23_put_ladder_defined_risk",
+    "tp_pct": 150,
+    "trades": 92,
+    "total_pnl": 69455.0,
+    "win_rate": 0.5217,
+    "avg_pnl": 754.95,
+    "tp_hits": 47,
+    "expiry_exits": 45,
+    "path": "/workspace/docs/verification/spy-asymmetric-bt/23_put_ladder_defined_risk__tp150.json"
+  }
+}
+===== A2 jq-equivalent =====
+07_long_put_butterfly__tp200.json: length=91 pnl_add=104676.0
+06_long_call_butterfly__tp100.json: length=92 pnl_add=76186.0
+23_put_ladder_defined_risk__tp150.json: length=92 pnl_add=69455.0
+===== A3 ride =====
+sha256 0d89cd44bfa3aa086d37c254a1e5a8aa29daa8ffd24c81ef6e5081d56885e08a
+{
+  "label": "07_long_put_butterfly__RIDE",
+  "strategy": "07_long_put_butterfly",
+  "tp_pct": 0,
+  "ride_to_expiry": true,
+  "trades": 91,
+  "total_pnl": 76805.0,
+  "win_rate": 0.3736,
+  "avg_pnl": 844.01,
+  "tp_hits": 0,
+  "expiry_exits": 91,
+  "path": "/workspace/docs/verification/spy-asymmetric-bt/07_long_put_butterfly__RIDE.json"
+}
+ledger 07_long_put_butterfly__RIDE: length=91 pnl_add=76805.0
+{
+  "label": "06_long_call_butterfly__RIDE",
+  "strategy": "06_long_call_butterfly",
+  "tp_pct": 0,
+  "ride_to_expiry": true,
+  "trades": 92,
+  "total_pnl": 38478.0,
+  "win_rate": 0.4674,
+  "avg_pnl": 418.24,
+  "tp_hits": 0,
+  "expiry_exits": 92,
+  "path": "/workspace/docs/verification/spy-asymmetric-bt/06_long_call_butterfly__RIDE.json"
+}
+ledger 06_long_call_butterfly__RIDE: length=92 pnl_add=38478.0
+{
+  "label": "23_put_ladder_defined_risk__RIDE",
+  "strategy": "23_put_ladder_defined_risk",
+  "tp_pct": 0,
+  "ride_to_expiry": true,
+  "trades": 92,
+  "total_pnl": 7269.0,
+  "win_rate": 0.1848,
+  "avg_pnl": 79.01,
+  "tp_hits": 0,
+  "expiry_exits": 92,
+  "path": "/workspace/docs/verification/spy-asymmetric-bt/23_put_ladder_defined_risk__RIDE.json"
+}
+ledger 23_put_ladder_defined_risk__RIDE: length=92 pnl_add=7269.0
+===== B5 env =====
+DATABASE_URL False
+NEON_DATABASE_URL False
+{"mergeable":"MERGEABLE","mergedAt":null,"state":"OPEN","url":"https://github.com/jdcarlo1/aiem-monorepo/pull/42"}
+
+on_main_exit 1

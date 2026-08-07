@@ -28,7 +28,7 @@ import {
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
-  fetchUnusualPuts, UnusualPut, UnusualPutsResult,
+  fetchUnusualPuts, fetchUnusualPutsLog, UnusualPut, UnusualPutsResult,
   fetchBearFlow, BearFlowRow, BearFlowResult,
   fetchEtfCalls, EtfCallsResult,
   fetchGammaPressure, GammaPressureRow, GammaPressureResult, triggerGammaScan,
@@ -2604,12 +2604,16 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   };
   useEffect(() => { load(); }, []);
 
-  const filtered = (data?.signals ?? []).filter(s => {
+  // Hard cap card render — backend also truncates, but an old ~40k-row
+  // cache must never mount that many DOM nodes on mobile (black screen / OOM).
+  const IR_UI_MAX = 100;
+  const filteredAll = (data?.signals ?? []).filter(s => {
     if (filter === "EARNINGS") return s.days_to_earnings != null;
     if (filter === "HIGH")     return s.suspicion_score >= 65;
-    if (filter === "QUIET")    return s.ticker_appearances <= 3;
+    if (filter === "QUIET")    return (s.ticker_appearances ?? 99) <= 3;
     return true;
   });
+  const filtered = filteredAll.slice(0, IR_UI_MAX);
 
   const scoreColor = (n: number) =>
     n >= 80 ? "#f87171" : n >= 65 ? "#fb923c" : n >= 50 ? "#facc15" : "#4ade80";
@@ -2625,8 +2629,10 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
     );
   };
 
-  const premStr = (p: number) =>
-    p >= 1_000_000 ? `$${(p/1_000_000).toFixed(1)}M` : `$${(p/1000).toFixed(0)}K`;
+  const premStr = (p: number | null | undefined) => {
+    const n = Number(p) || 0;
+    return n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : `$${(n/1000).toFixed(0)}K`;
+  };
 
   return (
     <div>
@@ -2680,6 +2686,13 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
               <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{s.label}</div>
             </div>
           ))}
+        </div>
+      )}
+      {view === "live" && data && (Boolean((data as { truncated?: boolean }).truncated) || filteredAll.length > IR_UI_MAX) && (
+        <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10,
+          background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.25)",
+          fontFamily: BB_F, fontSize: 11, color: "#fbbf24", lineHeight: 1.5 }}>
+          Showing top {filtered.length} of {data.total ?? filteredAll.length} signals (highest suspicion first) — full dump truncated so the page stays usable on mobile.
         </div>
       )}
       {view === "live" && (<>
@@ -2743,14 +2756,17 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
         {!loading && filtered.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {filtered.map((s, i) => {
-            const sc  = s.suspicion_score;
+            const sc  = s.suspicion_score ?? 0;
             const col = scoreColor(sc);
             const pstr = premStr(s.prem);
-            const otmLabel = s.otm_pct > 0 ? `+${s.otm_pct}% OTM` : s.otm_pct < 0 ? `${Math.abs(s.otm_pct)}% ITM` : "ATM";
+            const otm = Number(s.otm_pct) || 0;
+            const otmLabel = otm > 0 ? `+${otm}% OTM` : otm < 0 ? `${Math.abs(otm)}% ITM` : "ATM";
             const isHigh = sc >= 65;
             const borderCol = sc >= 80 ? "rgba(248,113,113,0.5)" : sc >= 65 ? "rgba(251,146,60,0.4)" : "rgba(255,255,255,0.07)";
             const firstDate = s.first_seen ? s.first_seen.slice(0,10) : "—";
             const lastDate  = s.last_seen  ? s.last_seen.slice(0,10)  : "—";
+            const px = Number(s.price);
+            const voi = Number(s.vol_oi) || 0;
 
             return (
               <div key={i} onClick={() => onSelectTicker(s.ticker)}
@@ -2766,7 +2782,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 22 }}>{s.ticker}</span>
-                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${s.price.toFixed(2)}</span>
+                      <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>{Number.isFinite(px) ? `$${px.toFixed(2)}` : "—"}</span>
                       <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                         background: "rgba(74,222,128,0.1)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.3)" }}>CALL</span>
                       {s.pre_positioned && (
@@ -2776,7 +2792,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                         </span>
                       )}
                       {earningsBadge(s.days_to_earnings)}
-                      {s.ticker_appearances <= 2 && (
+                      {(s.ticker_appearances ?? 99) <= 2 && (
                         <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 10, padding: "2px 8px", borderRadius: 99,
                           background: "rgba(251,146,60,0.1)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.3)" }}>
                           ⚡ RARE TICKER
@@ -2787,7 +2803,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${s.strike} strike</span>
                       <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>exp {s.expiry}</span>
                       <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>{otmLabel}</span>
-                      {s.iv > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {s.iv}%</span>}
+                      {(Number(s.iv) || 0) > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {s.iv}%</span>}
                     </div>
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                       <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
@@ -2799,7 +2815,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                         </span>
                       )}
                       <span style={{ fontFamily: BB_F, color: "#334155", fontSize: 10 }}>
-                        Appeared: <span style={{ color: "#64748b" }}>{s.ticker_appearances}× in 90d</span>
+                        Appeared: <span style={{ color: "#64748b" }}>{s.ticker_appearances ?? "—"}× in 90d</span>
                       </span>
                     </div>
                   </div>
@@ -2813,10 +2829,10 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
                       {sc}
                     </div>
                     <div style={{ width: 80, height: 4, background: "rgba(255,255,255,0.07)", borderRadius: 99, margin: "6px 0 6px auto" }}>
-                      <div style={{ width: `${sc}%`, height: "100%", background: col, borderRadius: 99 }} />
+                      <div style={{ width: `${Math.min(100, Math.max(0, sc))}%`, height: "100%", background: col, borderRadius: 99 }} />
                     </div>
                     <div style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 18, color: "#e2e8f0", marginBottom: 2 }}>{pstr}</div>
-                    <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>{s.vol_oi.toFixed(1)}× Vol/OI</div>
+                    <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 11 }}>{voi.toFixed(1)}× Vol/OI</div>
                     <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{(s.volume||0).toLocaleString()} vol · {(s.oi||0).toLocaleString()} OI</div>
                   </div>
                 </div>
@@ -4300,7 +4316,7 @@ function AIEarlyMoversTab() {
         <div>
           <div style={{ fontSize:15, fontWeight:900, color:"#00ff88", letterSpacing:"0.12em" }}>🧠 AI EARLY MOVERS</div>
           <div style={{ fontSize:10, color:"#666", marginTop:2 }}>
-            EXPERIMENTAL · Full-market Polygon scan · Day 1-2 detection · Isolated system
+            Scanner-ranked · Polygon movers + unusual calls + conviction + OI · OpenAI does not pick tickers
           </div>
         </div>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
@@ -4551,8 +4567,8 @@ function AIShortCallsTab() {
 
       {(loading || (bgGenerating && picks.length === 0)) && (
         <div style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, marginBottom: 8 }}>⚡ Analyzing signals with AI...</div>
-          <div style={{ fontSize: 11, color: BB_DIM }}>Evaluating unusual call flow · typically 30–60s on first load</div>
+          <div style={{ fontSize: 13, color: BB_ORANGE, fontWeight: 700, marginBottom: 8 }}>⚡ Ranking unusual-call signals…</div>
+          <div style={{ fontSize: 11, color: BB_DIM }}>Scanner score (VOI / prem / dark pool) — OpenAI does not pick tickers</div>
         </div>
       )}
 
@@ -5556,19 +5572,15 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-            🤖 AI Trade Setups
-            <span className="text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>GPT-4o</span>
-            <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(255,255,255,0.04)", color: "#94a3b8", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <svg width="11" height="11" viewBox="0 0 41 41" fill="none"><path d="M37.532 16.87a9.963 9.963 0 0 0-.856-8.184 10.078 10.078 0 0 0-10.855-4.835 9.964 9.964 0 0 0-6.52-3.272A10.08 10.08 0 0 0 8.733 5.183a9.965 9.965 0 0 0-6.663 4.81 10.079 10.079 0 0 0 1.24 11.817 9.965 9.965 0 0 0 .856 8.185 10.079 10.079 0 0 0 10.855 4.835 9.965 9.965 0 0 0 6.52 3.272 10.08 10.08 0 0 0 10.568-4.604 9.965 9.965 0 0 0 6.663-4.81 10.079 10.079 0 0 0-1.24-11.818zM22.498 37.886a7.474 7.474 0 0 1-4.799-1.735c.061-.033.168-.091.237-.134l7.964-4.6a1.294 1.294 0 0 0 .655-1.134V19.054l3.366 1.944a.12.12 0 0 1 .066.092v9.299a7.505 7.505 0 0 1-7.49 7.496zM6.392 31.006a7.471 7.471 0 0 1-.894-5.023c.06.036.162.099.237.141l7.964 4.6a1.297 1.297 0 0 0 1.308 0l9.724-5.614v3.888a.12.12 0 0 1-.048.103l-8.051 4.649a7.504 7.504 0 0 1-10.24-2.744zM4.297 13.62A7.469 7.469 0 0 1 8.2 10.333c0 .068-.004.19-.004.274v9.201a1.294 1.294 0 0 0 .654 1.132l9.723 5.614-3.366 1.944a.12.12 0 0 1-.114.012L7.044 23.86a7.504 7.504 0 0 1-2.747-10.24zm27.658 6.437l-9.724-5.615 3.367-1.943a.121.121 0 0 1 .114-.012l8.048 4.648a7.498 7.498 0 0 1-1.158 13.528v-9.476a1.293 1.293 0 0 0-.647-1.13zm3.35-5.043c-.059-.037-.162-.099-.236-.141l-7.965-4.6a1.298 1.298 0 0 0-1.308 0l-9.723 5.614v-3.888a.12.12 0 0 1 .048-.103l8.05-4.645a7.497 7.497 0 0 1 11.135 7.763zm-21.063 6.929l-3.367-1.944a.12.12 0 0 1-.065-.092v-9.299a7.497 7.497 0 0 1 12.293-5.756 6.94 6.94 0 0 0-.236.134l-7.965 4.6a1.294 1.294 0 0 0-.654 1.132l-.006 11.225zm1.829-3.943l4.33-2.501 4.332 2.498v4.997l-4.331 2.5-4.331-2.5V18z" fill="currentColor"/></svg>
-              Powered by OpenAI
-            </span>
+            🤖 Scanner Trade Setups
+            <span className="text-xs px-2 py-0.5 rounded-full font-normal" style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>Scanner-ranked</span>
           </h2>
-          <p className="text-slate-500 text-sm mt-0.5">3 high-conviction trades synthesized by OpenAI across <strong className="text-slate-400">every signal source</strong> — dark pool, smart money, vol crush, call intent, max pain, gamma wall &amp; more.</p>
+          <p className="text-slate-500 text-sm mt-0.5">Top setups ranked from your Stock Scanner signals — unusual calls, Layer 9 (VPIN/Hurst/GARCH), dark pool, composite, persistence. <strong className="text-slate-400">OpenAI does not pick tickers.</strong></p>
         </div>
         <div className="flex items-center gap-3">
           {generatedAt && <span className="text-slate-600 text-xs hidden sm:block">{scanned} tickers · {sources.length} signal sources · {new Date(generatedAt).toLocaleTimeString()}</span>}
-          {(warming || refreshing) && <span className="text-xs text-amber-400 animate-pulse">⚙ Generating… {warmCountdown}s</span>}
-          <button onClick={handleRegenerate} disabled={warming || refreshing} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24", opacity: (warming || refreshing) ? 0.5 : 1 }}>{(warming || refreshing) ? "Generating…" : "↻ Regenerate"}</button>
+          {(warming || refreshing) && <span className="text-xs text-amber-400 animate-pulse">⚙ Ranking… {warmCountdown}s</span>}
+          <button onClick={handleRegenerate} disabled={warming || refreshing} className="px-4 py-2 rounded-lg text-sm font-bold transition-all" style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", color: "#fbbf24", opacity: (warming || refreshing) ? 0.5 : 1 }}>{(warming || refreshing) ? "Ranking…" : "↻ Regenerate"}</button>
         </div>
       </div>
 
@@ -5581,7 +5593,7 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
         </div>
       )}
 
-      <p className="text-xs text-slate-600 mb-5 italic">Not financial advice. Always do your own research. AI analysis is based on public options data and synthesized by OpenAI.</p>
+      <p className="text-xs text-slate-600 mb-5 italic">Not financial advice. Picks are ranked from your scanner/quant signals — not invented by OpenAI.</p>
 
       {/* Warming / first-load state */}
       {(warming && trades.length === 0) && (
@@ -5619,7 +5631,7 @@ function AITradesTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
       {loading && !warming && trades.length === 0 && (
         <div className="text-center py-16">
           <div className="text-3xl mb-4 animate-pulse">🤖</div>
-          <div className="text-slate-400 text-sm font-bold">OpenAI is reading all your signal sources…</div>
+          <div className="text-slate-400 text-sm font-bold">Ranking setups from your scanner signals…</div>
           <div className="text-slate-600 text-xs mt-2">Vol Crush · Call Intent · Smart vs Retail · Max Pain · Gamma Wall · Dark Pool · Composite Score</div>
           <div className="text-slate-700 text-xs mt-1">Finding the 5 trades where the most signals converge</div>
         </div>
@@ -9190,6 +9202,7 @@ function ConvictionTrackTab() {
         </div>
         <div style={{ color: BB_LABEL, fontSize: 9, marginTop: 3 }}>
           Every EXTREME + HIGH score logged at scan time · price tracked at T+1 / T+3 / T+5 close · {data?.total ?? 0} signals logged
+          {data?.latest_snap_date ? ` · latest ${data.latest_snap_date}` : ""}
         </div>
       </div>
 
@@ -9653,7 +9666,7 @@ function ZeroDtePaperTab() {
       {/* Config disclaimer */}
       <div style={{ background: "#1e293b", border: "1px solid #ca8a04", borderRadius: 8, padding: "8px 14px", marginBottom: 14, fontSize: 11, color: "#fbbf24" }}>
         ⚙️ <strong>Active config:</strong>&nbsp;
-        Profit target <strong>+50%</strong> of entry premium · Stop loss <strong>−20%</strong> of entry premium · 1 contract per trade.
+        Profit target <strong>+50%</strong> of entry premium · Stop loss <strong>−6%</strong> of entry premium · 1 contract per trade.
         Config source: <code style={{ fontSize: 10 }}>_PAPER_PROFIT_TARGET_PCT / _PAPER_STOP_LOSS_PCT</code> in <code style={{ fontSize: 10 }}>patterns/zero_dte_sweep.py</code>.
         Monitoring: <strong>separate 1-min poll</strong> (APScheduler id=<code style={{ fontSize: 10 }}>zero_dte_paper_monitor</code>) — not the 5-min scan cycle.
         EOD closer: <strong>15:35 ET daily</strong> (id=<code style={{ fontSize: 10 }}>zero_dte_paper_eod</code>).
@@ -10613,7 +10626,8 @@ function ShortCallRecordTab() {
         <div>
           <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: "0.15em" }}>⚡ SHORT CALLS RECORD</div>
           <div style={{ fontSize: 9, color: BB_LABEL, marginTop: 2, letterSpacing: "0.08em" }}>
-            Every daily AI short-call pick logged · WIN = stock closed ≥ breakeven price at expiry
+            Scanner-ranked short calls (unusual calls + DP/VOI — not OpenAI) · WIN = stock ≥ breakeven at expiry
+            {(data as any)?.track_reset_at ? ` · fresh track from ${(data as any).track_reset_at}` : ""}
           </div>
         </div>
         <button onClick={() => load()} disabled={loading} style={{ background: "transparent", border: `1px solid ${BB_BORDER}`, color: BB_LABEL, padding: "5px 14px", fontFamily: BB_FONT, fontSize: 9, cursor: "pointer", letterSpacing: "0.1em", opacity: loading ? 0.5 : 1 }}>
@@ -10691,8 +10705,10 @@ function ShortCallRecordTab() {
       {/* Pick rows */}
       {loading && <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>LOADING RECORD…</div>}
       {!loading && picks.length === 0 && (
-        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32 }}>
-          No short-call picks logged yet. They auto-save every weekday at 10:15 AM ET when you open the ⚡ AI SHORT CALLS tab.
+        <div style={{ color: BB_LABEL, fontSize: 10, textAlign: "center", padding: 32, lineHeight: 1.7 }}>
+          Fresh track — old OpenAI-era picks were archived.<br />
+          Scanner-ranked short calls auto-save weekdays at 10:15 AM ET (and when ⚡ AI SHORT CALLS regenerates).<br />
+          First graded win rates appear after T+1 / expiry fills in.
         </div>
       )}
       {picks.map(p => (
@@ -12634,21 +12650,21 @@ function SignalIntelTab() {
 
         <SigCard
           icon="📊" name="GARCH Volatility Clustering"
-          desc="Fits a GARCH(1,1) model to each ticker's daily returns to detect whether it is entering a high-volatility regime (explosive moves likely) or a calm regime. Votes into the Layer 9 statistical score."
+          desc="Fits a GARCH(1,1) model to each ticker's daily returns to detect whether it is entering a high-volatility regime (explosive moves likely) or a calm regime. Votes into the Layer 9 statistical score. Status from garch_regime_log (real fits)."
           status={gc.tickers_analyzed > 0 ? "active" : "pending"}
           reading={gc.tickers_analyzed > 0
-            ? `${gc.tickers_analyzed} tickers analyzed · ${gc.regime_covered} with regime computed · feeds Layer 9 vote`
-            : "Awaiting scan"}
-          last="Today (Layer 9 scan)" />
+            ? `${gc.tickers_analyzed} tickers in garch_regime_log · high-vol votes ${gc.vote_high_vol ?? 0} · calm ${gc.vote_calm ?? 0} · last ${gc.last_log ?? "—"}`
+            : "Awaiting GARCH regime log write"}
+          last={gc.last_log ?? "—"} />
 
         <SigCard
           icon="🔮" name="Gaussian Process Signal Search"
-          desc="Fits a Gaussian Process regression to each ticker to learn which features (RVOL, gap, range, close-strength) best predict its forward move. Builds a per-ticker 'best signal' map."
-          status={gp.tickers_fitted > 0 ? "active" : "pending"}
-          reading={gp.tickers_fitted > 0
-            ? `${gp.tickers_fitted} tickers fitted · feature rankings learned per ticker · feeds Layer 9`
-            : "Awaiting scan"}
-          last="Today (Layer 9 scan)" />
+          desc="Weekly GP evolution (Module 1) discovers formula templates stored in gp_discovered_templates — not a Layer 9 ticker-count proxy. Sklearn gp_signal_search remains an on-demand AIEM tool."
+          status={gp.tickers_fitted > 0 || gp.templates > 0 ? "active" : "pending"}
+          reading={(gp.tickers_fitted > 0 || gp.templates > 0)
+            ? `${gp.templates ?? gp.tickers_fitted} evolved templates · best fitness ${gp.best_fitness ?? "—"} · holdout WR ${gp.best_holdout_wr ?? "—"} · ${gp.note ?? "Module 1"}`
+            : "Awaiting weekly GP evolution job"}
+          last={gp.last_evolved ?? "—"} />
 
         <SigCard
           icon="⚡" name="RND / Volatility Risk Premium"
@@ -12881,10 +12897,10 @@ function SignalIntelTab() {
 }
 
 function GasBoardTab() {
-  const byokToken = localStorage.getItem("aiem_byok_token") || "";
   const BB_CARD  = "#0d1726";
   const BB_BORD  = "#1c3350";
 
+  const [byokToken,   setByokToken]     = useState(() => localStorage.getItem("aiem_byok_token") || "");
   const [tickerInput, setTickerInput]   = useState("");
   const [riskOver,    setRiskOver]      = useState("balanced");
   const [styleOver,   setStyleOver]     = useState("mixed");
@@ -12895,7 +12911,12 @@ function GasBoardTab() {
   const [useWl,       setUseWl]         = useState(false);
 
   const run = async () => {
-    if (!byokToken) { setErr("Enter your API key in Settings → API Keys first."); return; }
+    const tok = byokToken.trim();
+    if (!tok) {
+      setErr("Paste your subscriber token below (from your welcome email). Gas Board does not need an OpenAI key.");
+      return;
+    }
+    localStorage.setItem("aiem_byok_token", tok);
     setLoading(true); setErr(""); setResult(null);
     const rawTickers = tickerInput.split(/[,\s]+/).map(t => t.trim().toUpperCase()).filter(Boolean);
     try {
@@ -12903,7 +12924,7 @@ function GasBoardTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          subscriber_token:  byokToken,
+          subscriber_token:  tok,
           tickers:           useWl ? [] : rawTickers,
           risk_override:     riskOver,
           style_override:    styleOver,
@@ -12911,8 +12932,9 @@ function GasBoardTab() {
         }),
       });
       const data: GasBoardResult = await res.json();
-      if (!res.ok || data.error) { setErr(data.error || `Server error ${res.status}`); }
-      else { setResult(data); }
+      if (!res.ok || data.error) {
+        setErr(data.error || (data as { message?: string }).message || `Server error ${res.status}`);
+      } else { setResult(data); }
     } catch (e: any) { setErr(e.message || "Network error"); }
     finally { setLoading(false); }
   };
@@ -12933,13 +12955,25 @@ function GasBoardTab() {
           ⚡ GAS BOARD — LIVE PROBABILITY ENGINE
         </div>
         <div style={{ fontSize: 12, color: "#5a7fa0", marginTop: 3 }}>
-          Scores tickers against your saved profile · powered by polygon RVOL + call sweep data
+          Scores tickers against your saved profile · powered by polygon RVOL + call sweep data.
+          Uses your <b style={{ color: "#8fb0d0" }}>subscriber token</b> only — no OpenAI key required here.
         </div>
       </div>
 
       {/* Controls */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", marginBottom: 18,
                     background: "#0a1220", border: `1px solid ${BB_BORD}`, borderRadius: 10, padding: "12px 14px" }}>
+        <div style={{ flex: "1 1 280px" }}>
+          <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>SUBSCRIBER TOKEN (welcome email)</div>
+          <input
+            value={byokToken}
+            onChange={e => { setByokToken(e.target.value); localStorage.setItem("aiem_byok_token", e.target.value.trim()); }}
+            placeholder="sub_… paste from welcome email"
+            style={{ width: "100%", padding: "8px 10px", background: "#0f1e35",
+                     border: `1px solid ${BB_BORD}`, borderRadius: 6, color: "#fff",
+                     fontSize: 13, boxSizing: "border-box" }}
+          />
+        </div>
         <div style={{ flex: "1 1 220px" }}>
           <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>TICKERS (comma-separated)</div>
           <input
@@ -13103,9 +13137,9 @@ function GasBoardTab() {
         <div style={{ textAlign: "center", color: "#3a5070", padding: "50px 20px", fontSize: 13 }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>⚡</div>
           Enter tickers above (or enable "Use my watchlist") and click <b style={{ color: "#5a7fa0" }}>Run</b> to score them against your profile.
-          {!byokToken && (
+          {!byokToken.trim() && (
             <div style={{ marginTop: 12, color: "#ff6b6b", fontSize: 12 }}>
-              You need an API key — go to Settings → API Keys first.
+              Paste your subscriber token above (from your welcome email). OpenAI key is only needed for Quant Agent.
             </div>
           )}
         </div>
@@ -13257,18 +13291,21 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answer}</ReactMarkdown>
         </div>
       )}
-      {session.status === "error" && session.error === "__byok_required__" && (
+      {session.status === "error" && (session.error === "__byok_required__" || session.error === "__subscriber_token_required__") && (
         <div style={{ background: "#1a1000", border: "1px solid #7c5a00", borderRadius: 8, padding: "12px 14px" }}>
-          <div style={{ color: "#fbbf24", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>🔑 OpenAI API key required</div>
+          <div style={{ color: "#fbbf24", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+            {session.error === "__subscriber_token_required__" ? "🔑 Subscriber token required" : "🔑 OpenAI API key required"}
+          </div>
           <div style={{ color: "#d6b96a", fontSize: 12, lineHeight: 1.6 }}>
-            The Quant Agent runs on your own OpenAI account — the platform never covers this cost.
-            <br />Open <strong>Settings</strong> (⚙️ icon above) → <strong>API Keys</strong> and paste your <code style={{ background: "#2a1a00", padding: "1px 5px", borderRadius: 3 }}>sk-…</code> key to activate it.
+            Quant Agent uses a lot of tool/data calls — it runs on <strong>your</strong> OpenAI account so the platform never covers that cost.
+            <br />Open <strong>Settings</strong> (⚙️) → <strong>API Keys</strong>: paste your welcome-email <code style={{ background: "#2a1a00", padding: "1px 5px", borderRadius: 3 }}>sub_…</code> token
+            {session.error === "__byok_required__" && <> and your <code style={{ background: "#2a1a00", padding: "1px 5px", borderRadius: 3 }}>sk-…</code> OpenAI key</>}, then Save.
           </div>
         </div>
       )}
-      {session.status === "error" && session.error !== "__byok_required__" && (
+      {session.status === "error" && session.error !== "__byok_required__" && session.error !== "__subscriber_token_required__" && (
         <div style={{ color: "#ff6b6b", fontSize: 13 }}>
-          Session failed — please try again.
+          {session.error || "Session failed — please try again."}
         </div>
       )}
       {realTrace.length > 0 && (
@@ -13648,10 +13685,14 @@ function QuantAgentTab() {
 
   async function loadHistory() {
     try {
-      const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat/history`);
-      if (!res.ok) return;
+      const tok = localStorage.getItem("aiem_byok_token") || "";
+      if (!tok.trim()) { if (mountedRef.current) setHistory([]); return; }
+      const res = await fetch(
+        `${API_BASE_QA}stock-api/aiem/chat/history?subscriber_token=${encodeURIComponent(tok.trim())}`
+      );
+      if (!res.ok) { if (mountedRef.current) setHistory([]); return; }
       const data = await res.json();
-      if (mountedRef.current) setHistory(data);
+      if (mountedRef.current) setHistory(Array.isArray(data) ? data : []);
     } catch { /* non-fatal */ }
   }
 
@@ -13771,8 +13812,14 @@ function QuantAgentTab() {
 
     const body: Record<string, unknown> = { question: q || "Analyze this chart/screenshot." };
     if (capturedImage) body.image_data_url = capturedImage;
-    const _tok = localStorage.getItem("aiem_byok_token") || "";
-    if (_tok) body.subscriber_token = _tok;
+    const _tok = (localStorage.getItem("aiem_byok_token") || "").trim();
+    if (!_tok) {
+      clearTimers();
+      setActiveJob({ job_id: "", question: q, status: "error", error: "__subscriber_token_required__" });
+      setSubmitting(false);
+      return;
+    }
+    body.subscriber_token = _tok;
 
     try {
       const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat/stream`, {
@@ -13781,16 +13828,21 @@ function QuantAgentTab() {
         body: JSON.stringify(body),
       });
 
+      if (res.status === 401) {
+        clearTimers();
+        setActiveJob({ job_id: "", question: q, status: "error", error: "__subscriber_token_required__" });
+        return;
+      }
       if (res.status === 402) {
         clearTimers();
         setActiveJob({ job_id: "", question: q, status: "error", error: "__byok_required__" });
         return;
       }
       if (!res.ok) {
-        const data: { error?: string } = await res.json().catch(() => ({}));
+        const data: { error?: string; message?: string } = await res.json().catch(() => ({}));
         clearTimers();
         setActiveJob({ job_id: "", question: q, status: "error",
-                       error: data.error || `Server error (${res.status}). Please try again.` });
+                       error: data.message || data.error || `Server error (${res.status}). Please try again.` });
         return;
       }
 
@@ -14172,8 +14224,20 @@ function QuantAgentTab() {
                     if (byokOAIKey.trim()) body.openai_key = byokOAIKey.trim();
                     const r = await fetch("/stock-api/user/keys", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
                     const d = await r.json();
-                    if (r.ok) { setByokMsg({ ok: true, text: "Keys saved." }); setByokOAIKey(""); setByokStatus({ openai_key_set: !!byokOAIKey.trim() || !!byokStatus?.openai_key_set }); }
-                    else setByokMsg({ ok: false, text: d.error || "Save failed" });
+                    if (r.ok) {
+                      const statusRes = await fetch(`/stock-api/user/keys?subscriber_token=${encodeURIComponent(byokToken)}`);
+                      const st = statusRes.ok ? await statusRes.json() : d;
+                      setByokStatus({ openai_key_set: !!st.openai_key_set });
+                      setByokMsg({
+                        ok: true,
+                        text: byokOAIKey.trim()
+                          ? "Keys saved. Quant Agent is ready."
+                          : (d.message || "Subscriber token valid. Paste your OpenAI sk-… key and Save to enable Quant Agent."),
+                      });
+                      setByokOAIKey("");
+                      loadHistory();
+                    }
+                    else setByokMsg({ ok: false, text: d.message || d.error || "Save failed" });
                   } catch (e: any) { setByokMsg({ ok: false, text: String(e) }); }
                   finally { setByokSaving(false); }
                 }} style={{ background: byokSaving || !byokToken ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 6, padding: "7px 16px", cursor: byokSaving || !byokToken ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
@@ -16563,7 +16627,36 @@ function UnusualPutsTab({ onSelectTicker }: { onSelectTicker: (t: string) => voi
 
   useEffect(() => {
     setLoading(true);
-    fetchUnusualPuts().then(d => setData(d)).catch(() => {}).finally(() => setLoading(false));
+    fetchUnusualPuts()
+      .then(async (d) => {
+        if (d && (d.hits?.length ?? 0) > 0) {
+          setData(d);
+          return;
+        }
+        // Off-hours / empty live scan: fall back to persisted puts log
+        try {
+          const log = await fetchUnusualPutsLog();
+          const hits = (log.signals || []).map((s) => ({
+            ...s,
+            closing_flag: false,
+            data_age_min: null as number | null,
+            score_breakdown: null as any,
+          }));
+          setData({
+            hits,
+            total: hits.length,
+            scanned: 0,
+            stale: true,
+            note: hits.length
+              ? "Showing persisted unusual-puts history (live scan empty / market closed)"
+              : (d?.note || "No unusual put history logged yet"),
+          });
+        } catch {
+          setData(d);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const handleSave = async (e: React.MouseEvent, h: UnusualPut) => {
@@ -16964,7 +17057,7 @@ function BearFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                             `Regime: ${bd.regime_detail.regime}`,
                           ]},
                         { label: "TECHNICAL", pts: bd.technical, max: 25, lines: [
-                            `Move: ${bd.tech_detail.pct_change > 0 ? "+" : ""}${bd.tech_detail.pct_change}%`,
+                            `Close strength: ${bd.tech_detail.close_strength}`,
                             `RVOL: ${bd.tech_detail.rvol}x avg`,
                             `Max IV: ${bd.tech_detail.max_iv}%`,
                           ]},
@@ -19842,7 +19935,11 @@ export default function Dashboard() {
                     </div>
                     {scanDate && (
                       <span className="text-slate-500 text-xs">
-                        {stale ? "⚠ no recent scan · " : ""}Last scan: {scanDate}
+                        {stale ? "⚠ scan behind market · " : ""}Last scan: {scanDate}
+                        {(data as any)?.market_date && (data as any).market_date !== scanDate
+                          ? ` · market ${(data as any).market_date}`
+                          : ""}
+                        {data?.count != null ? ` · ${data.count} ranked` : ""}
                       </span>
                     )}
                   </div>
@@ -19850,6 +19947,7 @@ export default function Dashboard() {
                     Patterns: hammer, marubozu, engulfing, piercing line, harami, morning star / doji star,
                     three white soldiers, three inside/outside up, abandoned baby. Confluence: volume above
                     20-day avg, price near 20-day low (support), RSI(14) &lt; 40 (oversold).
+                    Micro-range bars (&lt;0.5% H–L) are filtered out.
                   </div>
                 </div>
 

@@ -1,0 +1,30 @@
+-- ============================================================
+-- MIGRATION EVIDENCE RECORD — 2026-08-05
+-- Destructive publish diff: classification of all 8 affected columns
+-- ============================================================
+--
+-- CONFIRMED LIVE (code refs found, must not drop):
+--   aiem_paper_trades.ppo_trained        — 3 hits: aiem_closed_loop_learning.py:560,582 + main.py:49538
+--   gp_discovered_templates.holdout_correlation — signal_discovery_gp.py:218
+--   gp_discovered_templates.holdout_win_rate    — signal_discovery_gp.py:219
+--   gp_discovered_templates.holdout_n           — signal_discovery_gp.py:220
+--
+-- INFERRED LIVE (no code refs — classified by inference, not confirmed hit):
+--   aiem_paper_trades.ppo_trained_at
+--     grep hits: 0
+--     Basis for LIVE classification: companion column to ppo_trained (same table, same feature),
+--     1 live prod row with a non-null value (set 2026-08-04), TIMESTAMPTZ NULL on prod.
+--     NOT a confirmed code reference. Kept to avoid dropping live prod data pending
+--     explicit review. If confirmed unused after review, can be dropped deliberately.
+--
+-- DEAD (0 code refs, dropped on publish — data backed up below):
+--   aiem_signal_discoveries.signature       — 0 hits
+--   aiem_signal_discoveries.signed_at       — 0 hits in signal_discoveries context
+--                                             (all signed_at hits in codebase = quant_agent_sessions)
+--   aiem_signal_discoveries.provenance_nonce — 0 hits
+--
+-- Backed-up prod data (only 1 row had non-null values):
+--   id=10 | signature=30880c75f74930d1bfdba096a8c05f75813e6d4c41d16462ef7ae0af5b22d197
+--          | signed_at=2026-08-04 22:14:39.764868+00
+--          | provenance_nonce=9d213bbf957647c1bfcb294263ea867f
+-- ============================================================

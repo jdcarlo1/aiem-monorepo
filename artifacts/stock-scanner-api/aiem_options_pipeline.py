@@ -164,6 +164,73 @@ _REQ6_SCORING_WEIGHTS = {
     "D12_historical_performance":    0.02,
 }
 
+
+def _d12_historical_performance_score(direction: str) -> int:
+    """Win-rate score from graded oe_trade_records (last 90d). Fail-open to 50.
+
+    Prefer direction-specific sample when n >= 10; otherwise use overall.
+    Neutral 50 when n < 5 or any DB/query failure.
+    Win = return_pct > 0 when present, else realized_pnl > 0.
+    Score = win-rate percentage (0-100).
+    """
+    db_url = _DB_URL or os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        return 50
+    dir_u = (direction or "").strip().upper()
+    # Map CALL/PUT onto common direction labels stored on oe_trade_records
+    if dir_u in ("CALL", "LONG_CALL", "BULLISH"):
+        dir_aliases = ("CALL", "LONG_CALL", "BULLISH")
+    elif dir_u in ("PUT", "LONG_PUT", "BEARISH"):
+        dir_aliases = ("PUT", "LONG_PUT", "BEARISH")
+    else:
+        dir_aliases = (dir_u,) if dir_u else ()
+
+    def _query_wr(cur, use_direction: bool):
+        sql = """
+            SELECT
+                COUNT(*)::int AS n,
+                COUNT(*) FILTER (
+                    WHERE CASE
+                        WHEN return_pct IS NOT NULL THEN return_pct > 0
+                        WHEN realized_pnl IS NOT NULL THEN realized_pnl > 0
+                        ELSE FALSE
+                    END
+                )::int AS wins
+            FROM oe_trade_records
+            WHERE exit_ts IS NOT NULL
+              AND (return_pct IS NOT NULL OR realized_pnl IS NOT NULL)
+              AND COALESCE(exit_ts, created_at, entry_ts) >= NOW() - INTERVAL '90 days'
+        """
+        params = []
+        if use_direction and dir_aliases:
+            placeholders = ",".join(["%s"] * len(dir_aliases))
+            sql += f" AND UPPER(COALESCE(direction, '')) IN ({placeholders})"
+            params.extend(dir_aliases)
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        if not row:
+            return 0, 0
+        return int(row[0] or 0), int(row[1] or 0)
+
+    try:
+        with psycopg2.connect(
+            db_url,
+            connect_timeout=3,
+            options="-c statement_timeout=2000",
+        ) as conn, conn.cursor() as cur:
+            n, wins = 0, 0
+            if dir_aliases:
+                n, wins = _query_wr(cur, use_direction=True)
+            if n < 10:
+                n, wins = _query_wr(cur, use_direction=False)
+            if n < 5:
+                return 50
+            wr_pct = (wins / n) * 100.0
+            return max(0, min(100, int(round(wr_pct))))
+    except Exception:
+        return 50
+
+
 def compute_req6_score(
     contract_data: dict,
     direction: str,         # "CALL" or "PUT"
@@ -187,7 +254,7 @@ def compute_req6_score(
       D9  market_regime_fit         (GEX regime × direction alignment)
       D10 technical_confirmation    (VWAP, close_strength, close vs open)
       D11 options_flow_confirmation (IV skew × term structure alignment)
-      D12 historical_performance    (placeholder — returns 50 for neutral)
+      D12 historical_performance    (graded oe_trade_records win-rate; 50 if n<5)
     """
     scores = {}
 
@@ -263,22 +330,35 @@ def compute_req6_score(
             50
         )
     else:
+        # CALL: TRENDING best; SHORT_GAMMA still tradeable on up-day momentum
+        # (raised from 60→75 after 2026-08-04 missed bullish CALL names).
         scores["D9_market_regime_fit"] = (
             85 if "TRENDING" in gex_regime else
-            60 if "SHORT_GAMMA" in gex_regime else
-            50
+            75 if "SHORT_GAMMA" in gex_regime else
+            55
         )
 
     # ── D10: Technical confirmation ────────────────────────────────────────────
     vwap_pos      = stock_data.get("vwap_position", "")
     close_strength = float(stock_data.get("close_strength", 0.5))
+    morning_mom = float(stock_data.get("morning_momentum_pct") or 0.0)
     if direction == "PUT":
         cs_score = max(0, min(100, int((1 - close_strength) * 120)))
         vwap_score = 80 if "BELOW" in vwap_pos else 40
+        mom_adj = -15 if morning_mom >= 0.02 else 0  # ripping open hurts puts
     else:
         cs_score   = max(0, min(100, int(close_strength * 120)))
         vwap_score = 80 if "ABOVE" in vwap_pos else 40
-    scores["D10_technical_confirmation"] = int((cs_score + vwap_score) / 2)
+        # Morning rip is the primary bullish CALL technical (parity with skew).
+        if morning_mom >= 0.04:
+            mom_adj = 25
+        elif morning_mom >= 0.015:
+            mom_adj = 15
+        else:
+            mom_adj = 0
+    scores["D10_technical_confirmation"] = max(
+        0, min(100, int((cs_score + vwap_score) / 2) + mom_adj)
+    )
 
     # ── D11: Options flow confirmation ─────────────────────────────────────────
     iv_crush = stock_data.get("iv_crush_risk", "")
@@ -287,13 +367,16 @@ def compute_req6_score(
         skew_bonus = 25 if skew_tag == "FEAR_PREMIUM" else 0
         iv_penalty = -20 if "INVERTED" in iv_crush else 0   # inverted = buying expensive puts
     else:
-        skew_bonus = 15 if skew_tag == "CALL_SKEW" else 0
+        # Parity with FEAR_PREMIUM put bonus (was 15 — systematically under-ranked CALLs).
+        skew_bonus = 25 if skew_tag == "CALL_SKEW" else (10 if morning_mom >= 0.02 else 0)
         iv_penalty = 0
-    iv_rank_penalty = -15 if iv_rank > 0.75 else 0  # expensive IV = harder to profit from buying
+    # Guard None iv_rank (same NoneType>float class as 2026-08-04 pattern_score crash)
+    _ivr = 0.5 if iv_rank is None else float(iv_rank)
+    iv_rank_penalty = -15 if _ivr > 0.75 else 0  # expensive IV = harder to profit from buying
     scores["D11_options_flow_confirmation"] = max(0, min(100, 60 + skew_bonus + iv_penalty + iv_rank_penalty))
 
     # ── D12: Historical performance ────────────────────────────────────────────
-    scores["D12_historical_performance"] = 50   # neutral — no historical win rate yet
+    scores["D12_historical_performance"] = _d12_historical_performance_score(direction)
 
     # ── Final 0-100 score (weighted average) ──────────────────────────────────
     weights = _REQ6_SCORING_WEIGHTS

@@ -123,6 +123,10 @@ const PROTECTED_ENDPOINTS = [
   "/stock-api/admin/job-heartbeats",
   "/stock-api/admin/scheduler-jobs",
   "/stock-api/admin/decision-audit",
+  "/stock-api/admin/paper-job-ledger",
+  "/stock-api/admin/daily-pipeline-runs",
+  "/stock-api/admin/governance-decisions",
+  "/stock-api/admin/telegram-alerts",
 ] as const;
 
 describe("Auth guard — 401 without token", () => {

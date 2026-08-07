@@ -1,0 +1,96 @@
+# Directive_F3Backtest_RealOptionPricing_Build_2026-08-06
+
+Goal: replace the synthetic leverage formula with REAL Polygon 0DTE
+option premiums for every trade in the existing 1-year F3 backtest,
+and prove it with raw evidence — not narrative.
+
+## Required build
+
+Add these two functions to f3_strategy.py (or a new module imported
+by it) and use them in run_f3_backtest() instead of the leverage math.
+
+```python
+def get_atm_option_ticker(spot_price, expiration_date, is_call):
+    """SPY strikes are $1 increments. ATM = nearest whole dollar."""
+    strike = round(spot_price)
+    strike_str = f"{int(strike * 1000):08d}"   # Polygon format: 8 digits, 3 decimal implied
+    cp = "C" if is_call else "P"
+    exp_str = expiration_date.strftime("%y%m%d")
+    return f"O:SPY{exp_str}{cp}{strike_str}"
+
+
+def fetch_option_price_at(option_ticker, date_str, target_minute):
+    """Returns the close of the 1-min bar nearest target_minute, or None if no data."""
+    url = f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/minute/{date_str}/{date_str}"
+    params = {"adjusted": "true", "sort": "asc", "limit": 5000, "apiKey": POLYGON_API_KEY}
+    resp = requests.get(url, params=params, timeout=30).json()
+    bars = resp.get("results") or []
+    if not bars:
+        return None
+    # convert each bar's "t" to ET minute-of-day same way organize_bars_by_day does,
+    # pick the bar whose minute is closest to target_minute
+    best = min(bars, key=lambda b: abs(_et_minute(b["t"]) - target_minute))
+    return float(best["c"])
+```
+
+In `run_f3_backtest`, for each trade that currently computes
+`atm_est` / `leverage` / `option_ret`, instead:
+
+```python
+is_call = (pm_direction == 1)
+option_ticker = get_atm_option_ticker(spy_price, <expiration_date_for_date_str>, is_call)
+
+entry_minute = entry_bar["minute"]
+exit_minute  = 960  # 4:00 PM
+
+entry_premium = fetch_option_price_at(option_ticker, date_str, entry_minute)
+exit_premium  = fetch_option_price_at(option_ticker, date_str, exit_minute)
+
+if entry_premium is None or exit_premium is None:
+    # LOG and SKIP — do not fall back to the synthetic formula silently
+    skipped_trades.append({"date": date_str, "ticker": option_ticker, "reason": "missing_option_data"})
+    continue
+
+contracts   = 1   # or trade_size // (entry_premium * 100) — DECIDE AND STATE WHICH, see Item 4 below
+dollar_pnl  = (exit_premium - entry_premium) * 100 * contracts
+option_ret  = (exit_premium - entry_premium) / entry_premium * 100
+```
+
+SPY 0DTE expiration = same calendar day as the trade date (SPY has
+had daily expirations since 2022) — confirm this is still true for
+every date in the backtest window, don't assume.
+
+## Evidence required — no sign-off without all of this
+
+**1. Full-range check first.** Before reporting final numbers, run
+across the full year and report: total trading days, how many had
+a valid entry AND exit option price found, how many were skipped
+for missing data, and why. If more than ~10% of trade days get
+skipped, say so explicitly — don't quietly drop them from the
+averages.
+
+**2. Raw API responses.** Paste the full raw JSON response (not
+summarized) from `fetch_option_price_at` for 5 real trades —
+entry and exit — so I can see the actual option ticker, actual
+bar timestamps, actual prices.
+
+**3. Trade-by-trade comparison.** A table for every trade in the
+year: date, direction, old synthetic option_ret/dollar_pnl vs new
+real option_ret/dollar_pnl side by side. Not just aggregate stats.
+
+**4. State the contract-sizing convention used** (1 contract per
+trade vs $200-notional-divided-by-premium) and why — this materially
+changes the dollar P&L and needs to be a stated decision, not buried.
+
+**5. Recomputed aggregate stats** (win rate, total P&L, profit
+factor, best/worst trade) using ONLY real premiums — clearly
+labeled as replacing the old synthetic numbers, not alongside them
+as if both are equally valid.
+
+**6. Sha256** of the updated script, plus git commit hash it's
+included in (not an ad-hoc in-session run this time — commit it).
+
+**7. Negative control.** Pick one day where you can independently
+verify the real ATM premium (e.g. cross-check against Tradier's
+option chain endpoint for that same contract/day) and show both
+sources agree, or explain the discrepancy.

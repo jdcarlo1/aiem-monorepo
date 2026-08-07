@@ -1,0 +1,31 @@
+18:  - Expiry: next_friday(d0, weeks_ahead=3)
+42:RISK_USD = 500.0
+44:ENTRY_AFTER = "09:30"
+46:FLATTEN_TIME = "15:30"
+60:RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
+185:def price_legs_polygon(
+234:def build_narrow_wing_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
+240:def build_bullish_risk_reversal(spot: float) -> list[tuple[int, str, float]]:
+246:def _short_put_collateral_usd(legs: list[dict], packages: int) -> float:
+274:def persist_asym_paper_open(
+356:def persist_asym_paper_close(
+381:                                     THEN (%s / ABS(notional)) * 100.0 ELSE NULL END,
+441:        risk_usd: float = RISK_USD,
+443:        cash_secured: bool = False,
+455:        self.cash_secured = cash_secured
+492:                "cash_secured": self.cash_secured,
+555:        persist_asym_paper_close(
+609:                if day >= exp and bar_time >= FLATTEN_TIME:
+628:        if bar_time < ENTRY_AFTER:
+631:                "note": f"entry at first RTH bar ({ENTRY_AFTER} ET)",
+638:        exp = next_friday(day, weeks_ahead=3)
+640:        priced = price_legs_polygon(self.underlying, exp, legs_spec, day)
+659:                    "status": "SKIP_BUDGET",
+677:            if self.cash_secured:
+678:                collateral = _short_put_collateral_usd(priced["legs"], packages)
+681:                        "status": "SKIP_COLLATERAL",
+698:        paper_id = persist_asym_paper_open(
+769:            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 200.0,
+773:            "BULLISH_RISK_REVERSAL", build_bullish_risk_reversal, 75.0,
+774:            "bullish_risk_reversal", underlying, RR_PAPER_CAPITAL_USD,
+776:            cash_secured=True,

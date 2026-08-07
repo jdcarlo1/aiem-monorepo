@@ -91,7 +91,7 @@ def train_model(
 
     if n_samples < 30:
         pipeline.fit(X, y)
-        return TrainedModel(
+        result = TrainedModel(
             model=pipeline,
             feature_columns=feature_columns,
             cv_auc_mean=np.nan,
@@ -100,6 +100,17 @@ def train_model(
             model_type=model_type,
             is_trustworthy=False,
         )
+        try:
+            import aiem_wiring_infra as _awi_ml
+            _awi_ml.log_ml_training_run(
+                model_name=f"model_training:{model_type}",
+                n_train=n_samples,
+                status="completed",
+                note="small_sample_no_cv",
+            )
+        except Exception:
+            pass
+        return result
 
     n_splits = min(n_cv_splits, max(2, n_samples // 40))
     tscv = TimeSeriesSplit(n_splits=n_splits)
@@ -107,15 +118,32 @@ def train_model(
 
     pipeline.fit(X, y)
 
-    return TrainedModel(
+    result = TrainedModel(
         model=pipeline,
         feature_columns=feature_columns,
-        cv_auc_mean=float(np.mean(cv_scores)),
-        cv_auc_std=float(np.std(cv_scores)),
+        cv_auc_mean=float(np.mean(cv_scores)) if n_samples >= 30 else np.nan,
+        cv_auc_std=float(np.std(cv_scores)) if n_samples >= 30 else np.nan,
         n_samples=n_samples,
         model_type=model_type if model_type != "auto" else ("xgboost" if HAS_XGBOOST else "logistic"),
         is_trustworthy=(n_samples >= MIN_SAMPLES),
     )
+    try:
+        import aiem_wiring_infra as _awi_ml
+        _awi_ml.log_ml_training_run(
+            model_name=f"model_training:{result.model_type}",
+            n_train=n_samples,
+            val_auc=None if (result.cv_auc_mean != result.cv_auc_mean) else float(result.cv_auc_mean),
+            metrics={
+                "cv_auc_mean": None if (result.cv_auc_mean != result.cv_auc_mean) else float(result.cv_auc_mean),
+                "cv_auc_std": None if (result.cv_auc_std != result.cv_auc_std) else float(result.cv_auc_std),
+                "is_trustworthy": bool(result.is_trustworthy),
+                "feature_columns": list(feature_columns),
+            },
+            note="model_training.train_model",
+        )
+    except Exception as _ml_log_e:
+        print(f"[model_training] ml_training_runs log skipped: {_ml_log_e}")
+    return result
 
 
 def rule_based_baseline_predict(df: pd.DataFrame) -> pd.Series:

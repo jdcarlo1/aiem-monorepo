@@ -27,6 +27,11 @@ import Performance from "@/pages/Performance";
 import Probability from "@/pages/Probability";
 import Calibration from "@/pages/Calibration";
 import Audit from "@/pages/Audit";
+import TraceExplorer from "@/pages/TraceExplorer";
+import Module4Gate from "@/pages/Module4Gate";
+import Dashboard from "@/pages/Dashboard";
+import SalesReadiness from "@/pages/SalesReadiness";
+import Backtest from "@/pages/Backtest";
 
 const queryClient = new QueryClient();
 
@@ -49,10 +54,15 @@ function Router() {
         <Route path="/options" component={Options} />
         <Route path="/learning" component={Learning} />
         <Route path="/alerts" component={Alerts} />
+        <Route path="/backtest" component={Backtest} />
         <Route path="/performance" component={Performance} />
         <Route path="/probability" component={Probability} />
         <Route path="/calibration" component={Calibration} />
         <Route path="/audit" component={Audit} />
+        <Route path="/sales-readiness" component={SalesReadiness} />
+        <Route path="/trace" component={TraceExplorer} />
+        <Route path="/module4" component={Module4Gate} />
+        <Route path="/dashboard" component={Dashboard} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

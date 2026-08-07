@@ -50,17 +50,6 @@ args = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.p
 [workflows.workflow.metadata]
 outputType = "console"
 
-[[workflows.workflow]]
-name = "git-autosync"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 /home/runner/workspace/git_autosync_daemon.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -102,7 +91,7 @@ ACCOUNT_VALUE_BASELINE = "20000"
 AIEM_DATABASE_URL = "postgresql://postgres:password@helium/heliumdb?sslmode=disable"
 AGENT_DATABASE_URL = "postgresql://aiem_agent:J-GvRGva84qfZovhSb-NSyI-w8qBfxNz7HkSQGWrRjs@helium:5432/heliumdb?sslmode=disable"
 DASHBOARD_USERNAME = "jdcarlo"
-DASHBOARD_PASSWORD = "123456789$"
+DASHBOARD_PASSWORD = "Aiem2026!"
 
 [userenv.development]
 STRIPE_SS_PRICE_ID = "price_1TfWahChn3bmMDTvsABVqAW4"

@@ -5,6 +5,7 @@ import { DataFooter } from "@/components/data-footer";
 export default function Options() {
   const { data: checkpoint, loading: checkLoading, lastUpdated: checkUpdated } = useApi<any>("/stock-api/admin/pipeline-checkpoint", {}, 30000);
   const { data: audit, loading: auditLoading } = useApi<any>("/stock-api/admin/aiem-pipeline-audit", {}, 60000);
+  const { data: runs, loading: runsLoading } = useApi<any>("/stock-api/admin/daily-pipeline-runs?limit=20", {}, 60000);
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -87,8 +88,59 @@ export default function Options() {
           </div>
         </div>
       </div>
+
+      <div className="border border-border bg-card flex flex-col min-h-[200px]">
+        <div className="p-3 border-b border-border bg-sidebar/50 flex justify-between items-center shrink-0">
+          <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2">
+            <FastForward size={14} /> DAILY PIPELINE RUNS
+          </h2>
+          <span className="text-xs font-mono text-muted-foreground">{runs?.count ?? 0} total</span>
+        </div>
+        <div className="flex-1 overflow-auto p-0">
+          <table className="w-full text-left font-mono text-sm border-collapse">
+            <thead className="sticky top-0 bg-card border-b border-border text-muted-foreground text-xs z-10">
+              <tr>
+                <th className="p-3 font-normal">DATE</th>
+                <th className="p-3 font-normal">TRIGGER</th>
+                <th className="p-3 font-normal">STATUS</th>
+                <th className="p-3 font-normal">SEEDED</th>
+                <th className="p-3 font-normal">EXECUTED</th>
+                <th className="p-3 font-normal">NO TRADE</th>
+                <th className="p-3 font-normal">FAILED</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runsLoading ? (
+                <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
+              ) : runs?.rows?.length ? (
+                runs.rows.map((row: any, i: number) => {
+                  const stale = (row.status === "RUNNING" || row.status === "EXECUTING") &&
+                    row.started_at && new Date(row.started_at).getTime() < Date.now() - 86400000;
+                  const color =
+                    row.status === "COMPLETED" ? "text-success" :
+                    row.status === "FAILED" || stale ? "text-destructive" : "text-accent";
+                  return (
+                    <tr key={i} className={`border-b border-border/50 hover:bg-white/5 ${stale ? "opacity-60" : ""}`}>
+                      <td className="p-3 text-white">{row.run_date}</td>
+                      <td className="p-3 text-xs text-secondary">{row.trigger_source}</td>
+                      <td className={`p-3 font-bold ${color}`}>{stale ? "STALE" : row.status}</td>
+                      <td className="p-3">{row.candidates_seeded ?? "—"}</td>
+                      <td className="p-3">{row.candidates_executed ?? "—"}</td>
+                      <td className="p-3">{row.candidates_no_trade ?? "—"}</td>
+                      <td className="p-3">{row.candidates_failed ?? "—"}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">NO DAILY PIPELINE RUNS</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <DataFooter
-        source="daily_pipeline_runs, oe_decision_audit"
+        source="daily_pipeline_runs, pipeline-checkpoint, aiem-pipeline-audit"
         lastUpdated={checkUpdated}
         pollIntervalSec={30}
         operatingMode="OPTIONS PIPELINE — PAPER SIMULATION"

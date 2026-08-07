@@ -1,0 +1,100 @@
+===== CLOCK_COMPARE_START =====
+window=2025-01-06→2025-06-30 max_entries=12
+[asym] cached SPY daily 128 bars → /tmp/spy_asym_bt_cache/SPY_1d_2024-12-23_2025-06-30.pkl
+mondays=12 first=2025-01-06 last=2025-04-07
+TRADE narrow_wing_butterfly BT_ASOF 2025-01-06 entry=-25.0 exit=27.0 pnl=52.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly BT_ASOF 2025-01-13 entry=-26.0 exit=83.0 pnl=109.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly BT_ASOF 2025-01-27 entry=486.0 exit=2376.0 pnl=1890.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly BT_ASOF 2025-02-03 entry=495.0 exit=2475.0 pnl=1980.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly BT_ASOF 2025-02-10 entry=486.0 exit=135.0 pnl=-351.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly BT_ASOF 2025-02-24 entry=497.0 exit=1704.0 pnl=1207.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly BT_ASOF 2025-03-03 entry=-239.0 exit=0.0 pnl=239.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly BT_ASOF 2025-03-17 entry=-120.0 exit=0.0 pnl=120.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly BT_ASOF 2025-03-31 entry=472.0 exit=0.0 pnl=-472.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_0930 2025-01-06 entry=496.0 exit=3875.0 pnl=3379.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_0930 2025-01-13 entry=497.0 exit=5893.0 pnl=5396.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_0930 2025-01-27 entry=-40.0 exit=264.0 pnl=304.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_0930 2025-02-03 entry=-74.0 exit=0.0 pnl=74.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_0930 2025-02-10 entry=500.0 exit=3500.0 pnl=3000.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_0930 2025-02-24 entry=486.0 exit=0.0 pnl=-486.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_0930 2025-03-03 entry=401.0 exit=0.0 pnl=-401.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_0930 2025-03-17 entry=473.0 exit=0.0 pnl=-473.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_0930 2025-03-31 entry=-38.0 exit=272.0 pnl=310.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-01-06 entry=-25.0 exit=27.0 pnl=52.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-01-13 entry=-26.0 exit=83.0 pnl=109.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-01-27 entry=486.0 exit=2376.0 pnl=1890.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-02-03 entry=495.0 exit=2475.0 pnl=1980.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-02-10 entry=486.0 exit=135.0 pnl=-351.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-02-24 entry=497.0 exit=1704.0 pnl=1207.0 reason=TP_200PCT
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-03-03 entry=-239.0 exit=0.0 pnl=239.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-03-17 entry=-120.0 exit=0.0 pnl=120.0 reason=EXPIRY_FLATTEN
+TRADE narrow_wing_butterfly PAPER_EXACT 2025-03-31 entry=472.0 exit=0.0 pnl=-472.0 reason=EXPIRY_FLATTEN
+TRADE bullish_risk_reversal BT_ASOF 2025-01-06 entry=472.0 exit=2420.0 pnl=1948.0 reason=TP_75PCT
+TRADE bullish_risk_reversal BT_ASOF 2025-01-13 entry=420.0 exit=5520.0 pnl=5100.0 reason=TP_75PCT
+TRADE bullish_risk_reversal BT_ASOF 2025-01-27 entry=444.0 exit=1948.0 pnl=1504.0 reason=TP_75PCT
+TRADE bullish_risk_reversal BT_ASOF 2025-02-03 entry=455.0 exit=2191.0 pnl=1736.0 reason=TP_75PCT
+TRADE bullish_risk_reversal BT_ASOF 2025-02-10 entry=495.0 exit=4180.0 pnl=3685.0 reason=TP_75PCT
+TRADE bullish_risk_reversal BT_ASOF 2025-02-24 entry=468.0 exit=-24741.0 pnl=-25209.0 reason=EXPIRY_FLATTEN
+TRADE bullish_risk_reversal BT_ASOF 2025-03-03 entry=-43.0 exit=-2356.0 pnl=-2313.0 reason=EXPIRY_FLATTEN
+TRADE bullish_risk_reversal BT_ASOF 2025-03-17 entry=-84.0 exit=672.0 pnl=756.0 reason=TP_75PCT
+TRADE bullish_risk_reversal BT_ASOF 2025-03-31 entry=468.0 exit=2256.0 pnl=1788.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_0930 2025-01-06 entry=-192.0 exit=184.0 pnl=376.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_0930 2025-01-13 entry=493.0 exit=18768.0 pnl=18275.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_0930 2025-02-03 entry=368.0 exit=686.0 pnl=318.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_0930 2025-02-10 entry=-263.0 exit=76.0 pnl=339.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_0930 2025-02-24 entry=279.0 exit=-2749.0 pnl=-3028.0 reason=EXPIRY_FLATTEN
+TRADE bullish_risk_reversal PAPER_0930 2025-03-17 entry=-349.0 exit=-30.0 pnl=319.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_0930 2025-03-31 entry=-276.0 exit=188.0 pnl=464.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_EXACT 2025-01-06 entry=472.0 exit=2420.0 pnl=1948.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_EXACT 2025-01-13 entry=420.0 exit=5520.0 pnl=5100.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_EXACT 2025-01-27 entry=444.0 exit=1948.0 pnl=1504.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_EXACT 2025-02-03 entry=455.0 exit=2191.0 pnl=1736.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_EXACT 2025-02-10 entry=495.0 exit=4180.0 pnl=3685.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_EXACT 2025-02-24 entry=468.0 exit=-24741.0 pnl=-25209.0 reason=EXPIRY_FLATTEN
+TRADE bullish_risk_reversal PAPER_EXACT 2025-03-03 entry=-43.0 exit=-2356.0 pnl=-2313.0 reason=EXPIRY_FLATTEN
+TRADE bullish_risk_reversal PAPER_EXACT 2025-03-17 entry=-84.0 exit=672.0 pnl=756.0 reason=TP_75PCT
+TRADE bullish_risk_reversal PAPER_EXACT 2025-03-31 entry=468.0 exit=2256.0 pnl=1788.0 reason=TP_75PCT
+===== PAIRWISE_VS_BT_ASOF =====
+DELTA bullish_risk_reversal 2025-01-06 PAPER_0930: d_entry=-664.0 d_pnl=-1572.0 same_exit=False bt_pnl=1948.0 alt_pnl=376.0
+DELTA bullish_risk_reversal 2025-01-06 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=1948.0 alt_pnl=1948.0
+DELTA bullish_risk_reversal 2025-01-13 PAPER_0930: d_entry=73.0 d_pnl=13175.0 same_exit=True bt_pnl=5100.0 alt_pnl=18275.0
+DELTA bullish_risk_reversal 2025-01-13 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=5100.0 alt_pnl=5100.0
+MISSING_PAIR bullish_risk_reversal 2025-01-27 PAPER_0930
+DELTA bullish_risk_reversal 2025-01-27 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=1504.0 alt_pnl=1504.0
+DELTA bullish_risk_reversal 2025-02-03 PAPER_0930: d_entry=-87.0 d_pnl=-1418.0 same_exit=False bt_pnl=1736.0 alt_pnl=318.0
+DELTA bullish_risk_reversal 2025-02-03 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=1736.0 alt_pnl=1736.0
+DELTA bullish_risk_reversal 2025-02-10 PAPER_0930: d_entry=-758.0 d_pnl=-3346.0 same_exit=True bt_pnl=3685.0 alt_pnl=339.0
+DELTA bullish_risk_reversal 2025-02-10 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=3685.0 alt_pnl=3685.0
+DELTA bullish_risk_reversal 2025-02-24 PAPER_0930: d_entry=-189.0 d_pnl=22181.0 same_exit=True bt_pnl=-25209.0 alt_pnl=-3028.0
+DELTA bullish_risk_reversal 2025-02-24 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=-25209.0 alt_pnl=-25209.0
+MISSING_PAIR bullish_risk_reversal 2025-03-03 PAPER_0930
+DELTA bullish_risk_reversal 2025-03-03 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=-2313.0 alt_pnl=-2313.0
+DELTA bullish_risk_reversal 2025-03-17 PAPER_0930: d_entry=-265.0 d_pnl=-437.0 same_exit=False bt_pnl=756.0 alt_pnl=319.0
+DELTA bullish_risk_reversal 2025-03-17 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=756.0 alt_pnl=756.0
+DELTA bullish_risk_reversal 2025-03-31 PAPER_0930: d_entry=-744.0 d_pnl=-1324.0 same_exit=True bt_pnl=1788.0 alt_pnl=464.0
+DELTA bullish_risk_reversal 2025-03-31 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=1788.0 alt_pnl=1788.0
+DELTA narrow_wing_butterfly 2025-01-06 PAPER_0930: d_entry=521.0 d_pnl=3327.0 same_exit=False bt_pnl=52.0 alt_pnl=3379.0
+DELTA narrow_wing_butterfly 2025-01-06 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=52.0 alt_pnl=52.0
+DELTA narrow_wing_butterfly 2025-01-13 PAPER_0930: d_entry=523.0 d_pnl=5287.0 same_exit=True bt_pnl=109.0 alt_pnl=5396.0
+DELTA narrow_wing_butterfly 2025-01-13 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=109.0 alt_pnl=109.0
+DELTA narrow_wing_butterfly 2025-01-27 PAPER_0930: d_entry=-526.0 d_pnl=-1586.0 same_exit=True bt_pnl=1890.0 alt_pnl=304.0
+DELTA narrow_wing_butterfly 2025-01-27 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=1890.0 alt_pnl=1890.0
+DELTA narrow_wing_butterfly 2025-02-03 PAPER_0930: d_entry=-569.0 d_pnl=-1906.0 same_exit=False bt_pnl=1980.0 alt_pnl=74.0
+DELTA narrow_wing_butterfly 2025-02-03 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=1980.0 alt_pnl=1980.0
+DELTA narrow_wing_butterfly 2025-02-10 PAPER_0930: d_entry=14.0 d_pnl=3351.0 same_exit=False bt_pnl=-351.0 alt_pnl=3000.0
+DELTA narrow_wing_butterfly 2025-02-10 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=-351.0 alt_pnl=-351.0
+DELTA narrow_wing_butterfly 2025-02-24 PAPER_0930: d_entry=-11.0 d_pnl=-1693.0 same_exit=False bt_pnl=1207.0 alt_pnl=-486.0
+DELTA narrow_wing_butterfly 2025-02-24 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=1207.0 alt_pnl=1207.0
+DELTA narrow_wing_butterfly 2025-03-03 PAPER_0930: d_entry=640.0 d_pnl=-640.0 same_exit=True bt_pnl=239.0 alt_pnl=-401.0
+DELTA narrow_wing_butterfly 2025-03-03 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=239.0 alt_pnl=239.0
+DELTA narrow_wing_butterfly 2025-03-17 PAPER_0930: d_entry=593.0 d_pnl=-593.0 same_exit=True bt_pnl=120.0 alt_pnl=-473.0
+DELTA narrow_wing_butterfly 2025-03-17 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=120.0 alt_pnl=120.0
+DELTA narrow_wing_butterfly 2025-03-31 PAPER_0930: d_entry=-510.0 d_pnl=782.0 same_exit=False bt_pnl=-472.0 alt_pnl=310.0
+DELTA narrow_wing_butterfly 2025-03-31 PAPER_EXACT: d_entry=0.0 d_pnl=0.0 same_exit=True bt_pnl=-472.0 alt_pnl=-472.0
+===== SUMMARY =====
+bullish_risk_reversal|PAPER_0930 {"entry_diff_abs_sum": 2780.0, "entry_diff_sum": -2634.0, "exact_match": 0, "exact_match_pct": 0.0, "mean_abs_entry_diff": 397.1429, "mean_abs_pnl_diff": 6207.5714, "mean_pnl_diff": 3894.1429, "n": 7, "pnl_diff_abs_sum": 43453.0, "pnl_diff_sum": 27259.0, "same_exit": 4, "same_exit_pct": 57.14}
+bullish_risk_reversal|PAPER_EXACT {"entry_diff_abs_sum": 0.0, "entry_diff_sum": 0.0, "exact_match": 9, "exact_match_pct": 100.0, "mean_abs_entry_diff": 0.0, "mean_abs_pnl_diff": 0.0, "mean_pnl_diff": 0.0, "n": 9, "pnl_diff_abs_sum": 0.0, "pnl_diff_sum": 0.0, "same_exit": 9, "same_exit_pct": 100.0}
+narrow_wing_butterfly|PAPER_0930 {"entry_diff_abs_sum": 3907.0, "entry_diff_sum": 675.0, "exact_match": 0, "exact_match_pct": 0.0, "mean_abs_entry_diff": 434.1111, "mean_abs_pnl_diff": 2129.4444, "mean_pnl_diff": 703.2222, "n": 9, "pnl_diff_abs_sum": 19165.0, "pnl_diff_sum": 6329.0, "same_exit": 4, "same_exit_pct": 44.44}
+narrow_wing_butterfly|PAPER_EXACT {"entry_diff_abs_sum": 0.0, "entry_diff_sum": 0.0, "exact_match": 9, "exact_match_pct": 100.0, "mean_abs_entry_diff": 0.0, "mean_abs_pnl_diff": 0.0, "mean_pnl_diff": 0.0, "n": 9, "pnl_diff_abs_sum": 0.0, "pnl_diff_sum": 0.0, "same_exit": 9, "same_exit_pct": 100.0}
+wrote /workspace/docs/verification/patternlab-top2-wiring-2026-08-07/CLOCK_COMPARE_TRADES.jsonl
+wrote /workspace/docs/verification/patternlab-top2-wiring-2026-08-07/CLOCK_COMPARE_SUMMARY.json
