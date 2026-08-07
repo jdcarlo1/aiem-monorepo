@@ -1,0 +1,69 @@
+{
+  "rules": "RIDE no TP no stop vs best TP from RANKING_NOSTOP_TPGRID",
+  "comparison": [
+    {
+      "strategy": "Narrow-Wing Butterfly",
+      "ride": {
+        "trades": 94,
+        "total_pnl": 14080.0,
+        "win_rate": 0.4468,
+        "avg_pnl": 149.79,
+        "tp_hits": 0,
+        "sl_hits": 0,
+        "expiry_exits": 94
+      },
+      "best_tp_label": "narrow_wing_butterfly__tp200",
+      "best_tp_pnl": 260940.0,
+      "best_tp_pct": 200,
+      "delta_ride_minus_best_tp": -246860.0
+    },
+    {
+      "strategy": "Bullish Risk Reversal",
+      "ride": {
+        "trades": 94,
+        "total_pnl": 179784.0,
+        "win_rate": 0.5745,
+        "avg_pnl": 1912.6,
+        "tp_hits": 0,
+        "sl_hits": 0,
+        "expiry_exits": 94
+      },
+      "best_tp_label": "bullish_risk_reversal__tp75",
+      "best_tp_pnl": 202238.0,
+      "best_tp_pct": 75,
+      "delta_ride_minus_best_tp": -22454.0
+    },
+    {
+      "strategy": "Split-Strike Synthetic Bullish",
+      "ride": {
+        "trades": 94,
+        "total_pnl": 179784.0,
+        "win_rate": 0.5745,
+        "avg_pnl": 1912.6,
+        "tp_hits": 0,
+        "sl_hits": 0,
+        "expiry_exits": 94
+      },
+      "best_tp_label": "split_strike_synthetic_bullish__tp75",
+      "best_tp_pnl": 202238.0,
+      "best_tp_pct": 75,
+      "delta_ride_minus_best_tp": -22454.0
+    },
+    {
+      "strategy": "Covered Strangle",
+      "ride": {
+        "trades": 94,
+        "total_pnl": 94274.0,
+        "win_rate": 0.8511,
+        "avg_pnl": 1002.91,
+        "tp_hits": 0,
+        "sl_hits": 0,
+        "expiry_exits": 94
+      },
+      "best_tp_label": "covered_strangle__tp125",
+      "best_tp_pnl": 96093.0,
+      "best_tp_pct": 125,
+      "delta_ride_minus_best_tp": -1819.0
+    }
+  ]
+}
