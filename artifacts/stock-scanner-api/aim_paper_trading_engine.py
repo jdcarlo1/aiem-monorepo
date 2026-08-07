@@ -151,7 +151,7 @@ class AIMPaperTradingEngine:
     Gap Fill / ORB: $10k each, 1.5% risk equity.
     F3: $200 notional ATM 0DTE long call/put, −65% premium stop, else 16:00.
     Asym (put butterfly / call butterfly / put ladder): ~$500 debit, Monday
-    after 10:00 ET, no stop, TP +200% / +100% / +150%.
+    first RTH bar (09:30 ET), no stop, TP +200% / +100% / +150%, Polygon daily.
     """
 
     def __init__(self, symbol: str = "SPY", initial_capital_usd: float = 10000.0):

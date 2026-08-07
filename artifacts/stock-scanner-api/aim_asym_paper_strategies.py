@@ -7,144 +7,199 @@ Top-3 from 2y real Polygon backtest (no stop, TP grid):
   2. Long call butterfly  — take-profit +100% of debit
   3. Put ladder (defined) — take-profit +150% of debit
 
-Shared rules:
+Parity with spy_asymmetric_bt.py (exact):
   - Underlying SPY
-  - Risk budget $500 debit max per package (1 lot if fits)
-  - Entry: Monday after 10:00 ET when flat (weekly)
-  - Expiry: ~3 weeks out (next Friday + 3 weeks)
+  - Risk budget $500 debit max per package
+  - Entry: weekly Monday, first RTH bar (09:30 ET) — BT docstring L9
+  - Expiry: next_friday(d0, weeks_ahead=3) — same helper as BT
   - NO stop loss
-  - Exit at TP% of entry debit, else flatten 15:55 ET on expiry Friday
-  - Real Tradier mids only — WAITING_PREMIUM if chain unavailable
+  - Flatten 15:30 ET on expiry Friday — BT docstring L12
+  - Pricing: Polygon daily option aggregates (O:SPY…) — NOT Tradier
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, date, timedelta
 from typing import Any, Optional, Callable
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import requests
 
 log = logging.getLogger("aim_asym")
 
 ET = ZoneInfo("America/New_York")
 RISK_USD = 500.0
-ENTRY_AFTER = "10:00"
-FLATTEN_TIME = "15:55"
+# First RTH bar — matches spy_asymmetric_bt.py docstring L9 ("Monday ~ open")
+ENTRY_AFTER = "09:30"
+# Matches spy_asymmetric_bt.py docstring L12
+FLATTEN_TIME = "15:30"
+POLYGON_BASE = "https://api.polygon.io"
+RATE_SLEEP = float(os.environ.get("ASYM_PAPER_RATE_SLEEP", "0.12"))
+
+# strategy key -> ledger (must match aiem_paper_trades.strategy filter)
+STRATEGY_KEYS = ("put_butterfly", "call_butterfly", "put_ladder")
 
 
-def _next_friday(d: date, weeks_ahead: int = 3) -> date:
+def _api_key() -> str:
+    return os.environ.get("POLYGON_API_KEY") or os.environ.get("POLYGON_KEY") or ""
+
+
+def _poly_get(path: str, params: Optional[dict] = None) -> dict:
+    key = _api_key()
+    if not key:
+        return {"status": "ERROR", "error": "POLYGON_API_KEY not set", "results": []}
+    params = dict(params or {})
+    params["apiKey"] = key
+    url = f"{POLYGON_BASE}{path}?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(url, headers={"User-Agent": "aiem-asym-paper/1.0"})
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                time.sleep(min(30, 2 ** attempt + 1))
+                continue
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")[:200]
+            except Exception:
+                pass
+            return {"status": "ERROR", "error": f"HTTP {e.code}: {body}", "results": []}
+        except Exception as e:
+            if attempt < 3:
+                time.sleep(0.8 * (attempt + 1))
+                continue
+            return {"status": "ERROR", "error": str(e), "results": []}
+    return {"status": "ERROR", "error": "rate_limited", "results": []}
+
+
+def next_friday(d: date, weeks_ahead: int = 0) -> date:
+    """Friday on or after d, plus weeks_ahead — identical to spy_asymmetric_bt.next_friday."""
     add = (4 - d.weekday()) % 7
     fri = d + timedelta(days=add)
-    if fri <= d:
-        fri += timedelta(days=7)
-    return fri + timedelta(weeks=weeks_ahead)
+    if fri <= d and weeks_ahead == 0:
+        fri = fri + timedelta(days=7)
+    fri = fri + timedelta(weeks=weeks_ahead)
+    return fri
 
 
-def _tradier_token() -> str:
-    return os.getenv("TRADIER_API_TOKEN_2") or os.getenv("TRADIER_API_TOKEN", "")
+def _occ(underlying: str, strike: float, right: str, exp: date) -> str:
+    """OCC option ticker O:SPYYYMMDD[C|P]######## — same as BT."""
+    cp = "C" if right.upper().startswith("C") else "P"
+    sk8 = f"{int(round(strike * 1000)):08d}"
+    return f"O:{underlying.upper()}{exp.strftime('%y%m%d')}{cp}{sk8}"
 
 
-# Short TTL so three ledgers + marks don't hammer Tradier every bar.
-_CHAIN_CACHE: dict[tuple[str, str], tuple[float, list]] = {}
-_CHAIN_TTL_SEC = 60.0
+# Short TTL cache: (occ_symbol, day_iso) -> premium close or None
+_OPT_PX_CACHE: dict[tuple[str, str], tuple[float, Optional[float]]] = {}
+_OPT_PX_TTL = 300.0  # 5 min
 
 
-def fetch_chain(symbol: str, expiration: date) -> list:
-    token = _tradier_token()
-    if not token:
-        return []
-    exp_s = expiration.strftime("%Y-%m-%d")
-    cache_key = (symbol.upper(), exp_s)
-    now = datetime.now(ET).timestamp()
-    hit = _CHAIN_CACHE.get(cache_key)
-    if hit and (now - hit[0]) < _CHAIN_TTL_SEC:
+def fetch_option_daily_close(occ_symbol: str, asof: date) -> Optional[float]:
+    """
+    Polygon daily option aggregate close on/asof `asof` (same source as BT).
+    Uses /v2/aggs/ticker/{O:…}/range/1/day — lookback 10 calendar days for asof.
+    """
+    cache_key = (occ_symbol, asof.isoformat())
+    now = time.time()
+    hit = _OPT_PX_CACHE.get(cache_key)
+    if hit and (now - hit[0]) < _OPT_PX_TTL:
         return hit[1]
-    try:
-        r = requests.get(
-            "https://api.tradier.com/v1/markets/options/chains",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-            params={"symbol": symbol, "expiration": exp_s, "greeks": "false"},
-            timeout=20,
-        )
-        r.raise_for_status()
-        opts = (r.json().get("options") or {}).get("option") or []
-        if not isinstance(opts, list):
-            opts = [opts] if opts else []
-        _CHAIN_CACHE[cache_key] = (now, opts)
-        return opts
-    except Exception as e:
-        log.warning("[asym] chain fetch failed: %s", e)
-        return []
+
+    start = asof - timedelta(days=10)
+    sym = urllib.parse.quote(occ_symbol)
+    data = _poly_get(
+        f"/v2/aggs/ticker/{sym}/range/1/day/{start.isoformat()}/{asof.isoformat()}",
+        {"adjusted": "false", "sort": "asc", "limit": 50},
+    )
+    time.sleep(RATE_SLEEP)
+    rows = data.get("results") or []
+    px: Optional[float] = None
+    if rows:
+        # Prefer exact asof day; else last bar <= asof (asof semantics like BT _px_on)
+        best_d = None
+        for row in rows:
+            try:
+                d = datetime.fromtimestamp(row["t"] / 1000.0, tz=ET).date()
+                c = float(row["c"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if d > asof or c <= 0:
+                continue
+            if best_d is None or d >= best_d:
+                best_d = d
+                px = c
+    _OPT_PX_CACHE[cache_key] = (now, px)
+    return px
 
 
-def _mid(o: dict) -> Optional[float]:
-    bid = float(o.get("bid") or 0)
-    ask = float(o.get("ask") or 0)
-    last = float(o.get("last") or 0)
-    if bid > 0 and ask > 0:
-        return (bid + ask) / 2.0
-    if last > 0:
-        return last
-    if ask > 0:
-        return ask
-    return None
-
-
-def price_legs(
+def package_value_polygon(
     underlying: str,
     expiration: date,
     legs: list[tuple[int, str, float]],
-    spot: float,
-) -> Optional[dict]:
+    asof: date,
+) -> Optional[float]:
     """
-    legs: list of (qty_signed, 'call'|'put', strike)
-    Returns {debit, legs:[{qty, right, strike, premium, symbol}], expiration} or None.
+    Mark package in dollars (qty * premium * 100), Polygon daily closes.
+    legs: (qty_signed, 'call'|'put', strike). Returns None if any leg missing.
     """
-    opts = fetch_chain(underlying, expiration)
-    if not opts:
-        return None
-    exp_s = expiration.strftime("%Y-%m-%d")
-    priced = []
-    net = 0.0
+    total = 0.0
+    priced_legs = []
     for qty, right, strike in legs:
-        want = right.lower()
-        best = None
-        best_diff = None
-        for o in opts:
-            if str(o.get("option_type", "")).lower() != want:
-                continue
-            if str(o.get("expiration_date", ""))[:10] != exp_s:
-                continue
-            try:
-                k = float(o.get("strike") or 0)
-            except (TypeError, ValueError):
-                continue
-            diff = abs(k - strike)
-            if best_diff is None or diff < best_diff:
-                best_diff = diff
-                best = o
-        if not best:
+        occ = _occ(underlying, float(strike), right, expiration)
+        px = fetch_option_daily_close(occ, asof)
+        if px is None or px <= 0:
             return None
-        prem = _mid(best)
-        if prem is None or prem <= 0:
-            return None
-        # reject absurd
-        if prem > max(50.0, spot * 0.5):
-            return None
-        net += qty * prem
-        priced.append({
-            "qty": qty,
-            "right": want,
-            "strike": float(best.get("strike")),
-            "premium": prem,
-            "symbol": best.get("symbol"),
-            "bid": float(best.get("bid") or 0),
-            "ask": float(best.get("ask") or 0),
+        total += int(qty) * float(px) * 100.0
+        priced_legs.append({
+            "qty": int(qty),
+            "right": right.lower(),
+            "strike": float(strike),
+            "premium": float(px),
+            "symbol": occ,
         })
-    return {"debit_per_share": net, "legs": priced, "expiration": expiration.isoformat()}
+    return total  # dollars for 1 package; caller scales by packages
+
+
+def price_legs_polygon(
+    underlying: str,
+    expiration: date,
+    legs: list[tuple[int, str, float]],
+    asof: date,
+) -> Optional[dict]:
+    """Entry pricing via Polygon daily — returns debit_per_share + legs."""
+    total_usd = package_value_polygon(underlying, expiration, legs, asof)
+    if total_usd is None:
+        return None
+    # Rebuild legs with premiums for storage
+    priced = []
+    for qty, right, strike in legs:
+        occ = _occ(underlying, float(strike), right, expiration)
+        px = fetch_option_daily_close(occ, asof)
+        if px is None:
+            return None
+        priced.append({
+            "qty": int(qty),
+            "right": right.lower(),
+            "strike": float(strike),
+            "premium": float(px),
+            "symbol": occ,
+            "bid": float(px),
+            "ask": float(px),
+        })
+    return {
+        "debit_per_share": total_usd / 100.0,
+        "legs": priced,
+        "expiration": expiration.isoformat(),
+        "pricing_source": "polygon_daily_option_aggs",
+    }
 
 
 def build_long_put_butterfly(spot: float) -> list[tuple[int, str, float]]:
@@ -162,21 +217,193 @@ def build_put_ladder_defined(spot: float) -> list[tuple[int, str, float]]:
     return [(1, "put", k), (-1, "put", k - 5), (-1, "put", k - 10), (1, "put", k - 15)]
 
 
+def _db_url() -> str:
+    return (
+        os.environ.get("DATABASE_URL")
+        or os.environ.get("NEON_DATABASE_URL")
+        or os.environ.get("POSTGRES_URL")
+        or ""
+    )
+
+
+def _ensure_strategy_column(cur) -> None:
+    cur.execute(
+        "ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS strategy TEXT"
+    )
+
+
+def persist_asym_paper_open(
+    *,
+    strategy: str,
+    underlying: str,
+    entry_debit_usd: float,
+    packages: int,
+    expiration: str,
+    legs: list,
+    entry_premium_ps: float,
+    take_profit_pct: float,
+) -> Optional[int]:
+    """INSERT OPEN row into aiem_paper_trades. Returns id or None."""
+    dsn = _db_url()
+    if not dsn:
+        log.warning("[asym] DATABASE_URL unset — skip aiem_paper_trades INSERT")
+        return None
+    # Distinct ticker per strategy so ticker+trade_date unique allows 3 same-day rows
+    ticker = f"SPY:{strategy}"
+    detail = (
+        f"asym paper {strategy} TP+{take_profit_pct:.0f}% no-stop "
+        f"exp={expiration} legs={legs!r}"
+    )[:500]
+    try:
+        import psycopg2
+        with psycopg2.connect(dsn, connect_timeout=8) as conn, conn.cursor() as cur:
+            _ensure_strategy_column(cur)
+            cur.execute(
+                """
+                INSERT INTO aiem_paper_trades
+                    (trade_date, ticker, trade_type, direction,
+                     entry_price, quantity, notional,
+                     signal_source, signal_detail, hold_days_max,
+                     last_price, status, strike, expiry,
+                     option_entry_mid, strategy, fill_price)
+                VALUES (
+                    (NOW() AT TIME ZONE 'America/New_York')::date,
+                    %s, 'OPTIONS_PACKAGE', 'DEBIT_PACKAGE',
+                    %s, %s, %s,
+                    %s, %s, 21,
+                    %s, 'OPEN', %s, %s,
+                    %s, %s, %s
+                )
+                ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
+                RETURNING id
+                """,
+                (
+                    ticker,
+                    float(entry_premium_ps),
+                    float(packages),
+                    float(entry_debit_usd),
+                    strategy,
+                    detail,
+                    float(entry_premium_ps),
+                    float(round(float(legs[0]["strike"]))) if legs else None,
+                    expiration,
+                    float(entry_premium_ps),
+                    strategy,
+                    float(entry_premium_ps),
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            if row:
+                log.info("[asym] aiem_paper_trades OPEN id=%s strategy=%s", row[0], strategy)
+                return int(row[0])
+            # Conflict: fetch existing open id
+            cur.execute(
+                """
+                SELECT id FROM aiem_paper_trades
+                WHERE ticker=%s AND trade_date=(NOW() AT TIME ZONE 'America/New_York')::date
+                ORDER BY id DESC LIMIT 1
+                """,
+                (ticker,),
+            )
+            ex = cur.fetchone()
+            return int(ex[0]) if ex else None
+    except Exception as e:
+        log.warning("[asym] aiem_paper_trades OPEN failed: %s", e)
+        return None
+
+
+def persist_asym_paper_close(
+    *,
+    paper_trade_id: Optional[int],
+    strategy: str,
+    exit_value_usd: float,
+    pnl_usd: float,
+    reason: str,
+) -> None:
+    """Close OPEN aiem_paper_trades row for this asym package."""
+    dsn = _db_url()
+    if not dsn:
+        return
+    try:
+        import psycopg2
+        with psycopg2.connect(dsn, connect_timeout=8) as conn, conn.cursor() as cur:
+            _ensure_strategy_column(cur)
+            if paper_trade_id:
+                cur.execute(
+                    """
+                    UPDATE aiem_paper_trades
+                    SET status='CLOSED',
+                        exit_price=%s,
+                        exit_date=(NOW() AT TIME ZONE 'America/New_York')::date,
+                        pnl=%s,
+                        pnl_pct=CASE WHEN notional IS NOT NULL AND notional<>0
+                                     THEN (%s / notional) * 100.0 ELSE NULL END,
+                        last_price=%s,
+                        exit_reason=%s,
+                        updated_at=NOW()
+                    WHERE id=%s AND status='OPEN'
+                    """,
+                    (
+                        float(exit_value_usd),
+                        float(pnl_usd),
+                        float(pnl_usd),
+                        float(exit_value_usd),
+                        reason[:200],
+                        int(paper_trade_id),
+                    ),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE aiem_paper_trades
+                    SET status='CLOSED',
+                        exit_price=%s,
+                        exit_date=(NOW() AT TIME ZONE 'America/New_York')::date,
+                        pnl=%s,
+                        last_price=%s,
+                        exit_reason=%s,
+                        updated_at=NOW()
+                    WHERE id = (
+                        SELECT id FROM aiem_paper_trades
+                        WHERE strategy=%s AND status='OPEN'
+                        ORDER BY id DESC LIMIT 1
+                    )
+                    """,
+                    (
+                        float(exit_value_usd),
+                        float(pnl_usd),
+                        float(exit_value_usd),
+                        reason[:200],
+                        strategy,
+                    ),
+                )
+            conn.commit()
+            log.info(
+                "[asym] aiem_paper_trades CLOSED strategy=%s id=%s pnl=%.2f reason=%s",
+                strategy, paper_trade_id, pnl_usd, reason,
+            )
+    except Exception as e:
+        log.warning("[asym] aiem_paper_trades CLOSE failed: %s", e)
+
+
 class AsymOptionsLedger:
-    """Multi-leg debit package paper ledger — weekly Monday entry, TP%, no stop."""
+    """Multi-leg debit package paper ledger — Monday RTH open, TP%, no stop, Polygon daily."""
 
     def __init__(
         self,
         pattern_name: str,
         builder: Callable[[float], list],
         take_profit_pct: float,
+        strategy_key: str,
         underlying: str = "SPY",
         starting_capital_usd: float = 10000.0,
         risk_usd: float = RISK_USD,
     ):
         self.pattern_name = pattern_name
+        self.strategy_key = strategy_key  # put_butterfly | call_butterfly | put_ladder
         self.builder = builder
-        self.take_profit_pct = take_profit_pct  # e.g. 200 = +200% of debit
+        self.take_profit_pct = take_profit_pct
         self.underlying = underlying
         self._starting_capital = starting_capital_usd
         self.account_balance_usd = starting_capital_usd
@@ -188,7 +415,7 @@ class AsymOptionsLedger:
         self.wins = 0
         self.losses = 0
         self._day_key: Optional[str] = None
-        self._entered_week: Optional[str] = None  # ISO week key
+        self._entered_week: Optional[str] = None
 
     @property
     def total_trades(self) -> int:
@@ -208,13 +435,15 @@ class AsymOptionsLedger:
     def snapshot(self) -> dict:
         return {
             "pattern": self.pattern_name,
+            "strategy": self.strategy_key,
             "rules": {
-                "entry": "Monday after 10:00 ET when flat",
+                "entry": "Monday first RTH bar (09:30 ET) when flat",
                 "structure": self.pattern_name,
                 "risk_usd": self.risk_usd,
                 "take_profit_pct": self.take_profit_pct,
                 "stop_loss": None,
-                "exit": f"+{self.take_profit_pct:.0f}% of debit or flatten 15:55 on expiry Friday",
+                "pricing": "Polygon daily option aggregates",
+                "exit": f"+{self.take_profit_pct:.0f}% of debit or flatten 15:30 on expiry Friday",
             },
             "account_balance_usd": round(self.account_balance_usd, 2),
             "net_liquidation_usd": round(self.net_liquidation_usd, 2),
@@ -232,25 +461,16 @@ class AsymOptionsLedger:
         iso = d.isocalendar()
         return f"{iso[0]}-W{iso[1]:02d}"
 
-    def _mark_package(self, expiration: date, legs: list, spot: float) -> Optional[float]:
-        """Return current package value in dollars (debit convention: long premium positive)."""
+    def _mark_package(self, expiration: date, legs: list, asof: date) -> Optional[float]:
         spec = [(int(L["qty"]), str(L["right"]), float(L["strike"])) for L in legs]
-        priced = price_legs(self.underlying, expiration, spec, spot)
-        if not priced:
-            return None
-        # net debit_per_share * 100 * packages
-        return float(priced["debit_per_share"]) * 100.0
+        return package_value_polygon(self.underlying, expiration, spec, asof)
 
     def _close(self, exit_value_usd: float, reason: str):
         pos = self.active_position
         if not pos:
             return
         entry_debit = float(pos["entry_debit_usd"])
-        # Entry debited cash; exit credits current package mark
-        # For debit packages: pnl = exit_mark - entry_debit
-        # When short legs dominate mark can be small/negative
         pnl = float(exit_value_usd) - entry_debit
-        # Cash: we paid entry_debit at entry (already deducted). At exit we "receive" exit_value.
         self.account_balance_usd += float(exit_value_usd)
         result = "WIN" if pnl > 0 else "LOSS"
         if result == "WIN":
@@ -270,7 +490,15 @@ class AsymOptionsLedger:
             "reason": reason,
             "legs": pos.get("legs"),
             "expiration": pos.get("expiration"),
+            "pricing_source": "polygon_daily_option_aggs",
         })
+        persist_asym_paper_close(
+            paper_trade_id=pos.get("paper_trade_id"),
+            strategy=self.strategy_key,
+            exit_value_usd=float(exit_value_usd),
+            pnl_usd=float(pnl),
+            reason=reason,
+        )
         log.info(
             "[%s] %s (%s): debit $%.2f -> mark $%.2f | P&L $%.2f | Bal $%.2f",
             self.pattern_name, result, reason, entry_debit, exit_value_usd, pnl,
@@ -302,25 +530,20 @@ class AsymOptionsLedger:
         # Manage open position
         if self.active_position:
             exp = date.fromisoformat(self.active_position["expiration"])
-            mark = self._mark_package(exp, self.active_position["legs"], spot)
+            mark = self._mark_package(exp, self.active_position["legs"], day)
             if mark is not None:
                 packages = float(self.active_position["packages"])
-                # mark is for 1 package in dollars of net debit; scale
-                # price_legs returns debit_per_share for 1x qty in legs already including qty signs
-                # Our stored legs have qty for 1 package; mark dollars = debit_per_share*100
                 mark_usd = mark * packages
-                self.active_position["mark_premium"] = round(mark_usd / max(packages, 1) / 100.0, 4)
+                self.active_position["mark_premium"] = round(
+                    mark_usd / max(packages, 1) / 100.0, 4
+                )
                 self.active_position["unrealized_pnl"] = round(
                     mark_usd - float(self.active_position["entry_debit_usd"]), 2
                 )
                 self.net_liquidation_usd = self.account_balance_usd + mark_usd
                 entry_debit = float(self.active_position["entry_debit_usd"])
                 tp = entry_debit * (1.0 + self.take_profit_pct / 100.0)
-                # Profit when package mark rises to entry*(1+tp%) for debit flies
-                # Actually: pnl = mark_usd - entry_debit; TP when pnl >= entry_debit * tp_pct/100
-                # <=> mark_usd >= entry_debit * (1 + tp_pct/100)
                 if mark_usd >= tp:
-                    self.account_balance_usd  # entry already deducted
                     self._close(mark_usd, f"TP_{int(self.take_profit_pct)}PCT")
                     return
                 if day >= exp and bar_time >= FLATTEN_TIME:
@@ -331,33 +554,41 @@ class AsymOptionsLedger:
                     return
             self.signal_state = {
                 "status": "IN_POSITION",
-                "note": f"TP +{int(self.take_profit_pct)}% · no stop · exp {self.active_position['expiration']}",
+                "note": (
+                    f"TP +{int(self.take_profit_pct)}% · no stop · "
+                    f"Polygon daily · exp {self.active_position['expiration']}"
+                ),
             }
             return
 
-        # Entry: Monday after 10:00, one per week
+        # Entry: Monday at/after first RTH bar (09:30), one per week
         if day.weekday() != 0:
             self.signal_state = {"status": "WAIT_MONDAY", "note": "weekly Monday entry only"}
             return
         if bar_time < ENTRY_AFTER:
-            self.signal_state = {"status": "WAIT_OPEN", "note": f"entry after {ENTRY_AFTER} ET"}
+            self.signal_state = {
+                "status": "WAIT_OPEN",
+                "note": f"entry at first RTH bar ({ENTRY_AFTER} ET)",
+            }
             return
         if self._entered_week == week_key:
             self.signal_state = {"status": "WEEK_DONE", "note": "already entered this week"}
             return
 
-        exp = _next_friday(day, weeks_ahead=3)
+        exp = next_friday(day, weeks_ahead=3)
         legs_spec = self.builder(spot)
-        priced = price_legs(self.underlying, exp, legs_spec, spot)
+        priced = price_legs_polygon(self.underlying, exp, legs_spec, day)
         if not priced:
             self.signal_state = {
                 "status": "WAITING_PREMIUM",
-                "note": "Tradier chain unavailable or incomplete — not entering synthetic",
+                "note": (
+                    "Polygon daily option aggregates unavailable for asof "
+                    f"{day.isoformat()} — not entering synthetic/Tradier"
+                ),
             }
             return
         debit_ps = float(priced["debit_per_share"])
         if debit_ps <= 0:
-            # credit or zero — skip for these debit-oriented structures
             self.signal_state = {
                 "status": "SKIP_CREDIT",
                 "note": f"package debit/share {debit_ps:.3f} ≤ 0 — skip",
@@ -374,8 +605,17 @@ class AsymOptionsLedger:
         while packages > 1 and debit_1 * packages > self.risk_usd:
             packages -= 1
         entry_debit = debit_1 * packages
-        # Pay debit
         self.account_balance_usd -= entry_debit
+        paper_id = persist_asym_paper_open(
+            strategy=self.strategy_key,
+            underlying=self.underlying,
+            entry_debit_usd=entry_debit,
+            packages=packages,
+            expiration=priced["expiration"],
+            legs=priced["legs"],
+            entry_premium_ps=debit_ps,
+            take_profit_pct=self.take_profit_pct,
+        )
         self.active_position = {
             "symbol": self.underlying,
             "option_symbol": ",".join(
@@ -396,28 +636,38 @@ class AsymOptionsLedger:
             "expiration": priced["expiration"],
             "entry_time": bar_time,
             "spy_entry": spot,
+            "pricing_source": "polygon_daily_option_aggs",
+            "paper_trade_id": paper_id,
+            "strategy": self.strategy_key,
         }
         self._entered_week = week_key
         self.signal_state = {
             "status": "IN_POSITION",
-            "note": f"entered {packages} pkg debit ${entry_debit:.2f} TP +{int(self.take_profit_pct)}%",
+            "note": (
+                f"entered {packages} pkg debit ${entry_debit:.2f} "
+                f"TP +{int(self.take_profit_pct)}% Polygon daily"
+            ),
         }
         self.net_liquidation_usd = self.account_balance_usd + entry_debit
         log.info(
-            "[%s] ENTRY: %d pkg @ $%.2f debit | TP +%.0f%% | exp %s",
-            self.pattern_name, packages, entry_debit, self.take_profit_pct, priced["expiration"],
+            "[%s] ENTRY: %d pkg @ $%.2f debit | TP +%.0f%% | exp %s | paper_id=%s",
+            self.pattern_name, packages, entry_debit, self.take_profit_pct,
+            priced["expiration"], paper_id,
         )
 
 
 def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0) -> dict:
     return {
         "put_butterfly": AsymOptionsLedger(
-            "LONG_PUT_BUTTERFLY", build_long_put_butterfly, 200.0, underlying, capital
+            "LONG_PUT_BUTTERFLY", build_long_put_butterfly, 200.0,
+            "put_butterfly", underlying, capital,
         ),
         "call_butterfly": AsymOptionsLedger(
-            "LONG_CALL_BUTTERFLY", build_long_call_butterfly, 100.0, underlying, capital
+            "LONG_CALL_BUTTERFLY", build_long_call_butterfly, 100.0,
+            "call_butterfly", underlying, capital,
         ),
         "put_ladder": AsymOptionsLedger(
-            "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0, underlying, capital
+            "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
+            "put_ladder", underlying, capital,
         ),
     }

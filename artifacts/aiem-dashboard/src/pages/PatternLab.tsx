@@ -168,8 +168,8 @@ function PatternCard({
               ) : null}
             </div>
             <div className="text-[10px] uppercase tracking-wide pt-1">
-              Mon 10:00 ET · ~${riskUsd.toFixed(0)} debit · TP +{tpPct || "—"}% · no stop ·
-              ~3wk Friday · Tradier mids
+              Mon 09:30 ET · ~${riskUsd.toFixed(0)} debit · TP +{tpPct || "—"}% · no stop ·
+              ~3wk Friday · Polygon daily
             </div>
           </div>
         ) : null}

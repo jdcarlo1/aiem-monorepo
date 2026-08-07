@@ -62,19 +62,19 @@ const ASYM_CARDS: Array<{
     key: 'put_butterfly',
     title: 'Long Put Butterfly',
     blurb:
-      'ATM ±5 put fly · Monday after 10:00 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday expiry · Tradier mids',
+      'ATM ±5 put fly · Monday 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily',
   },
   {
     key: 'call_butterfly',
     title: 'Long Call Butterfly',
     blurb:
-      'ATM ±5 call fly · Monday after 10:00 ET · ≤$500 debit · TP +100% · no stop · ~3wk Friday expiry · Tradier mids',
+      'ATM ±5 call fly · Monday 09:30 ET · ≤$500 debit · TP +100% · no stop · ~3wk Friday · Polygon daily',
   },
   {
     key: 'put_ladder',
     title: 'Put Ladder Defined',
     blurb:
-      'Long ATM / short −5/−10 / long −15 puts · Monday after 10:00 ET · ≤$500 debit · TP +150% · no stop · Tradier mids',
+      'Long ATM / short −5/−10 / long −15 puts · Monday 09:30 ET · ≤$500 debit · TP +150% · no stop · Polygon daily',
   },
 ];
 
