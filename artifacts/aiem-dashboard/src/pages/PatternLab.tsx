@@ -172,7 +172,7 @@ function PatternCard({
               ) : null}
             </div>
             <div className="text-[10px] uppercase tracking-wide pt-1">
-              Mon 09:30 ET ·{" "}
+              Mon–Fri 09:30 ET ·{" "}
               {allowCredit
                 ? cashSecured
                   ? "cash-secured credit"

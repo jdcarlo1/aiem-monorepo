@@ -36,16 +36,20 @@ def _ok(name: str, cond: bool, detail: str = "") -> None:
         print(f"FAIL {name}" + (f" | {detail}" if detail else ""))
 
 
-def _monday_df(spot: float = 500.0) -> pd.DataFrame:
-    # 2026-08-03 was a Monday
+def _session_df(year: int, month: int, day: int, spot: float = 500.0) -> pd.DataFrame:
     idx = pd.DatetimeIndex(
-        [datetime(2026, 8, 3, 9, 30, tzinfo=ET)],
+        [datetime(year, month, day, 9, 30, tzinfo=ET)],
         name="ts",
     )
     return pd.DataFrame(
         {"open": [spot], "high": [spot], "low": [spot], "close": [spot], "volume": [1]},
         index=idx,
     )
+
+
+def _monday_df(spot: float = 500.0) -> pd.DataFrame:
+    # 2026-08-03 was a Monday
+    return _session_df(2026, 8, 3, spot)
 
 
 def _priced(debit_ps: float, legs: list) -> dict:
@@ -229,7 +233,8 @@ def section_entry_flatten_gates():
 
     src = inspect.getsource(m.AsymOptionsLedger.evaluate)
     _ok("entry_uses_ENTRY_AFTER", "bar_time < ENTRY_AFTER" in src)
-    _ok("entry_monday_only", "day.weekday() != 0" in src)
+    _ok("entry_weekdays_mon_fri", "day.weekday() >= 5" in src)
+    _ok("entry_not_monday_only", "day.weekday() != 0" not in src)
     _ok("expiry_uses_FLATTEN_TIME", "bar_time >= FLATTEN_TIME" in src)
     _ok("weeks_ahead_3", "next_friday(day, weeks_ahead=3)" in src)
     _ok("pricing_fn_polygon", "price_legs_polygon(" in src)
@@ -241,8 +246,48 @@ def section_entry_flatten_gates():
     _ok("no_tradier_pricing_call", not tradier_call)
     print(f"ENTRY_AFTER_const={m.ENTRY_AFTER}")
     print(f"FLATTEN_TIME_const={m.FLATTEN_TIME}")
-    print(f"WAITING_MONDAY_DAILY_in_src={'WAITING_MONDAY_DAILY' in src}")
-    _ok("waiting_monday_daily_status", "WAITING_MONDAY_DAILY" in src)
+    print(f"WAITING_ENTRY_DAILY_in_src={'WAITING_ENTRY_DAILY' in src}")
+    _ok("waiting_entry_daily_status", "WAITING_ENTRY_DAILY" in src)
+    _ok("no_wait_monday_status", "WAIT_MONDAY" not in src)
+
+    # Behavioral: Tuesday can enter; Saturday waits for weekday
+    print("===== 5b_WEEKDAY_ENTRY_BEHAVIOR =====")
+    fake = _priced(
+        2.0,
+        [
+            {"qty": 1, "right": "put", "strike": 495.0, "premium": 4.0, "symbol": "P1"},
+            {"qty": -2, "right": "put", "strike": 500.0, "premium": 2.5, "symbol": "P2"},
+            {"qty": 1, "right": "put", "strike": 505.0, "premium": 1.5, "symbol": "P3"},
+        ],
+    )
+    tue = m.AsymOptionsLedger(
+        "LONG_PUT_BUTTERFLY",
+        m.build_long_put_butterfly,
+        200.0,
+        "put_butterfly",
+        starting_capital_usd=10000.0,
+    )
+    with patch.object(m, "price_legs_polygon", return_value=fake):
+        with patch.object(m, "persist_asym_paper_open", return_value=None):
+            tue.evaluate(_session_df(2026, 8, 4, 500.0))  # Tuesday
+    print(f"tuesday_signal={tue.signal_state!r}")
+    _ok("tuesday_enters", tue.active_position is not None, str(tue.signal_state))
+
+    sat = m.AsymOptionsLedger(
+        "LONG_PUT_BUTTERFLY",
+        m.build_long_put_butterfly,
+        200.0,
+        "put_butterfly",
+        starting_capital_usd=10000.0,
+    )
+    with patch.object(m, "price_legs_polygon", return_value=fake):
+        sat.evaluate(_session_df(2026, 8, 8, 500.0))  # Saturday
+    print(f"saturday_signal={sat.signal_state!r}")
+    _ok(
+        "saturday_waits",
+        sat.signal_state.get("status") == "WAIT_WEEKDAY" and sat.active_position is None,
+        str(sat.signal_state),
+    )
 
 
 def section_bt_parity_table():
@@ -252,7 +297,7 @@ def section_bt_parity_table():
     catalog_path = ROOT / "spy_catalog_untested_bt.py"
     paper = {
         "risk_usd": 500.0,
-        "entry": "Monday >= 09:30 ET (ENTRY_AFTER)",
+        "entry": "Mon–Fri >= 09:30 ET (ENTRY_AFTER) when flat",
         "expiry": "next_friday(d0, weeks_ahead=3)",
         "flatten": "15:30 ET on expiry Friday (FLATTEN_TIME)",
         "stop": None,
@@ -265,7 +310,7 @@ def section_bt_parity_table():
     }
     bt = {
         "risk_usd": 500.0,
-        "entry": "weekly Monday (daily bar asof entry date)",
+        "entry": "every Mon–Fri weekday (daily bar asof entry date)",
         "expiry": "bt.next_friday(d0, weeks_ahead=3)",
         "flatten": "EXPIRY_FLATTEN on last available daily bar <= hold_end",
         "stop": None,
@@ -284,9 +329,10 @@ def section_bt_parity_table():
     print("PARITY_MATCH pricing_polygon", "polygon" in paper["pricing"].lower() and "Polygon" in bt["pricing"])
     print("PARITY_MATCH narrow_tp", paper["narrow_tp"] == bt["narrow_tp"])
     print("PARITY_MATCH rr_tp", paper["rr_tp"] == bt["rr_tp"])
-    print("PARITY_NOTE entry_bar: paper=09:30 first RTH; catalog BT=Monday daily close/asof")
+    print("PARITY_NOTE entry_bar: paper=09:30 first RTH; weekdays BT=session daily close/asof")
     print("PARITY_NOTE flatten: paper=15:30 clock; catalog BT=last daily bar (no intraday clock)")
     print("PARITY_NOTE cash_secured: paper ENFORCES SKIP_COLLATERAL; catalog BT does NOT model CSP")
+    print("PARITY_NOTE concurrency: paper=1 position; BT weekdays=independent overlapping entries")
     _ok("parity_risk_500", paper["risk_usd"] == bt["risk_usd"])
     _ok("parity_tps", paper["narrow_tp"] == bt["narrow_tp"] and paper["rr_tp"] == bt["rr_tp"])
 
