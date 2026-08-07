@@ -8,6 +8,8 @@
 |----------------|----------|
 | `RANKING_NOSTOP_TPGRID_2026-08-07.json` | All **138** strategy×TP combos ranked (TP 50/75/100/125/150/200%, **no stop**) |
 | `RANKING_RIDE_2026-08-07.json` | All **23** strategies ranked with **no take-profit** (ride to expiry flatten only) |
+| `RANKING_RIDE_SLGRID_2026-08-07.json` | **23 × 11 stop levels** (20–65%, no TP) — 253 combos |
+| `*__RIDE__sl*.json` | Ledgers for ride + stop-loss grid |
 | `*__tp*.json` | Full trade ledger per strategy×TP (138 files) |
 | `*__RIDE.json` | Full trade ledger per strategy, ride-only (23 files) |
 | `RUN_INDEX.jsonl` | Append log of ranking writes |
