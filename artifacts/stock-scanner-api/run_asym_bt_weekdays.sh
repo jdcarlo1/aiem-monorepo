@@ -12,12 +12,12 @@ if [[ -z "${POLYGON_API_KEY}" ]]; then
   exit 2
 fi
 
-# Full TP grid, no stop — same as original Monday ranking (23 × 6 = 138 combos)
+# Full TP grid, no stop — baseline TPs + 225/250/275/300 (23 × 10 = 230 combos)
 python3 spy_asymmetric_bt.py \
   --years 2 \
   --entry weekdays \
   --strategies all \
-  --tp 50,75,100,125,150,200 \
+  --tp 50,75,100,125,150,200,225,250,275,300 \
   --sl 0 \
   --archive-subdir spy-asymmetric-bt-weekdays
 
