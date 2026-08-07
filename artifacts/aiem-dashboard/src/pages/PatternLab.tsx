@@ -52,6 +52,8 @@ type Snapshot = {
   put_butterfly?: PatternSnap;
   call_butterfly?: PatternSnap;
   put_ladder?: PatternSnap;
+  narrow_wing_butterfly?: PatternSnap;
+  bullish_risk_reversal?: PatternSnap;
   error?: string;
 };
 
@@ -73,6 +75,8 @@ function PatternCard({
   const optionsMode = mode === "f3" || mode === "asym";
   const tpPct = Number(snap?.rules?.take_profit_pct ?? 0);
   const riskUsd = Number(snap?.rules?.risk_usd ?? 500);
+  const allowCredit = Boolean(snap?.rules?.allow_credit);
+  const cashSecured = Boolean(snap?.rules?.cash_secured);
 
   return (
     <div className="border border-border bg-card flex flex-col h-full">
@@ -168,8 +172,13 @@ function PatternCard({
               ) : null}
             </div>
             <div className="text-[10px] uppercase tracking-wide pt-1">
-              Mon 09:30 ET · ~${riskUsd.toFixed(0)} debit · TP +{tpPct || "—"}% · no stop ·
-              ~3wk Friday · Polygon daily
+              Mon 09:30 ET ·{" "}
+              {allowCredit
+                ? cashSecured
+                  ? "cash-secured credit"
+                  : "credit OK"
+                : `~$${riskUsd.toFixed(0)} debit`}{" "}
+              · TP +{tpPct || "—"}% of |entry| · no stop · ~3wk Friday · Polygon daily
             </div>
           </div>
         ) : null}
@@ -312,7 +321,7 @@ export default function PatternLab() {
             Pattern Lab
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            Gap Fill &amp; ORB equity · F3 0DTE · asym put/call butterfly + put ladder (paper)
+            Gap Fill &amp; ORB equity · F3 0DTE · asym flies + ladder + narrow-wing + bullish RR (paper)
           </p>
         </div>
         <div className="font-mono text-xs text-muted-foreground text-right">
@@ -345,6 +354,19 @@ export default function PatternLab() {
           mode="asym"
         />
         <PatternCard snap={data?.put_ladder} title="Put Ladder Defined" mode="asym" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <PatternCard
+          snap={data?.narrow_wing_butterfly}
+          title="Narrow-Wing Call Butterfly"
+          mode="asym"
+        />
+        <PatternCard
+          snap={data?.bullish_risk_reversal}
+          title="Bullish Risk Reversal"
+          mode="asym"
+        />
       </div>
 
       <DataFooter lastUpdated={lastUpdated} source="/stock-api/pattern-lab/snapshot" />

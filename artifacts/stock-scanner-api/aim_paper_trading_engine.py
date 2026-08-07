@@ -145,13 +145,14 @@ class PatternLedger:
 
 class AIMPaperTradingEngine:
     """
-    Runs Gap Fill, ORB, F3 SPY 0DTE, and top-3 asymmetric debit packages
+    Runs Gap Fill, ORB, F3 SPY 0DTE, and asymmetric option packages
     as independent paper ledgers.
 
     Gap Fill / ORB: $10k each, 1.5% risk equity.
     F3: $200 notional ATM 0DTE long call/put, −65% premium stop, else 16:00.
-    Asym (put butterfly / call butterfly / put ladder): ~$500 debit, Monday
-    first RTH bar (09:30 ET), no stop, TP +200% / +100% / +150%, Polygon daily.
+    Asym: put/call butterfly, put ladder, narrow-wing fly (debit, ≤$500),
+    bullish risk reversal (credit, cash-secured, $100k paper book).
+    Monday 09:30 ET, no stop, Polygon daily, TP of |entry|.
     """
 
     def __init__(self, symbol: str = "SPY", initial_capital_usd: float = 10000.0):
@@ -242,5 +243,5 @@ class AIMPaperTradingEngine:
                     orb_target = latest_bar['close'] - (abs(range_high - latest_bar['close']) * 3.0)
                     self.orb.enter(self.symbol, latest_bar['close'], orb_stop, orb_target, "SHORT")
 
-        # --- F3 + asymmetric weekly debit packages ---
+        # --- F3 + asymmetric weekly packages (debit + cash-secured credit) ---
         self._evaluate_options_ledgers(df)

@@ -1,0 +1,15 @@
+# FAIL_COUNT=1 — named item
+
+```
+FAIL live_snapshot_top2 | keys=['f3', 'gap_fill', 'orb']
+```
+
+**Check name:** `live_snapshot_top2`  
+**Why:** `https://nclexai.org/stock-api/pattern-lab/snapshot` returns only `f3`, `gap_fill`, `orb`.  
+`narrow_wing_butterfly` and `bullish_risk_reversal` are MISSING (prior asym keys from PR #42 also MISSING).
+
+**Root cause:** PR #45 is still OPEN draft / not deployed; stock-api on nclexai.org has not been restarted on merged code that builds asym ledgers.
+
+**Disposition:** NOT fixed in-code. Accepted as environment blocker until Joel merges #45 and restarts stock-api. Agent cannot merge (draft + no merge tool) or restart Replit. Re-check after deploy.
+
+**Not this FAIL:** all budget/collateral/spec/DB-local checks passed (35 PASS).

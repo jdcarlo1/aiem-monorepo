@@ -1,0 +1,147 @@
+===== VERIFY_START =====
+cwd=/workspace/artifacts/stock-scanner-api
+argv=['verify_pattern_lab_top2_wiring.py']
+===== 1_SPEC_CONSTANTS_AND_BUILDERS =====
+RISK_USD=500.0
+ENTRY_AFTER='09:30'
+FLATTEN_TIME='15:30'
+RR_PAPER_CAPITAL_USD=100000.0
+STRATEGY_KEYS=('put_butterfly', 'call_butterfly', 'put_ladder', 'narrow_wing_butterfly', 'bullish_risk_reversal')
+POLYGON_BASE='https://api.polygon.io'
+narrow_wing_legs_spot500=[(1, 'call', 498.0), (-2, 'call', 500.0), (1, 'call', 502.0)]
+bullish_rr_legs_spot500=[(1, 'call', 505.0), (-1, 'put', 495.0)]
+PASS narrow_atm_pm2
+PASS rr_call_kp5_put_km5
+narrow_ledger {'tp': 200.0, 'risk': 500.0, 'allow_credit': False, 'cash_secured': False, 'capital': 10000.0, 'stop_in_rules': None}
+rr_ledger {'tp': 75.0, 'risk': 500.0, 'allow_credit': True, 'cash_secured': True, 'capital': 100000.0, 'stop_in_rules': None}
+PASS narrow_tp_200
+PASS narrow_risk_500
+PASS narrow_no_stop
+PASS rr_tp_75
+PASS rr_allow_credit
+PASS rr_cash_secured_flag
+PASS rr_capital_100k
+===== 2_REJECT_NARROW_WING_OVER_500_DEBIT =====
+injected_unit_cost_usd=650.0
+risk_usd=500.0
+signal_state={'status': 'SKIP_BUDGET', 'note': '1-lot debit $650 > risk $500'}
+active_position=None
+PASS skip_budget_status | {'status': 'SKIP_BUDGET', 'note': '1-lot debit $650 > risk $500'}
+PASS skip_budget_no_position
+===== 3_REJECT_RR_INSUFFICIENT_CASH_SECURED =====
+injected_credit_ps=-1.5
+computed_collateral_usd=49500.0
+free_cash_usd=10000.0
+signal_state={'status': 'SKIP_COLLATERAL', 'note': 'need $49500 cash-secured collateral (free $10000)'}
+active_position=None
+reserved_collateral_usd=0.0
+PASS skip_collateral_status | {'status': 'SKIP_COLLATERAL', 'note': 'need $49500 cash-secured collateral (free $10000)'}
+PASS skip_collateral_no_position
+PASS skip_collateral_no_reserve
+===== 3b_POSITIVE_RR_WITH_100K_ENTERS =====
+signal_state={'status': 'IN_POSITION', 'note': 'entered 1 pkg credit $-150.00 TP +75% of |entry| Polygon daily · CSP $49500'}
+active_position_entry=-150.0
+collateral_usd=49500.0
+reserved=49500.0
+PASS rr_100k_enters
+PASS rr_100k_collateral_reserved
+===== 4_TP_MATH_ABS_ENTRY =====
+debit_tp_dollars=400.0 mark_for_tp=600.0
+PASS debit_tp_200pct
+credit_tp_dollars=112.5
+PASS credit_tp_75pct
+===== 5_ENTRY_FLATTEN_GATE_STRINGS =====
+PASS entry_uses_ENTRY_AFTER
+PASS entry_monday_only
+PASS expiry_uses_FLATTEN_TIME
+PASS weeks_ahead_3
+PASS pricing_fn_polygon
+PASS entry_require_exact
+tradier_call_in_evaluate=False
+deny_string_mentions_tradier=True
+PASS no_tradier_pricing_call
+ENTRY_AFTER_const=09:30
+FLATTEN_TIME_const=15:30
+WAITING_MONDAY_DAILY_in_src=True
+PASS waiting_monday_daily_status
+===== 6_PAPER_VS_CATALOG_BT_PARITY =====
+PAPER_CONFIG {
+  "cash_secured_rr": true,
+  "entry": "Monday >= 09:30 ET (ENTRY_AFTER)",
+  "expiry": "next_friday(d0, weeks_ahead=3)",
+  "flatten": "15:30 ET on expiry Friday (FLATTEN_TIME)",
+  "narrow_builder": "[(1,C,k-2),(-2,C,k),(1,C,k+2)]",
+  "narrow_tp": 200.0,
+  "pricing": "polygon_daily_option_aggs",
+  "risk_usd": 500.0,
+  "rr_builder": "[(1,C,k+5),(-1,P,k-5)]",
+  "rr_tp": 75.0,
+  "stop": null
+}
+CATALOG_BT_CONFIG {
+  "cash_secured_rr": false,
+  "entry": "weekly Monday (daily bar asof entry date)",
+  "expiry": "bt.next_friday(d0, weeks_ahead=3)",
+  "flatten": "EXPIRY_FLATTEN on last available daily bar <= hold_end",
+  "narrow_builder": "b_narrow_wing_fly identical wings",
+  "narrow_tp": 200.0,
+  "pricing": "Polygon daily option aggregates via spy_asymmetric_bt",
+  "risk_usd": 500.0,
+  "rr_builder": "b_bull_rr identical strikes",
+  "rr_tp": 75.0,
+  "stop": null
+}
+catalog_file_present_locally=False
+PARITY_MATCH risk_usd True
+PARITY_MATCH stop_none True
+PARITY_MATCH pricing_polygon True
+PARITY_MATCH narrow_tp True
+PARITY_MATCH rr_tp True
+PARITY_NOTE entry_bar: paper=09:30 first RTH; catalog BT=Monday daily close/asof
+PARITY_NOTE flatten: paper=15:30 clock; catalog BT=last daily bar (no intraday clock)
+PARITY_NOTE cash_secured: paper ENFORCES SKIP_COLLATERAL; catalog BT does NOT model CSP
+PASS parity_risk_500
+PASS parity_tps
+===== 7_DB_PERSIST_TOP2 =====
+DATABASE_URL_PRESENT=True
+DATABASE_HOST_HINT=127.0.0.1:5432/asym_dry
+current_database='asym_dry'
+--- OPEN narrow_wing_butterfly entry_usd=185.0 tp=200.0 ---
+RETURNING_ID strategy=narrow_wing_butterfly id=4
+PASS db_open_narrow_wing_butterfly | id=4
+--- CLOSE narrow_wing_butterfly exit=555.0 pnl=370.0 (expect tp_dollars=370.0) ---
+--- OPEN bullish_risk_reversal entry_usd=-150.0 tp=75.0 ---
+RETURNING_ID strategy=bullish_risk_reversal id=5
+PASS db_open_bullish_risk_reversal | id=5
+--- CLOSE bullish_risk_reversal exit=-37.5 pnl=112.5 (expect tp_dollars=112.5) ---
+QUERY_ROWS_COUNT 2
+ROW {'id': 4, 'trade_date': datetime.date(2026, 8, 7), 'ticker': 'SPY:narrow_wing_butterfly', 'strategy': 'narrow_wing_butterfly', 'status': 'CLOSED', 'direction': 'DEBIT_PACKAGE', 'notional': Decimal('185.00'), 'entry_price': Decimal('1.8500'), 'strike': Decimal('498.00'), 'expiry': '2026-08-28', 'pnl': Decimal('370.00'), 'pnl_pct': Decimal('200.0000'), 'exit_reason': 'VERIFY_TP_200PCT', 'signal_detail': "asym paper narrow_wing_butterfly TP+200% no-stop exp=2026-08-28 legs=[{'qty': 1, 'right': 'call', 'strike': 498.0, 'premium': 3.2, 'symbol': 'O:SPYNW1'}, {'qty': -2, 'right': 'call', 'strike': 500.0, 'premium': 2.1, 'symbol': 'O:SPYNW2'}, {'qty': 1, 'right': 'call', 'strike': 502.0, 'premium': 1.25, 'symbol': 'O:SPYNW3'}]"}
+ROW {'id': 5, 'trade_date': datetime.date(2026, 8, 7), 'ticker': 'SPY:bullish_risk_reversal', 'strategy': 'bullish_risk_reversal', 'status': 'CLOSED', 'direction': 'CREDIT_PACKAGE', 'notional': Decimal('-150.00'), 'entry_price': Decimal('-1.5000'), 'strike': Decimal('505.00'), 'expiry': '2026-08-28', 'pnl': Decimal('112.50'), 'pnl_pct': Decimal('75.0000'), 'exit_reason': 'VERIFY_TP_75PCT', 'signal_detail': "asym paper bullish_risk_reversal TP+75% no-stop exp=2026-08-28 legs=[{'qty': 1, 'right': 'call', 'strike': 505.0, 'premium': 2.0, 'symbol': 'O:SPYRR1'}, {'qty': -1, 'right': 'put', 'strike': 495.0, 'premium': 3.5, 'symbol': 'O:SPYRR2'}]"}
+COUNT_BY_STRATEGY {'narrow_wing_butterfly': 1, 'bullish_risk_reversal': 1}
+PASS db_ge1_narrow
+PASS db_ge1_rr
+MATH narrow_wing_butterfly id=4 notional=185.00 pnl=370.00 pnl_pct=200.0000 status=CLOSED reason=VERIFY_TP_200PCT expect_pnl=370.0
+PASS db_pnl_narrow_wing_butterfly | pnl=370.00 expect=370.0
+PASS db_closed_narrow_wing_butterfly
+MATH bullish_risk_reversal id=5 notional=-150.00 pnl=112.50 pnl_pct=75.0000 status=CLOSED reason=VERIFY_TP_75PCT expect_pnl=112.5
+PASS db_pnl_bullish_risk_reversal | pnl=112.50 expect=112.5
+PASS db_closed_bullish_risk_reversal
+===== 8_LIVE_PATTERN_LAB_SNAPSHOT =====
+LIVE_KEYS ['f3', 'gap_fill', 'orb']
+LIVE_narrow_wing_butterfly=MISSING
+LIVE_bullish_risk_reversal=MISSING
+LIVE_put_butterfly=MISSING
+LIVE_call_butterfly=MISSING
+LIVE_put_ladder=MISSING
+LIVE_f3 {"account_balance_usd": 10000.0, "allow_credit": null, "cash_secured": null, "pattern": "F3_SPY_0DTE", "pricing": null, "signal": "IDLE", "take_profit_pct": null}
+LIVE_gap_fill {"account_balance_usd": 10000.0, "allow_credit": null, "cash_secured": null, "pattern": "GAP_FILL", "pricing": null, "signal": null, "take_profit_pct": null}
+LIVE_orb {"account_balance_usd": 10000.0, "allow_credit": null, "cash_secured": null, "pattern": "ORB", "pricing": null, "signal": null, "take_profit_pct": null}
+CANNOT PRODUCE: live /pattern-lab/snapshot missing top-2 keys — PR #45 not deployed / stock-api not restarted on merged main (has_nw=False has_rr=False; live_keys=['f3', 'gap_fill', 'orb'])
+FAIL live_snapshot_top2 | keys=['f3', 'gap_fill', 'orb']
+===== 9_LOCAL_ENGINE_SNAPSHOT_ON_BRANCH =====
+LOCAL_narrow_wing_butterfly {"allow_credit": false, "cash_secured": false, "entry": "Monday from 09:30 ET when flat; fill = Polygon daily option close dated exactly that Monday (BT asof Monday \u2014 no prior-day lookback fill)", "exit": "+200% of |entry| premium or flatten 15:30 on expiry Friday (daily mark asof that day)", "pricing": "Polygon daily option aggregates", "risk_usd": 500.0, "stop_loss": null, "structure": "NARROW_WING_CALL_BUTTERFLY", "take_profit_pct": 200.0}
+LOCAL_bullish_risk_reversal {"allow_credit": true, "cash_secured": true, "entry": "Monday from 09:30 ET when flat; fill = Polygon daily option close dated exactly that Monday (BT asof Monday \u2014 no prior-day lookback fill)", "exit": "+75% of |entry| premium or flatten 15:30 on expiry Friday (daily mark asof that day)", "pricing": "Polygon daily option aggregates", "risk_usd": 500.0, "stop_loss": null, "structure": "BULLISH_RISK_REVERSAL", "take_profit_pct": 75.0}
+PASS local_engine_has_top2
+===== SUMMARY =====
+PASS_COUNT=37
+FAIL_COUNT=1
