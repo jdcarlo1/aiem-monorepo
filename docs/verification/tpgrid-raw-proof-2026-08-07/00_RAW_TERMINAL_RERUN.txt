@@ -1,0 +1,324 @@
+===== Fri Aug  7 02:36:57 PM UTC 2026 RAW PROOF RE-RUN =====
+
+### 1+2 CSV awk resum (must match reported totals) ###
+--- docs/verification/tpgrid-raw-proof-2026-08-07/01_narrow_wing_full_ledger.csv ---
+$ head -n 11 docs/verification/tpgrid-raw-proof-2026-08-07/01_narrow_wing_full_ledger.csv
+entry_date,exit_date,spot,exp_near,legs,entry_val,exit_val,pnl,exit_reason,mult,tp_pct,sl_pct,premium_basis,strategy
+2024-08-12,2024-08-14,533.27,2024-09-06,1xO:SPY240906C00531000 | -2xO:SPY240906C00533000 | 1xO:SPY240906C00535000,-14.0,47.0,61.0,TP_200PCT,1,200,0.0,14.0,Narrow-Wing Butterfly
+2024-08-19,2024-08-20,559.61,2024-09-13,250xO:SPY240913C00558000 | -500xO:SPY240913C00560000 | 250xO:SPY240913C00562000,500.0,7750.0,7250.0,TP_200PCT,250,200,0.0,500.0,Narrow-Wing Butterfly
+2024-08-26,2024-09-10,560.79,2024-09-20,62xO:SPY240920C00559000 | -124xO:SPY240920C00561000 | 62xO:SPY240920C00563000,496.0,1612.0,1116.0,TP_200PCT,62,200,0.0,496.0,Narrow-Wing Butterfly
+2024-09-03,2024-09-04,552.08,2024-09-27,62xO:SPY240927C00550000 | -124xO:SPY240927C00552000 | 62xO:SPY240927C00554000,496.0,7130.0,6634.0,TP_200PCT,62,200,0.0,496.0,Narrow-Wing Butterfly
+2024-09-09,2024-09-13,546.41,2024-10-04,1xO:SPY241004C00544000 | -2xO:SPY241004C00546000 | 1xO:SPY241004C00548000,-98.0,115.0,213.0,TP_200PCT,1,200,0.0,98.0,Narrow-Wing Butterfly
+2024-09-16,2024-09-17,562.84,2024-10-11,62xO:SPY241011C00561000 | -124xO:SPY241011C00563000 | 62xO:SPY241011C00565000,496.0,2170.0,1674.0,TP_200PCT,62,200,0.0,496.0,Narrow-Wing Butterfly
+2024-09-23,2024-10-01,569.67,2024-10-18,55xO:SPY241018C00568000 | -110xO:SPY241018C00570000 | 55xO:SPY241018C00572000,495.0,1595.0,1100.0,TP_200PCT,55,200,0.0,495.0,Narrow-Wing Butterfly
+2024-09-30,2024-10-01,573.76,2024-10-25,45xO:SPY241025C00572000 | -90xO:SPY241025C00574000 | 45xO:SPY241025C00576000,495.0,3510.0,3015.0,TP_200PCT,45,200,0.0,495.0,Narrow-Wing Butterfly
+2024-10-07,2024-10-08,567.8,2024-11-01,1xO:SPY241101C00566000 | -2xO:SPY241101C00568000 | 1xO:SPY241101C00570000,-9.0,13.0,22.0,TP_200PCT,1,200,0.0,9.0,Narrow-Wing Butterfly
+2024-10-14,2024-10-15,584.32,2024-11-08,1xO:SPY241108C00582000 | -2xO:SPY241108C00584000 | 1xO:SPY241108C00586000,-2.0,33.0,35.0,TP_200PCT,1,200,0.0,2.0,Narrow-Wing Butterfly
+$ tail -n 10 docs/verification/tpgrid-raw-proof-2026-08-07/01_narrow_wing_full_ledger.csv
+2026-05-04,2026-05-18,718.01,2026-05-29,15xO:SPY260529C00716000 | -30xO:SPY260529C00718000 | 15xO:SPY260529C00720000,495.0,9450.0,8955.0,TP_200PCT,15,200,0.0,495.0,Narrow-Wing Butterfly
+2026-05-11,2026-05-12,739.3,2026-06-05,83xO:SPY260605C00737000 | -166xO:SPY260605C00739000 | 83xO:SPY260605C00741000,498.0,9877.0,9379.0,TP_200PCT,83,200,0.0,498.0,Narrow-Wing Butterfly
+2026-05-18,2026-05-19,738.65,2026-06-12,1xO:SPY260612C00737000 | -2xO:SPY260612C00739000 | 1xO:SPY260612C00741000,-7.0,50.0,57.0,TP_200PCT,1,200,0.0,7.0,Narrow-Wing Butterfly
+2026-06-01,2026-06-02,758.54,2026-06-26,166xO:SPY260626C00757000 | -332xO:SPY260626C00759000 | 166xO:SPY260626C00761000,498.0,1826.0,1328.0,TP_200PCT,166,200,0.0,498.0,Narrow-Wing Butterfly
+2026-06-15,2026-06-23,754.83,2026-07-10,1xO:SPY260710C00753000 | -2xO:SPY260710C00755000 | 1xO:SPY260710C00757000,-28.0,33.0,61.0,TP_200PCT,1,200,0.0,28.0,Narrow-Wing Butterfly
+2026-06-22,2026-06-23,744.39,2026-07-17,1xO:SPY260717C00742000 | -2xO:SPY260717C00744000 | 1xO:SPY260717C00746000,-10.0,99.0,109.0,TP_200PCT,1,200,0.0,10.0,Narrow-Wing Butterfly
+2026-06-29,2026-07-06,741.0,2026-07-24,33xO:SPY260724C00739000 | -66xO:SPY260724C00741000 | 33xO:SPY260724C00743000,495.0,8910.0,8415.0,TP_200PCT,33,200,0.0,495.0,Narrow-Wing Butterfly
+2026-07-06,2026-07-08,751.28,2026-07-31,100xO:SPY260731C00749000 | -200xO:SPY260731C00751000 | 100xO:SPY260731C00753000,500.0,3100.0,2600.0,TP_200PCT,100,200,0.0,500.0,Narrow-Wing Butterfly
+2026-07-13,2026-08-05,749.17,2026-08-07,14xO:SPY260807C00747000 | -28xO:SPY260807C00749000 | 14xO:SPY260807C00751000,476.0,-490.0,-966.0,EXPIRY_FLATTEN,14,200,0.0,476.0,Narrow-Wing Butterfly
+2026-07-20,2026-08-05,742.09,2026-08-14,1xO:SPY260814C00740000 | -2xO:SPY260814C00742000 | 1xO:SPY260814C00744000,-67.0,-103.0,-36.0,EXPIRY_FLATTEN,1,200,0.0,67.0,Narrow-Wing Butterfly
+$ awk -F, 'NR>1 {sum+=$8; n++} END {printf "n=%d sum=%.2f\n", n, sum}' docs/verification/tpgrid-raw-proof-2026-08-07/01_narrow_wing_full_ledger.csv
+n=94 sum=260940.00
+
+--- docs/verification/tpgrid-raw-proof-2026-08-07/02_bullish_rr_full_ledger.csv ---
+$ head -n 11 docs/verification/tpgrid-raw-proof-2026-08-07/02_bullish_rr_full_ledger.csv
+entry_date,exit_date,spot,exp_near,legs,entry_val,exit_val,pnl,exit_reason,mult,tp_pct,sl_pct,premium_basis,strategy
+2024-08-12,2024-08-13,533.27,2024-09-06,6xO:SPY240906C00538000 | -6xO:SPY240906P00528000,480.0,4806.0,4326.0,TP_75PCT,6,75,0.0,480.0,Bullish Risk Reversal
+2024-08-19,2024-08-21,559.61,2024-09-13,15xO:SPY240913C00565000 | -15xO:SPY240913P00555000,480.0,1950.0,1470.0,TP_75PCT,15,75,0.0,480.0,Bullish Risk Reversal
+2024-08-26,2024-08-27,560.79,2024-09-20,1xO:SPY240920C00566000 | -1xO:SPY240920P00556000,-28.0,63.0,91.0,TP_75PCT,1,75,0.0,28.0,Bullish Risk Reversal
+2024-09-03,2024-09-11,552.08,2024-09-27,1xO:SPY240927C00557000 | -1xO:SPY240927P00547000,-117.0,88.0,205.0,TP_75PCT,1,75,0.0,117.0,Bullish Risk Reversal
+2024-09-09,2024-09-10,546.41,2024-10-04,1xO:SPY241004C00551000 | -1xO:SPY241004P00541000,-97.0,105.0,202.0,TP_75PCT,1,75,0.0,97.0,Bullish Risk Reversal
+2024-09-16,2024-09-19,562.84,2024-10-11,1xO:SPY241011C00568000 | -1xO:SPY241011P00558000,-91.0,570.0,661.0,TP_75PCT,1,75,0.0,91.0,Bullish Risk Reversal
+2024-09-23,2024-09-24,569.67,2024-10-18,22xO:SPY241018C00575000 | -22xO:SPY241018P00565000,484.0,3124.0,2640.0,TP_75PCT,22,75,0.0,484.0,Bullish Risk Reversal
+2024-09-30,2024-10-09,573.76,2024-10-25,38xO:SPY241025C00579000 | -38xO:SPY241025P00569000,494.0,9234.0,8740.0,TP_75PCT,38,75,0.0,494.0,Bullish Risk Reversal
+2024-10-07,2024-10-08,567.8,2024-11-01,33xO:SPY241101C00573000 | -33xO:SPY241101P00563000,495.0,15213.0,14718.0,TP_75PCT,33,75,0.0,495.0,Bullish Risk Reversal
+2024-10-14,2024-11-06,584.32,2024-11-08,3xO:SPY241108C00589000 | -3xO:SPY241108P00579000,390.0,1188.0,798.0,TP_75PCT,3,75,0.0,390.0,Bullish Risk Reversal
+$ tail -n 10 docs/verification/tpgrid-raw-proof-2026-08-07/02_bullish_rr_full_ledger.csv
+2026-05-04,2026-05-05,718.01,2026-05-29,14xO:SPY260529C00723000 | -14xO:SPY260529P00713000,476.0,8260.0,7784.0,TP_75PCT,14,75,0.0,476.0,Bullish Risk Reversal
+2026-05-11,2026-05-13,739.3,2026-06-05,5xO:SPY260605C00744000 | -5xO:SPY260605P00734000,495.0,2115.0,1620.0,TP_75PCT,5,75,0.0,495.0,Bullish Risk Reversal
+2026-05-18,2026-05-20,738.65,2026-06-12,1xO:SPY260612C00744000 | -1xO:SPY260612P00734000,-122.0,281.0,403.0,TP_75PCT,1,75,0.0,122.0,Bullish Risk Reversal
+2026-06-01,2026-06-02,758.54,2026-06-26,1xO:SPY260626C00764000 | -1xO:SPY260626P00754000,-81.0,-13.0,68.0,TP_75PCT,1,75,0.0,81.0,Bullish Risk Reversal
+2026-06-15,2026-07-10,754.83,2026-07-10,1xO:SPY260710C00760000 | -1xO:SPY260710P00750000,-66.0,0.0,66.0,TP_75PCT,1,75,0.0,66.0,Bullish Risk Reversal
+2026-06-22,2026-07-06,744.39,2026-07-17,2xO:SPY260717C00749000 | -2xO:SPY260717P00739000,346.0,1150.0,804.0,TP_75PCT,2,75,0.0,346.0,Bullish Risk Reversal
+2026-06-29,2026-06-30,741.0,2026-07-24,4xO:SPY260724C00746000 | -4xO:SPY260724P00736000,420.0,2284.0,1864.0,TP_75PCT,4,75,0.0,420.0,Bullish Risk Reversal
+2026-07-06,2026-07-10,751.28,2026-07-31,3xO:SPY260731C00756000 | -3xO:SPY260731P00746000,411.0,1167.0,756.0,TP_75PCT,3,75,0.0,411.0,Bullish Risk Reversal
+2026-07-13,2026-07-14,749.17,2026-08-07,7xO:SPY260807C00754000 | -7xO:SPY260807P00744000,448.0,2422.0,1974.0,TP_75PCT,7,75,0.0,448.0,Bullish Risk Reversal
+2026-07-20,2026-07-21,742.09,2026-08-14,9xO:SPY260814C00747000 | -9xO:SPY260814P00737000,468.0,5328.0,4860.0,TP_75PCT,9,75,0.0,468.0,Bullish Risk Reversal
+$ awk -F, 'NR>1 {sum+=$8; n++} END {printf "n=%d sum=%.2f\n", n, sum}' docs/verification/tpgrid-raw-proof-2026-08-07/02_bullish_rr_full_ledger.csv
+n=94 sum=202238.00
+
+--- docs/verification/tpgrid-raw-proof-2026-08-07/03_long_put_fly_full_ledger.csv ---
+$ head -n 11 docs/verification/tpgrid-raw-proof-2026-08-07/03_long_put_fly_full_ledger.csv
+entry_date,exit_date,spot,exp_near,legs,entry_val,exit_val,pnl,exit_reason,mult,tp_pct,sl_pct,premium_basis,strategy
+2024-08-12,2024-08-13,533.27,2024-09-06,1xO:SPY240906P00538000 | -2xO:SPY240906P00533000 | 1xO:SPY240906P00528000,-16.0,27.0,43.0,TP_200PCT,1,200,,16.0,07_long_put_butterfly
+2024-08-19,2024-09-13,559.61,2024-09-13,2xO:SPY240913P00565000 | -4xO:SPY240913P00560000 | 2xO:SPY240913P00555000,352.0,618.0,266.0,EXPIRY_FLATTEN,2,200,,352.0,07_long_put_butterfly
+2024-08-26,2024-08-28,560.79,2024-09-20,12xO:SPY240920P00566000 | -24xO:SPY240920P00561000 | 12xO:SPY240920P00556000,492.0,1680.0,1188.0,TP_200PCT,12,200,,492.0,07_long_put_butterfly
+2024-09-03,2024-09-27,552.08,2024-09-27,3xO:SPY240927P00557000 | -6xO:SPY240927P00552000 | 3xO:SPY240927P00547000,429.0,0.0,-429.0,EXPIRY_FLATTEN,3,200,,429.0,07_long_put_butterfly
+2024-09-09,2024-10-04,546.41,2024-10-04,2xO:SPY241004P00551000 | -4xO:SPY241004P00546000 | 2xO:SPY241004P00541000,470.0,0.0,-470.0,EXPIRY_FLATTEN,2,200,,470.0,07_long_put_butterfly
+2024-09-16,2024-10-11,562.84,2024-10-11,2xO:SPY241011P00568000 | -4xO:SPY241011P00563000 | 2xO:SPY241011P00558000,396.0,0.0,-396.0,EXPIRY_FLATTEN,2,200,,396.0,07_long_put_butterfly
+2024-09-23,2024-10-18,569.67,2024-10-18,7xO:SPY241018P00575000 | -14xO:SPY241018P00570000 | 7xO:SPY241018P00565000,483.0,0.0,-483.0,EXPIRY_FLATTEN,7,200,,483.0,07_long_put_butterfly
+2024-09-30,2024-10-25,573.76,2024-10-25,8xO:SPY241025P00579000 | -16xO:SPY241025P00574000 | 8xO:SPY241025P00569000,472.0,240.0,-232.0,EXPIRY_FLATTEN,8,200,,472.0,07_long_put_butterfly
+2024-10-07,2024-11-01,567.8,2024-11-01,4xO:SPY241101P00573000 | -8xO:SPY241101P00568000 | 4xO:SPY241101P00563000,424.0,464.0,40.0,EXPIRY_FLATTEN,4,200,,424.0,07_long_put_butterfly
+2024-10-14,2024-10-21,584.32,2024-11-08,19xO:SPY241108P00589000 | -38xO:SPY241108P00584000 | 19xO:SPY241108P00579000,494.0,1653.0,1159.0,TP_200PCT,19,200,,494.0,07_long_put_butterfly
+$ tail -n 10 docs/verification/tpgrid-raw-proof-2026-08-07/03_long_put_fly_full_ledger.csv
+2026-04-27,2026-05-22,715.17,2026-05-22,13xO:SPY260522P00720000 | -26xO:SPY260522P00715000 | 13xO:SPY260522P00710000,481.0,0.0,-481.0,EXPIRY_FLATTEN,13,200,,481.0,07_long_put_butterfly
+2026-05-04,2026-05-05,718.01,2026-05-29,41xO:SPY260529P00723000 | -82xO:SPY260529P00718000 | 41xO:SPY260529P00713000,492.0,1804.0,1312.0,TP_200PCT,41,200,,492.0,07_long_put_butterfly
+2026-05-11,2026-05-12,739.3,2026-06-05,1xO:SPY260605P00744000 | -2xO:SPY260605P00739000 | 1xO:SPY260605P00734000,-17.0,75.0,92.0,TP_200PCT,1,200,,17.0,07_long_put_butterfly
+2026-05-18,2026-06-12,738.65,2026-06-12,5xO:SPY260612P00744000 | -10xO:SPY260612P00739000 | 5xO:SPY260612P00734000,430.0,845.0,415.0,EXPIRY_FLATTEN,5,200,,430.0,07_long_put_butterfly
+2026-06-15,2026-06-30,754.83,2026-07-10,5xO:SPY260710P00760000 | -10xO:SPY260710P00755000 | 5xO:SPY260710P00750000,445.0,1545.0,1100.0,TP_200PCT,5,200,,445.0,07_long_put_butterfly
+2026-06-22,2026-07-17,744.39,2026-07-17,6xO:SPY260717P00749000 | -12xO:SPY260717P00744000 | 6xO:SPY260717P00739000,444.0,2250.0,1806.0,TP_200PCT,6,200,,444.0,07_long_put_butterfly
+2026-06-29,2026-07-24,741.0,2026-07-24,3xO:SPY260724P00746000 | -6xO:SPY260724P00741000 | 3xO:SPY260724P00736000,450.0,837.0,387.0,EXPIRY_FLATTEN,3,200,,450.0,07_long_put_butterfly
+2026-07-06,2026-07-08,751.28,2026-07-31,8xO:SPY260731P00756000 | -16xO:SPY260731P00751000 | 8xO:SPY260731P00746000,464.0,1664.0,1200.0,TP_200PCT,8,200,,464.0,07_long_put_butterfly
+2026-07-13,2026-07-14,749.17,2026-08-07,26xO:SPY260807P00754000 | -52xO:SPY260807P00749000 | 26xO:SPY260807P00744000,494.0,1560.0,1066.0,TP_200PCT,26,200,,494.0,07_long_put_butterfly
+2026-07-20,2026-07-29,742.09,2026-08-14,7xO:SPY260814P00747000 | -14xO:SPY260814P00742000 | 7xO:SPY260814P00737000,497.0,3612.0,3115.0,TP_200PCT,7,200,,497.0,07_long_put_butterfly
+$ awk -F, 'NR>1 {sum+=$8; n++} END {printf "n=%d sum=%.2f\n", n, sum}' docs/verification/tpgrid-raw-proof-2026-08-07/03_long_put_fly_full_ledger.csv
+n=91 sum=104676.00
+
+--- docs/verification/tpgrid-raw-proof-2026-08-07/04_long_call_fly_full_ledger.csv ---
+$ head -n 11 docs/verification/tpgrid-raw-proof-2026-08-07/04_long_call_fly_full_ledger.csv
+entry_date,exit_date,spot,exp_near,legs,entry_val,exit_val,pnl,exit_reason,mult,tp_pct,sl_pct,premium_basis,strategy
+2024-08-12,2024-08-28,533.27,2024-09-06,9xO:SPY240906C00528000 | -18xO:SPY240906C00533000 | 9xO:SPY240906C00538000,477.0,4743.0,4266.0,TP_100PCT,9,100,,477.0,06_long_call_butterfly
+2024-08-19,2024-09-11,559.61,2024-09-13,8xO:SPY240913C00555000 | -16xO:SPY240913C00560000 | 8xO:SPY240913C00565000,456.0,1072.0,616.0,TP_100PCT,8,100,,456.0,06_long_call_butterfly
+2024-08-26,2024-09-10,560.79,2024-09-20,13xO:SPY240920C00556000 | -26xO:SPY240920C00561000 | 13xO:SPY240920C00566000,494.0,1053.0,559.0,TP_100PCT,13,100,,494.0,06_long_call_butterfly
+2024-09-03,2024-09-04,552.08,2024-09-27,19xO:SPY240927C00547000 | -38xO:SPY240927C00552000 | 19xO:SPY240927C00557000,494.0,2280.0,1786.0,TP_100PCT,19,100,,494.0,06_long_call_butterfly
+2024-09-09,2024-09-12,546.41,2024-10-04,1xO:SPY241004C00541000 | -2xO:SPY241004C00546000 | 1xO:SPY241004C00551000,-97.0,7.0,104.0,TP_100PCT,1,100,,97.0,06_long_call_butterfly
+2024-09-16,2024-09-18,562.84,2024-10-11,8xO:SPY241011C00558000 | -16xO:SPY241011C00563000 | 8xO:SPY241011C00568000,448.0,1032.0,584.0,TP_100PCT,8,100,,448.0,06_long_call_butterfly
+2024-09-23,2024-10-18,569.67,2024-10-18,8xO:SPY241018C00565000 | -16xO:SPY241018C00570000 | 8xO:SPY241018C00575000,464.0,-40.0,-504.0,EXPIRY_FLATTEN,8,100,,464.0,06_long_call_butterfly
+2024-09-30,2024-10-25,573.76,2024-10-25,6xO:SPY241025C00569000 | -12xO:SPY241025C00574000 | 6xO:SPY241025C00579000,474.0,342.0,-132.0,EXPIRY_FLATTEN,6,100,,474.0,06_long_call_butterfly
+2024-10-07,2024-10-09,567.8,2024-11-01,1xO:SPY241101C00563000 | -2xO:SPY241101C00568000 | 1xO:SPY241101C00573000,-19.0,93.0,112.0,TP_100PCT,1,100,,19.0,06_long_call_butterfly
+2024-10-14,2024-10-15,584.32,2024-11-08,29xO:SPY241108C00579000 | -58xO:SPY241108C00584000 | 29xO:SPY241108C00589000,493.0,1740.0,1247.0,TP_100PCT,29,100,,493.0,06_long_call_butterfly
+$ tail -n 10 docs/verification/tpgrid-raw-proof-2026-08-07/04_long_call_fly_full_ledger.csv
+2026-04-27,2026-05-07,715.17,2026-05-22,8xO:SPY260522C00710000 | -16xO:SPY260522C00715000 | 8xO:SPY260522C00720000,464.0,2288.0,1824.0,TP_100PCT,8,100,,464.0,06_long_call_butterfly
+2026-05-04,2026-05-05,718.01,2026-05-29,11xO:SPY260529C00713000 | -22xO:SPY260529C00718000 | 11xO:SPY260529C00723000,462.0,1320.0,858.0,TP_100PCT,11,100,,462.0,06_long_call_butterfly
+2026-05-11,2026-05-18,739.3,2026-06-05,16xO:SPY260605C00734000 | -32xO:SPY260605C00739000 | 16xO:SPY260605C00744000,496.0,3184.0,2688.0,TP_100PCT,16,100,,496.0,06_long_call_butterfly
+2026-05-18,2026-05-19,738.65,2026-06-12,1xO:SPY260612C00734000 | -2xO:SPY260612C00739000 | 1xO:SPY260612C00744000,-37.0,54.0,91.0,TP_100PCT,1,100,,37.0,06_long_call_butterfly
+2026-06-01,2026-06-03,758.54,2026-06-26,22xO:SPY260626C00754000 | -44xO:SPY260626C00759000 | 22xO:SPY260626C00764000,484.0,2574.0,2090.0,TP_100PCT,22,100,,484.0,06_long_call_butterfly
+2026-06-15,2026-07-06,754.83,2026-07-10,8xO:SPY260710C00750000 | -16xO:SPY260710C00755000 | 8xO:SPY260710C00760000,448.0,1120.0,672.0,TP_100PCT,8,100,,448.0,06_long_call_butterfly
+2026-06-22,2026-06-23,744.39,2026-07-17,1xO:SPY260717C00739000 | -2xO:SPY260717C00744000 | 1xO:SPY260717C00749000,-37.0,101.0,138.0,TP_100PCT,1,100,,37.0,06_long_call_butterfly
+2026-06-29,2026-07-06,741.0,2026-07-24,10xO:SPY260724C00736000 | -20xO:SPY260724C00741000 | 10xO:SPY260724C00746000,500.0,2360.0,1860.0,TP_100PCT,10,100,,500.0,06_long_call_butterfly
+2026-07-13,2026-07-16,749.17,2026-08-07,9xO:SPY260807C00744000 | -18xO:SPY260807C00749000 | 9xO:SPY260807C00754000,477.0,1233.0,756.0,TP_100PCT,9,100,,477.0,06_long_call_butterfly
+2026-07-20,2026-08-05,742.09,2026-08-14,1xO:SPY260814C00737000 | -2xO:SPY260814C00742000 | 1xO:SPY260814C00747000,303.0,-76.0,-379.0,EXPIRY_FLATTEN,1,100,,303.0,06_long_call_butterfly
+$ awk -F, 'NR>1 {sum+=$8; n++} END {printf "n=%d sum=%.2f\n", n, sum}' docs/verification/tpgrid-raw-proof-2026-08-07/04_long_call_fly_full_ledger.csv
+n=92 sum=76186.00
+
+--- docs/verification/tpgrid-raw-proof-2026-08-07/05_put_ladder_full_ledger.csv ---
+$ head -n 11 docs/verification/tpgrid-raw-proof-2026-08-07/05_put_ladder_full_ledger.csv
+entry_date,exit_date,spot,exp_near,legs,entry_val,exit_val,pnl,exit_reason,mult,tp_pct,sl_pct,premium_basis,strategy
+2024-08-12,2024-09-06,533.27,2024-09-06,3xO:SPY240906P00533000 | -3xO:SPY240906P00528000 | -3xO:SPY240906P00523000 | 3xO:SPY240906P00518000,396.0,0.0,-396.0,EXPIRY_FLATTEN,3,150,,396.0,23_put_ladder_defined_risk
+2024-08-19,2024-09-09,559.61,2024-09-13,6xO:SPY240913P00560000 | -6xO:SPY240913P00555000 | -6xO:SPY240913P00550000 | 6xO:SPY240913P00545000,498.0,1794.0,1296.0,TP_150PCT,6,150,,498.0,23_put_ladder_defined_risk
+2024-08-26,2024-09-05,560.79,2024-09-20,5xO:SPY240920P00561000 | -5xO:SPY240920P00556000 | -5xO:SPY240920P00551000 | 5xO:SPY240920P00546000,450.0,1315.0,865.0,TP_150PCT,5,150,,450.0,23_put_ladder_defined_risk
+2024-09-03,2024-09-27,552.08,2024-09-27,7xO:SPY240927P00552000 | -7xO:SPY240927P00547000 | -7xO:SPY240927P00542000 | 7xO:SPY240927P00537000,483.0,0.0,-483.0,EXPIRY_FLATTEN,7,150,,483.0,23_put_ladder_defined_risk
+2024-09-16,2024-10-11,562.84,2024-10-11,5xO:SPY241011P00563000 | -5xO:SPY241011P00558000 | -5xO:SPY241011P00553000 | 5xO:SPY241011P00548000,460.0,0.0,-460.0,EXPIRY_FLATTEN,5,150,,460.0,23_put_ladder_defined_risk
+2024-09-23,2024-10-18,569.67,2024-10-18,6xO:SPY241018P00570000 | -6xO:SPY241018P00565000 | -6xO:SPY241018P00560000 | 6xO:SPY241018P00555000,444.0,0.0,-444.0,EXPIRY_FLATTEN,6,150,,444.0,23_put_ladder_defined_risk
+2024-09-30,2024-10-25,573.76,2024-10-25,7xO:SPY241025P00574000 | -7xO:SPY241025P00569000 | -7xO:SPY241025P00564000 | 7xO:SPY241025P00559000,448.0,21.0,-427.0,EXPIRY_FLATTEN,7,150,,448.0,23_put_ladder_defined_risk
+2024-10-07,2024-11-01,567.8,2024-11-01,7xO:SPY241101P00568000 | -7xO:SPY241101P00563000 | -7xO:SPY241101P00558000 | 7xO:SPY241101P00553000,462.0,0.0,-462.0,EXPIRY_FLATTEN,7,150,,462.0,23_put_ladder_defined_risk
+2024-10-14,2024-11-04,584.32,2024-11-08,8xO:SPY241108P00584000 | -8xO:SPY241108P00579000 | -8xO:SPY241108P00574000 | 8xO:SPY241108P00569000,480.0,1536.0,1056.0,TP_150PCT,8,150,,480.0,23_put_ladder_defined_risk
+2024-10-21,2024-10-22,583.63,2024-11-15,55xO:SPY241115P00584000 | -55xO:SPY241115P00579000 | -55xO:SPY241115P00574000 | 55xO:SPY241115P00569000,495.0,3960.0,3465.0,TP_150PCT,55,150,,495.0,23_put_ladder_defined_risk
+$ tail -n 10 docs/verification/tpgrid-raw-proof-2026-08-07/05_put_ladder_full_ledger.csv
+2026-05-04,2026-05-29,718.01,2026-05-29,8xO:SPY260529P00718000 | -8xO:SPY260529P00713000 | -8xO:SPY260529P00708000 | 8xO:SPY260529P00703000,464.0,0.0,-464.0,EXPIRY_FLATTEN,8,150,,464.0,23_put_ladder_defined_risk
+2026-05-11,2026-06-05,739.3,2026-06-05,7xO:SPY260605P00739000 | -7xO:SPY260605P00734000 | -7xO:SPY260605P00729000 | 7xO:SPY260605P00724000,462.0,3045.0,2583.0,TP_150PCT,7,150,,462.0,23_put_ladder_defined_risk
+2026-05-18,2026-05-20,738.65,2026-06-12,1xO:SPY260612P00739000 | -1xO:SPY260612P00734000 | -1xO:SPY260612P00729000 | 1xO:SPY260612P00724000,-11.0,62.0,73.0,TP_150PCT,1,150,,11.0,23_put_ladder_defined_risk
+2026-06-01,2026-06-08,758.54,2026-06-26,8xO:SPY260626P00759000 | -8xO:SPY260626P00754000 | -8xO:SPY260626P00749000 | 8xO:SPY260626P00744000,448.0,2424.0,1976.0,TP_150PCT,8,150,,448.0,23_put_ladder_defined_risk
+2026-06-15,2026-06-24,754.83,2026-07-10,6xO:SPY260710P00755000 | -6xO:SPY260710P00750000 | -6xO:SPY260710P00745000 | 6xO:SPY260710P00740000,444.0,4650.0,4206.0,TP_150PCT,6,150,,444.0,23_put_ladder_defined_risk
+2026-06-22,2026-06-24,744.39,2026-07-17,7xO:SPY260717P00744000 | -7xO:SPY260717P00739000 | -7xO:SPY260717P00734000 | 7xO:SPY260717P00729000,490.0,3493.0,3003.0,TP_150PCT,7,150,,490.0,23_put_ladder_defined_risk
+2026-06-29,2026-07-23,741.0,2026-07-24,10xO:SPY260724P00741000 | -10xO:SPY260724P00736000 | -10xO:SPY260724P00731000 | 10xO:SPY260724P00726000,470.0,1550.0,1080.0,TP_150PCT,10,150,,470.0,23_put_ladder_defined_risk
+2026-07-06,2026-07-07,751.28,2026-07-31,29xO:SPY260731P00751000 | -29xO:SPY260731P00746000 | -29xO:SPY260731P00741000 | 29xO:SPY260731P00736000,493.0,3828.0,3335.0,TP_150PCT,29,150,,493.0,23_put_ladder_defined_risk
+2026-07-13,2026-07-23,749.17,2026-08-07,16xO:SPY260807P00749000 | -16xO:SPY260807P00744000 | -16xO:SPY260807P00739000 | 16xO:SPY260807P00734000,480.0,2960.0,2480.0,TP_150PCT,16,150,,480.0,23_put_ladder_defined_risk
+2026-07-20,2026-07-22,742.09,2026-08-14,26xO:SPY260814P00742000 | -26xO:SPY260814P00737000 | -26xO:SPY260814P00732000 | 26xO:SPY260814P00727000,494.0,1482.0,988.0,TP_150PCT,26,150,,494.0,23_put_ladder_defined_risk
+$ awk -F, 'NR>1 {sum+=$8; n++} END {printf "n=%d sum=%.2f\n", n, sum}' docs/verification/tpgrid-raw-proof-2026-08-07/05_put_ladder_full_ledger.csv
+n=92 sum=69455.00
+
+### jq resum on JSON source ledgers ###
+--- docs/verification/tpgrid-raw-proof-2026-08-07/narrow_wing_butterfly__tp200.json (expected 260940) ---
+$ jq '{n:(.trades|length), sum:([.trades[].pnl]|add), expected:'260940', match:(([.trades[].pnl]|add)=='260940')}' docs/verification/tpgrid-raw-proof-2026-08-07/narrow_wing_butterfly__tp200.json
+{
+  "n": 94,
+  "sum": 260940,
+  "expected": 260940,
+  "match": true
+}
+--- docs/verification/tpgrid-raw-proof-2026-08-07/bullish_risk_reversal__tp75.json (expected 202238) ---
+$ jq '{n:(.trades|length), sum:([.trades[].pnl]|add), expected:'202238', match:(([.trades[].pnl]|add)=='202238')}' docs/verification/tpgrid-raw-proof-2026-08-07/bullish_risk_reversal__tp75.json
+{
+  "n": 94,
+  "sum": 202238,
+  "expected": 202238,
+  "match": true
+}
+--- docs/verification/tpgrid-raw-proof-2026-08-07/07_long_put_butterfly__tp200.json (expected 104676) ---
+$ jq '{n:(.trades|length), sum:([.trades[].pnl]|add), expected:'104676', match:(([.trades[].pnl]|add)=='104676')}' docs/verification/tpgrid-raw-proof-2026-08-07/07_long_put_butterfly__tp200.json
+{
+  "n": 91,
+  "sum": 104676,
+  "expected": 104676,
+  "match": true
+}
+--- docs/verification/tpgrid-raw-proof-2026-08-07/06_long_call_butterfly__tp100.json (expected 76186) ---
+$ jq '{n:(.trades|length), sum:([.trades[].pnl]|add), expected:'76186', match:(([.trades[].pnl]|add)=='76186')}' docs/verification/tpgrid-raw-proof-2026-08-07/06_long_call_butterfly__tp100.json
+{
+  "n": 92,
+  "sum": 76186,
+  "expected": 76186,
+  "match": true
+}
+--- docs/verification/tpgrid-raw-proof-2026-08-07/23_put_ladder_defined_risk__tp150.json (expected 69455) ---
+$ jq '{n:(.trades|length), sum:([.trades[].pnl]|add), expected:'69455', match:(([.trades[].pnl]|add)=='69455')}' docs/verification/tpgrid-raw-proof-2026-08-07/23_put_ladder_defined_risk__tp150.json
+{
+  "n": 92,
+  "sum": 69455,
+  "expected": 69455,
+  "match": true
+}
+
+### 3 pricing endpoint greps ###
+$ grep -n '/v2/aggs/ticker/' artifacts/stock-scanner-api/spy_asymmetric_bt.py
+102:        f"/v2/aggs/ticker/SPY/range/1/day/{start.isoformat()}/{end.isoformat()}",
+135:        f"/v2/aggs/ticker/{sym}/range/1/day/{start.isoformat()}/{end.isoformat()}",
+$ grep -c '/v2/aggs/ticker/' artifacts/stock-scanner-api/spy_asymmetric_bt.py
+2
+$ grep -n 'def fetch_option_daily' artifacts/stock-scanner-api/spy_asymmetric_bt.py
+124:def fetch_option_daily(symbol: str, start: date, end: date) -> pd.Series:
+$ grep -n 'fetch_option_daily' artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+918:                unique[sym] = bt.fetch_option_daily(sym, d0, min(exp, end))
+$ grep -c '/v2/aggs/ticker/' artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+0
+$ sed -n '124,149p' artifacts/stock-scanner-api/spy_asymmetric_bt.py
+def fetch_option_daily(symbol: str, start: date, end: date) -> pd.Series:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    safe = symbol.replace(":", "_")
+    path = CACHE_DIR / f"opt1d_{safe}_{start}_{end}.pkl"
+    if path.exists():
+        try:
+            return pd.read_pickle(path)
+        except Exception:
+            pass
+    sym = urllib.parse.quote(symbol)
+    data = _poly_get(
+        f"/v2/aggs/ticker/{sym}/range/1/day/{start.isoformat()}/{end.isoformat()}",
+        {"adjusted": "false", "sort": "asc", "limit": 50000},
+    )
+    time.sleep(RATE_SLEEP)
+    rows = data.get("results") or []
+    if not rows:
+        s = pd.Series(dtype=float)
+        s.to_pickle(path)
+        return s
+    df = pd.DataFrame(rows)
+    idx = pd.to_datetime(df["t"], unit="ms", utc=True).dt.tz_convert("America/New_York").dt.date
+    s = pd.Series(df["c"].astype(float).values, index=idx)
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+    s.to_pickle(path)
+    return s
+
+### 4 sha256 + commit identity ###
+$ sha256sum artifacts/stock-scanner-api/spy_asymmetric_bt.py artifacts/stock-scanner-api/spy_catalog_untested_bt.py docs/verification/tpgrid-raw-proof-2026-08-07/*.json docs/verification/tpgrid-raw-proof-2026-08-07/*_full_ledger.csv
+4b4e8694f13f955a07d177b923fd3d2320a642e58a092a80cc0e7116ab3faaa7  artifacts/stock-scanner-api/spy_asymmetric_bt.py
+cc52301550873286e38a70a97a20a26683dc32d0f14c83aef9de53cf692a3f5e  artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+05937d5438c355c0bc6e625b2a13c9a9c85a4f25e7f9606044075b85ead7b563  docs/verification/tpgrid-raw-proof-2026-08-07/06_long_call_butterfly__tp100.json
+3611df34181200f139608c1e57f80f668a008cf0596068b293a46a314742b725  docs/verification/tpgrid-raw-proof-2026-08-07/07_long_put_butterfly__tp200.json
+d4d7a5beda3ed11e19d273dde2aa54aca7ef1761ab6d23f61a4765353df414d6  docs/verification/tpgrid-raw-proof-2026-08-07/23_put_ladder_defined_risk__tp150.json
+3130ea6d7401c5850afda32016262224f2c7295bde4a7078da77efdd7200ff91  docs/verification/tpgrid-raw-proof-2026-08-07/bullish_risk_reversal__tp75.json
+238a13ac567b6429c2ed35172d152253c5969e63ba7b4a2d62292b7391db2858  docs/verification/tpgrid-raw-proof-2026-08-07/narrow_wing_butterfly__tp200.json
+8e6a6316cf2746da6dad58472983501768ddf437e160bdf441fdd98198680260  docs/verification/tpgrid-raw-proof-2026-08-07/01_narrow_wing_full_ledger.csv
+19bd0fe2a4d726d0ec1d03a88d1d042c9c6a8f77f4d47db26b12b1ee224a6272  docs/verification/tpgrid-raw-proof-2026-08-07/02_bullish_rr_full_ledger.csv
+7a0beed8e0c9ceb6b3231c2c05fb68d03999ae3a1738f0bb3edd1c45c122daa8  docs/verification/tpgrid-raw-proof-2026-08-07/03_long_put_fly_full_ledger.csv
+7174433eb54acaa1a7516e2a247df19efe461a5107244d3227c21124212d0e63  docs/verification/tpgrid-raw-proof-2026-08-07/04_long_call_fly_full_ledger.csv
+27292ad960fd4e6c445be0cb4d84deeb007ab7ee2c2fc369353d969c48e12142  docs/verification/tpgrid-raw-proof-2026-08-07/05_put_ladder_full_ledger.csv
+
+$ git rev-parse HEAD
+d36d55a0ba82c54f450a7334542b8a01a0ed9661
+$ git branch --show-current
+cursor/f3-2y-compare-fc0f
+$ git log -1 --oneline
+d36d55a0 Add ledger reconciliation for website strategies #1-#5
+$ git ls-tree origin/dev artifacts/stock-scanner-api/spy_asymmetric_bt.py
+100644 blob f38aa19331a8419a64931cb45c10e3e88aa87168	artifacts/stock-scanner-api/spy_asymmetric_bt.py
+$ git ls-tree origin/main artifacts/stock-scanner-api/spy_asymmetric_bt.py
+100644 blob f38aa19331a8419a64931cb45c10e3e88aa87168	artifacts/stock-scanner-api/spy_asymmetric_bt.py
+$ git ls-tree origin/dev artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+$ git ls-tree origin/cursor/spy-catalog-untested-bt-e150 artifacts/stock-scanner-api/spy_catalog_untested_bt.py 2>/dev/null || git ls-remote --heads origin 'cursor/spy-catalog*' 
+From https://github.com/jdcarlo1/aiem-monorepo
+ * branch              cursor/spy-catalog-untested-bt-e150 -> FETCH_HEAD
+100644 blob b01aef558ceecfe3fca9bb91341353729ea4a913	artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+
+### 6 no-lookahead lines ###
+$ nl -ba artifacts/stock-scanner-api/spy_asymmetric_bt.py | sed -n '394,425p;447,465p'
+   394	    for d0 in entry_dates:
+   395	        if d0 not in spy.index:
+   396	            later = [x for x in spy.index if x >= d0]
+   397	            if not later:
+   398	                continue
+   399	            d0 = later[0]
+   400	        spot = float(spy.loc[d0, "close"])
+   401	        exp_near = next_friday(d0, weeks_ahead=3)
+   402	        exp_far = next_friday(d0, weeks_ahead=7)
+   403	        if exp_near > end + timedelta(days=7):
+   404	            continue
+   405	
+   406	        raw_legs = builder(spot, d0, exp_near, exp_far)
+   407	        unique = {}
+   408	        leg_pos = []
+   409	        ok = True
+   410	        for qty, right, strike, exp in raw_legs:
+   411	            sym = _occ(d0, strike, right, exp)
+   412	            if sym not in unique:
+   413	                unique[sym] = fetch_option_daily(sym, d0, min(exp, end))
+   414	            ser = unique[sym]
+   415	            if _px_on(ser, d0) is None:
+   416	                ok = False
+   417	                break
+   418	            leg_pos.append(LegPos(qty=qty, symbol=sym, series=ser))
+   419	        if not ok or not leg_pos:
+   420	            continue
+   421	
+   422	        entry_val = package_value(leg_pos, d0)
+   423	        if entry_val is None:
+   424	            continue
+   425	        unit_cost = entry_val
+   447	        hold_end = min(exp_near, end)
+   448	        sessions = [x for x in spy.index if d0 < x <= hold_end]
+   449	        exit_d = None
+   450	        exit_val = None
+   451	        exit_reason = None
+   452	        pnl = None
+   453	
+   454	        for d in sessions:
+   455	            mark = package_value(leg_pos, d)
+   456	            if mark is None:
+   457	                continue
+   458	            pnl_now = _pnl(mark)
+   459	            # Stop first on same bar (conservative)
+   460	            if sl_dollars is not None and pnl_now <= -sl_dollars:
+   461	                exit_d, exit_val, exit_reason, pnl = d, mark, f"SL_{int(sl_pct)}PCT", pnl_now
+   462	                break
+   463	            if tp_dollars is not None and pnl_now >= tp_dollars:
+   464	                exit_d, exit_val, exit_reason, pnl = d, mark, f"TP_{tp_pct}PCT", pnl_now
+   465	                break
+$ nl -ba artifacts/stock-scanner-api/spy_catalog_untested_bt.py | sed -n '968,986p'
+   968	        sl_dollars = None if sl_pct <= 0 else premium_basis * (sl_pct / 100.0)
+   969	
+   970	        def _pnl(mark: float) -> float:
+   971	            return mark - entry_val
+   972	
+   973	        hold_end = min(exp_near, end)
+   974	        sessions = [x for x in spy.index if d0 < x <= hold_end]
+   975	        exit_d = exit_val = exit_reason = pnl = None
+   976	        for d in sessions:
+   977	            mark = package_value_ext(leg_pos, d, spy)
+   978	            if mark is None:
+   979	                continue
+   980	            pnl_now = _pnl(mark)
+   981	            if sl_dollars is not None and pnl_now <= -sl_dollars:
+   982	                exit_d, exit_val, exit_reason, pnl = d, mark, f"SL_{int(sl_pct)}PCT", pnl_now
+   983	                break
+   984	            if tp_dollars is not None and pnl_now >= tp_dollars:
+   985	                exit_d, exit_val, exit_reason, pnl = d, mark, f"TP_{tp_pct}PCT", pnl_now
+   986	                break

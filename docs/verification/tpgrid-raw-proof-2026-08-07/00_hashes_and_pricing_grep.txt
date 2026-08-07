@@ -1,0 +1,43 @@
+=== SCRIPT / DATA SHA256 ===
+4b4e8694f13f955a07d177b923fd3d2320a642e58a092a80cc0e7116ab3faaa7  artifacts/stock-scanner-api/spy_asymmetric_bt.py
+cc52301550873286e38a70a97a20a26683dc32d0f14c83aef9de53cf692a3f5e  artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+05937d5438c355c0bc6e625b2a13c9a9c85a4f25e7f9606044075b85ead7b563  docs/verification/tpgrid-raw-proof-2026-08-07/06_long_call_butterfly__tp100.json
+3611df34181200f139608c1e57f80f668a008cf0596068b293a46a314742b725  docs/verification/tpgrid-raw-proof-2026-08-07/07_long_put_butterfly__tp200.json
+d4d7a5beda3ed11e19d273dde2aa54aca7ef1761ab6d23f61a4765353df414d6  docs/verification/tpgrid-raw-proof-2026-08-07/23_put_ladder_defined_risk__tp150.json
+3130ea6d7401c5850afda32016262224f2c7295bde4a7078da77efdd7200ff91  docs/verification/tpgrid-raw-proof-2026-08-07/bullish_risk_reversal__tp75.json
+238a13ac567b6429c2ed35172d152253c5969e63ba7b4a2d62292b7391db2858  docs/verification/tpgrid-raw-proof-2026-08-07/narrow_wing_butterfly__tp200.json
+8e6a6316cf2746da6dad58472983501768ddf437e160bdf441fdd98198680260  docs/verification/tpgrid-raw-proof-2026-08-07/01_narrow_wing_full_ledger.csv
+19bd0fe2a4d726d0ec1d03a88d1d042c9c6a8f77f4d47db26b12b1ee224a6272  docs/verification/tpgrid-raw-proof-2026-08-07/02_bullish_rr_full_ledger.csv
+7a0beed8e0c9ceb6b3231c2c05fb68d03999ae3a1738f0bb3edd1c45c122daa8  docs/verification/tpgrid-raw-proof-2026-08-07/03_long_put_fly_full_ledger.csv
+7174433eb54acaa1a7516e2a247df19efe461a5107244d3227c21124212d0e63  docs/verification/tpgrid-raw-proof-2026-08-07/04_long_call_fly_full_ledger.csv
+27292ad960fd4e6c445be0cb4d84deeb007ab7ee2c2fc369353d969c48e12142  docs/verification/tpgrid-raw-proof-2026-08-07/05_put_ladder_full_ledger.csv
+
+=== git HEAD / branch ===
+d36d55a0ba82c54f450a7334542b8a01a0ed9661
+cursor/f3-2y-compare-fc0f
+
+=== asym script on origin/dev and origin/main (blob) ===
+100644 blob f38aa19331a8419a64931cb45c10e3e88aa87168	artifacts/stock-scanner-api/spy_asymmetric_bt.py
+100644 blob f38aa19331a8419a64931cb45c10e3e88aa87168	artifacts/stock-scanner-api/spy_asymmetric_bt.py
+workspace asym blob:
+f38aa19331a8419a64931cb45c10e3e88aa87168
+
+=== catalog script on origin/dev? ===
+NO — catalog BT script NOT on origin/dev (live/mergeable)
+=== catalog on PR branch cursor/spy-catalog-untested-bt-e150 ===
+100644 blob b01aef558ceecfe3fca9bb91341353729ea4a913	artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+workspace catalog blob:
+b01aef558ceecfe3fca9bb91341353729ea4a913
+
+=== grep -c Polygon option daily aggs endpoint in producer scripts ===
+spy_asymmetric_bt.py /v2/aggs/ticker/ count: 2
+spy_asymmetric_bt.py fetch_option_daily def count: 1
+spy_catalog_untested_bt.py /v2/aggs/ticker/ count: 0
+0
+spy_catalog_untested_bt.py bt.fetch_option_daily call count: 1
+
+=== matching lines (options pricing calls) ===
+102:        f"/v2/aggs/ticker/SPY/range/1/day/{start.isoformat()}/{end.isoformat()}",
+135:        f"/v2/aggs/ticker/{sym}/range/1/day/{start.isoformat()}/{end.isoformat()}",
+124:def fetch_option_daily(symbol: str, start: date, end: date) -> pd.Series:
+918:                unique[sym] = bt.fetch_option_daily(sym, d0, min(exp, end))

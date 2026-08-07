@@ -1,0 +1,16 @@
+=== black_scholes / synthetic context (not narrative) ===
+--- spy_asymmetric_bt.py ---
+14:Pricing: real Polygon daily option aggregates (O:SPY…). Synthetic BS is NOT used.
+--- spy_catalog_untested_bt.py ---
+13:  - Pricing: Polygon daily option aggregates (O:SPY…) — no synthetic BS
+736:    "Synthetic Covered Call": b_synth_covered_call,
+737:    "Synthetic Covered Put": b_synth_covered_put,
+761:    "Synthetic Long Stock": b_synth_long,
+762:    "Synthetic Short Stock": b_synth_short,
+763:    "Split-Strike Synthetic Bullish": b_split_synth_bull,
+764:    "Split-Strike Synthetic Bearish": b_split_synth_bear,
+913:                # synthetic series unused; symbol marker
+
+=== catalog uses shared fetch_option_daily ===
+37:import spy_asymmetric_bt as bt  # noqa: E402
+918:                unique[sym] = bt.fetch_option_daily(sym, d0, min(exp, end))
