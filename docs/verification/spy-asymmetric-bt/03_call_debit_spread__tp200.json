@@ -1,0 +1,92 @@
+{
+  "strategy": "03_call_debit_spread",
+  "tp_pct": 200,
+  "no_stop_loss": true,
+  "risk_usd": 100.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 4,
+    "total_pnl": 875.0,
+    "win_rate": 0.75,
+    "avg_pnl": 218.75,
+    "tp_hits": 0,
+    "expiry_exits": 4
+  },
+  "trades": [
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 200,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-09-06",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 1,
+      "entry_val": 300.0,
+      "exit_val": 625.0,
+      "premium_basis": 300.0,
+      "pnl": 325.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240906C00533000",
+        "-1xO:SPY240906C00538000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 200,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-13",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": 266.0,
+      "exit_val": 164.0,
+      "premium_basis": 266.0,
+      "pnl": -102.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240913C00560000",
+        "-1xO:SPY240913C00565000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 200,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 269.0,
+      "exit_val": 533.0,
+      "premium_basis": 269.0,
+      "pnl": 264.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240920C00561000",
+        "-1xO:SPY240920C00566000"
+      ]
+    },
+    {
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 200,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-27",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": 296.0,
+      "exit_val": 684.0,
+      "premium_basis": 296.0,
+      "pnl": 388.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240927C00552000",
+        "-1xO:SPY240927C00557000"
+      ]
+    }
+  ]
+}

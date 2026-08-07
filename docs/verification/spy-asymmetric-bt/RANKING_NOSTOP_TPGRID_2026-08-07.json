@@ -1,0 +1,194 @@
+{
+  "rules": {
+    "underlying": "SPY",
+    "risk_usd": 100.0,
+    "entry": "weekly Monday",
+    "exit": "TP grid [50, 75, 100, 125, 150, 200]% of entry premium/credit \u2014 NO STOP LOSS; else flatten near expiry",
+    "pricing": "Polygon daily option aggregates",
+    "strategies_n": 2
+  },
+  "ranked_best_first": [
+    {
+      "label": "03_call_debit_spread__tp125",
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "trades": 4,
+      "total_pnl": 1129.0,
+      "win_rate": 0.75,
+      "avg_pnl": 282.25,
+      "tp_hits": 2,
+      "expiry_exits": 2,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp125.json"
+    },
+    {
+      "label": "03_call_debit_spread__tp150",
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 150,
+      "trades": 4,
+      "total_pnl": 1129.0,
+      "win_rate": 0.75,
+      "avg_pnl": 282.25,
+      "tp_hits": 1,
+      "expiry_exits": 3,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp150.json"
+    },
+    {
+      "label": "03_call_debit_spread__tp100",
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 100,
+      "trades": 4,
+      "total_pnl": 1059.0,
+      "win_rate": 0.75,
+      "avg_pnl": 264.75,
+      "tp_hits": 2,
+      "expiry_exits": 2,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp100.json"
+    },
+    {
+      "label": "03_call_debit_spread__tp200",
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 200,
+      "trades": 4,
+      "total_pnl": 875.0,
+      "win_rate": 0.75,
+      "avg_pnl": 218.75,
+      "tp_hits": 0,
+      "expiry_exits": 4,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp200.json"
+    },
+    {
+      "label": "03_call_debit_spread__tp50",
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 50,
+      "trades": 4,
+      "total_pnl": 718.0,
+      "win_rate": 0.75,
+      "avg_pnl": 179.5,
+      "tp_hits": 3,
+      "expiry_exits": 1,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp50.json"
+    },
+    {
+      "label": "03_call_debit_spread__tp75",
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 75,
+      "trades": 4,
+      "total_pnl": 718.0,
+      "win_rate": 0.75,
+      "avg_pnl": 179.5,
+      "tp_hits": 3,
+      "expiry_exits": 1,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp75.json"
+    },
+    {
+      "label": "12_long_straddle__tp50",
+      "strategy": "12_long_straddle",
+      "tp_pct": 50,
+      "trades": 4,
+      "total_pnl": -776.0,
+      "win_rate": 0.5,
+      "avg_pnl": -194.0,
+      "tp_hits": 1,
+      "expiry_exits": 3,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/12_long_straddle__tp50.json"
+    },
+    {
+      "label": "12_long_straddle__tp75",
+      "strategy": "12_long_straddle",
+      "tp_pct": 75,
+      "trades": 4,
+      "total_pnl": -3050.0,
+      "win_rate": 0.25,
+      "avg_pnl": -762.5,
+      "tp_hits": 0,
+      "expiry_exits": 4,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/12_long_straddle__tp75.json"
+    },
+    {
+      "label": "12_long_straddle__tp100",
+      "strategy": "12_long_straddle",
+      "tp_pct": 100,
+      "trades": 4,
+      "total_pnl": -3050.0,
+      "win_rate": 0.25,
+      "avg_pnl": -762.5,
+      "tp_hits": 0,
+      "expiry_exits": 4,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/12_long_straddle__tp100.json"
+    },
+    {
+      "label": "12_long_straddle__tp125",
+      "strategy": "12_long_straddle",
+      "tp_pct": 125,
+      "trades": 4,
+      "total_pnl": -3050.0,
+      "win_rate": 0.25,
+      "avg_pnl": -762.5,
+      "tp_hits": 0,
+      "expiry_exits": 4,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/12_long_straddle__tp125.json"
+    },
+    {
+      "label": "12_long_straddle__tp150",
+      "strategy": "12_long_straddle",
+      "tp_pct": 150,
+      "trades": 4,
+      "total_pnl": -3050.0,
+      "win_rate": 0.25,
+      "avg_pnl": -762.5,
+      "tp_hits": 0,
+      "expiry_exits": 4,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/12_long_straddle__tp150.json"
+    },
+    {
+      "label": "12_long_straddle__tp200",
+      "strategy": "12_long_straddle",
+      "tp_pct": 200,
+      "trades": 4,
+      "total_pnl": -3050.0,
+      "win_rate": 0.25,
+      "avg_pnl": -762.5,
+      "tp_hits": 0,
+      "expiry_exits": 4,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/12_long_straddle__tp200.json"
+    }
+  ],
+  "winner": {
+    "label": "03_call_debit_spread__tp125",
+    "strategy": "03_call_debit_spread",
+    "tp_pct": 125,
+    "trades": 4,
+    "total_pnl": 1129.0,
+    "win_rate": 0.75,
+    "avg_pnl": 282.25,
+    "tp_hits": 2,
+    "expiry_exits": 2,
+    "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp125.json"
+  },
+  "best_tp_per_strategy": {
+    "03_call_debit_spread": {
+      "label": "03_call_debit_spread__tp125",
+      "strategy": "03_call_debit_spread",
+      "tp_pct": 125,
+      "trades": 4,
+      "total_pnl": 1129.0,
+      "win_rate": 0.75,
+      "avg_pnl": 282.25,
+      "tp_hits": 2,
+      "expiry_exits": 2,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/03_call_debit_spread__tp125.json"
+    },
+    "12_long_straddle": {
+      "label": "12_long_straddle__tp50",
+      "strategy": "12_long_straddle",
+      "tp_pct": 50,
+      "trades": 4,
+      "total_pnl": -776.0,
+      "win_rate": 0.5,
+      "avg_pnl": -194.0,
+      "tp_hits": 1,
+      "expiry_exits": 3,
+      "path": "/workspace/docs/verification/spy-asymmetric-bt/12_long_straddle__tp50.json"
+    }
+  }
+}
