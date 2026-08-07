@@ -65,17 +65,17 @@ export default function StrategiesPage() {
   const qty = pos?.contracts ?? pos?.shares;
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
-      <div className="flex justify-between items-end border-b border-border pb-4">
+    <>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end border-b border-border pb-5">
         <div>
-          <h1 className="text-2xl font-mono font-bold tracking-tight uppercase">
+          <h1 className="text-3xl font-mono font-bold tracking-tight uppercase">
             Strategies
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
             Live paper strategies on the Options Engine terminal — F3 SPY 0DTE
           </p>
         </div>
-        <div className="font-mono text-xs text-muted-foreground text-right">
+        <div className="font-mono text-sm text-muted-foreground text-left sm:text-right shrink-0">
           <div>POLL 30s</div>
           <div className="text-primary">
             {isLoading ? 'LOADING…' : isError ? 'ERROR' : 'LIVE'}
@@ -87,29 +87,29 @@ export default function StrategiesPage() {
       </div>
 
       {isError ? (
-        <div className="border border-destructive/40 bg-destructive/10 p-3 font-mono text-xs text-destructive">
+        <div className="border border-destructive/40 bg-destructive/10 p-3 font-mono text-sm text-destructive">
           {String((error as Error)?.message || error)}
         </div>
       ) : null}
 
-      <div className="border border-border bg-card">
-        <div className="p-3 border-b border-border bg-sidebar/40 flex justify-between items-center">
+      <div className="border border-border bg-card rounded-lg overflow-hidden max-w-5xl">
+        <div className="p-4 border-b border-border bg-sidebar/40 flex justify-between items-center gap-3">
           <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2 uppercase">
             <FlaskConical size={14} /> F3 SPY 0DTE
           </h2>
-          <span className="text-[10px] font-mono text-muted-foreground uppercase">
+          <span className="text-sm font-mono text-muted-foreground uppercase">
             {f3?.pattern || 'F3_SPY_0DTE'}
           </span>
         </div>
 
-        <div className="p-4 space-y-4">
-          <p className="font-mono text-xs text-muted-foreground leading-relaxed">
+        <div className="p-5 space-y-5">
+          <p className="font-mono text-sm text-muted-foreground leading-relaxed">
             Premarket direction → ORB 9:30–9:44 → breakout with PM → buy ATM CALL/PUT
             ($200 notional) → auto-sell at −65% premium stop, else exit 16:00 ET.
             No profit target. Real Tradier premiums when available (no synthetic leverage).
           </p>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <Metric
               label="Account"
               value={`$${(f3?.account_balance_usd ?? 10000).toLocaleString(undefined, {
@@ -137,41 +137,41 @@ export default function StrategiesPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
-            <div className="border border-border p-3">
-              <div className="text-muted-foreground uppercase text-[10px]">Premarket</div>
-              <div className="text-white mt-1">{f3?.pm_direction || '—'}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono text-sm">
+            <div className="border border-border rounded-md p-3">
+              <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">Premarket</div>
+              <div className="text-foreground mt-1">{f3?.pm_direction || '—'}</div>
             </div>
-            <div className="border border-border p-3">
-              <div className="text-muted-foreground uppercase text-[10px]">ORB High</div>
-              <div className="text-white mt-1">
+            <div className="border border-border rounded-md p-3">
+              <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">ORB High</div>
+              <div className="text-foreground mt-1">
                 {f3?.orb_high != null ? `$${Number(f3.orb_high).toFixed(2)}` : '—'}
               </div>
             </div>
-            <div className="border border-border p-3">
-              <div className="text-muted-foreground uppercase text-[10px]">ORB Low</div>
-              <div className="text-white mt-1">
+            <div className="border border-border rounded-md p-3">
+              <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">ORB Low</div>
+              <div className="text-foreground mt-1">
                 {f3?.orb_low != null ? `$${Number(f3.orb_low).toFixed(2)}` : '—'}
               </div>
             </div>
-            <div className="border border-border p-3">
-              <div className="text-muted-foreground uppercase text-[10px]">Signal</div>
+            <div className="border border-border rounded-md p-3">
+              <div className="text-muted-foreground uppercase text-xs font-semibold tracking-wide">Signal</div>
               <div className="text-primary mt-1">{f3?.signal_state?.status || '—'}</div>
             </div>
           </div>
 
           {f3?.signal_state?.note ? (
-            <div className="font-mono text-[11px] text-muted-foreground border border-border p-2">
+            <div className="font-mono text-sm text-muted-foreground border border-border rounded-md p-3">
               {f3.signal_state.note}
             </div>
           ) : null}
 
-          <div className="border border-border bg-black/20 p-3">
-            <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2 flex items-center gap-2">
+          <div className="border border-border rounded-md bg-muted/20 p-4">
+            <div className="text-sm font-mono text-muted-foreground uppercase mb-3 flex items-center gap-2">
               <Activity size={12} /> Active Position
             </div>
             {pos ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono text-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-sm">
                 <div className="flex items-center gap-2 flex-wrap">
                   {dir === 'CALL' || dir === 'LONG' ? (
                     <TrendingUp size={14} className="text-chart-2" />
@@ -192,7 +192,7 @@ export default function StrategiesPage() {
                     {pos.option_symbol || pos.symbol}
                   </span>
                 </div>
-                <div className="text-muted-foreground text-xs space-y-0.5 md:text-right">
+                <div className="text-muted-foreground text-sm space-y-1 md:text-right">
                   <div>
                     ENTRY{' '}
                     <span className="text-foreground">
@@ -222,20 +222,20 @@ export default function StrategiesPage() {
                 </div>
               </div>
             ) : (
-              <div className="font-mono text-xs text-muted-foreground">NO ACTIVE POSITION</div>
+              <div className="font-mono text-sm text-muted-foreground">NO ACTIVE POSITION</div>
             )}
           </div>
 
           <div>
-            <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2">
+            <div className="text-sm font-mono text-muted-foreground uppercase mb-2">
               Recent Trades · W{f3?.wins ?? 0}/L{f3?.losses ?? 0} · {f3?.total_trades ?? 0} total
             </div>
             {(f3?.recent_trades || []).length === 0 ? (
-              <div className="font-mono text-xs text-muted-foreground">No closed F3 trades yet</div>
+              <div className="font-mono text-sm text-muted-foreground">No closed F3 trades yet</div>
             ) : (
-              <div className="border border-border divide-y divide-border font-mono text-xs">
+              <div className="border border-border rounded-md divide-y divide-border font-mono text-sm">
                 {(f3?.recent_trades || []).slice().reverse().map((t, i) => (
-                  <div key={i} className="flex justify-between p-2 gap-3">
+                  <div key={i} className="flex justify-between p-3 gap-3">
                     <span>
                       {t.direction || '—'} · {t.reason || '—'}
                       {t.thin_exit ? ' · THIN_EXIT' : ''}
@@ -254,7 +254,7 @@ export default function StrategiesPage() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -268,9 +268,9 @@ function Metric({
   valueClass?: string;
 }) {
   return (
-    <div className="border border-border bg-black/30 p-3">
-      <div className="text-[10px] font-mono text-muted-foreground uppercase">{label}</div>
-      <div className={`text-lg font-mono font-bold mt-1 ${valueClass}`}>{value}</div>
+    <div className="border border-border rounded-md bg-muted/30 p-3">
+      <div className="text-sm font-mono text-muted-foreground uppercase">{label}</div>
+      <div className={`text-xl font-mono font-bold mt-1.5 ${valueClass}`}>{value}</div>
     </div>
   );
 }

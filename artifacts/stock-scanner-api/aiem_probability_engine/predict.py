@@ -338,6 +338,21 @@ def predict_row(feature_row: pd.Series, models: dict, calibrated: dict,
     tier2_available = any(pd.notna(feature_row.get(f"{c}_z")) for c in TIER2_FEATURE_COLUMNS)
     confidence, warnings = _compute_confidence(horizon_probs, models, sources, overlays, tier2_available)
 
+    # Detect undifferentiated feature rows (common when options layers are all
+    # NaN and the imputer collapses mega-caps onto the same vector).
+    try:
+        z_cols = [c for c in (getattr(next(iter(models.values())), "feature_columns", []) or [])
+                  if isinstance(c, str) and c.endswith("_z")]
+        z_vals = [feature_row.get(c) for c in z_cols]
+        non_null = [v for v in z_vals if pd.notna(v)]
+        if len(non_null) <= 1:
+            warnings.append(
+                "undifferentiated_features: <=1 non-null z-features — "
+                "probabilities may collide across tickers; prefer polygon tie-break"
+            )
+    except Exception:
+        pass
+
     # edge_after_cost is reported off the nearest horizon (1d) as the most
     # directly actionable number; per-horizon edge is in _horizon_detail
     # via the caller if needed (schemas.py currently reports one edge value).

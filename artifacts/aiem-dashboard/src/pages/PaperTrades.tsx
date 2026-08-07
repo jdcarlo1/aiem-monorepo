@@ -1,12 +1,13 @@
 import { useApi } from "@/hooks/use-api";
-import { BarChart2, Clock, Layers } from "lucide-react";
+import { BarChart2, Clock } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
 
 export default function PaperTrades() {
+  // AIEM SKU only — equity paper book. OE oe_trade_records live on /oe-dashboard (separate product).
+  // Auth/password remains shared with OE; books are intentionally not mixed in the UI.
   const { data: openTrades, loading: openLoading, lastUpdated: openUpdated } = useApi<any>("/stock-api/aiem-paper-portfolio", {}, 30000);
   const { data: fills, loading: fillsLoading } = useApi<any>("/stock-api/admin/paper-fill-audit", {}, 60000);
   const { data: ledger, loading: ledgerLoading } = useApi<any>("/stock-api/admin/paper-job-ledger?limit=14", {}, 60000);
-  const { data: oeTrades, loading: oeLoading } = useApi<any>("/stock-api/admin/trade-records?limit=30", {}, 60000);
 
   const calculateTotalPnl = () => {
     if (!openTrades?.open_positions) return 0;
@@ -20,7 +21,9 @@ export default function PaperTrades() {
       <div className="flex justify-between items-end border-b border-border pb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-mono font-bold text-white tracking-tight uppercase">Paper Trading</h1>
-          <p className="text-sm font-mono text-muted-foreground mt-1">Live Portfolio & Execution Audit</p>
+          <p className="text-sm font-mono text-muted-foreground mt-1">
+            AIEM equity book only · Options Engine is a separate product
+          </p>
         </div>
         <div className="text-right">
           <div className="text-xs font-mono text-muted-foreground mb-1">OPEN P&L (USD)</div>
@@ -160,69 +163,17 @@ export default function PaperTrades() {
         </div>
       </div>
 
-      {/* OPTIONS PAPER book — oe_trade_records (separate from equity aiem_paper_trades) */}
-      <div className="border border-border bg-card flex flex-col min-h-[200px]">
-        <div className="p-3 border-b border-border bg-sidebar/50 flex justify-between items-center shrink-0">
-          <h2 className="text-sm font-mono font-bold text-accent flex items-center gap-2">
-            <Layers size={14} /> OPTIONS PAPER (oe_trade_records)
-          </h2>
-          <span className="text-xs font-mono text-muted-foreground">
-            {oeTrades?.count ?? 0} rows · limit 30
-          </span>
-        </div>
-        <div className="flex-1 overflow-auto p-0">
-          <table className="w-full text-left font-mono text-sm border-collapse">
-            <thead className="sticky top-0 bg-card border-b border-border text-muted-foreground text-xs z-10">
-              <tr>
-                <th className="p-3 font-normal">TICKER</th>
-                <th className="p-3 font-normal">DIR</th>
-                <th className="p-3 font-normal">SCAN</th>
-                <th className="p-3 font-normal">ENTRY</th>
-                <th className="p-3 font-normal">EXIT</th>
-                <th className="p-3 font-normal">P&L</th>
-                <th className="p-3 font-normal">RET %</th>
-                <th className="p-3 font-normal">EXIT REASON</th>
-              </tr>
-            </thead>
-            <tbody>
-              {oeLoading ? (
-                <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
-              ) : oeTrades?.rows?.length ? (
-                oeTrades.rows.map((row: any, i: number) => {
-                  const pnl = row.realized_pnl;
-                  const ret = row.return_pct;
-                  return (
-                    <tr key={row.alert_id ?? row.trace_id ?? i} className="border-b border-border/50 hover:bg-white/5">
-                      <td className="p-3 font-bold text-white">{row.ticker}</td>
-                      <td className="p-3 text-xs">{row.direction || row.strategy_family || "—"}</td>
-                      <td className="p-3 text-xs text-muted-foreground">{row.scan_date || "—"}</td>
-                      <td className="p-3">{row.entry_price != null ? Number(row.entry_price).toFixed(2) : "—"}</td>
-                      <td className="p-3">{row.exit_price != null ? Number(row.exit_price).toFixed(2) : "—"}</td>
-                      <td className={`p-3 ${(pnl ?? 0) >= 0 ? "text-success" : "text-destructive"}`}>
-                        {pnl != null ? `${pnl >= 0 ? "+" : ""}${Number(pnl).toFixed(2)}` : "—"}
-                      </td>
-                      <td className={`p-3 ${(ret ?? 0) >= 0 ? "text-success" : "text-destructive"}`}>
-                        {ret != null ? `${ret >= 0 ? "+" : ""}${Number(ret).toFixed(2)}%` : "—"}
-                      </td>
-                      <td className="p-3 text-xs text-muted-foreground max-w-[140px] truncate">
-                        {row.exit_reason || "—"}
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">NO OPTIONS PAPER TRADES</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div className="border border-border/60 bg-sidebar/30 px-4 py-3 text-xs font-mono text-muted-foreground">
+        <span className="text-primary font-bold">SKU note:</span> Options Engine paper book
+        (<span className="text-white">oe_trade_records</span>) is sold/viewed separately at{" "}
+        <span className="text-white">/oe-dashboard/</span>. Same login password — separate product UI.
       </div>
 
       <DataFooter
-        source="aiem_paper_trades, aiem_paper_fill_audit, paper_trade_job_ledger, oe_trade_records"
+        source="aiem_paper_trades, aiem_paper_fill_audit, paper_trade_job_ledger"
         lastUpdated={openUpdated}
         pollIntervalSec={30}
-        operatingMode="PAPER TRADING — SIMULATION ONLY"
+        operatingMode="AIEM PAPER — SIMULATION ONLY"
         samplePeriod="Since June 2026"
       />
     </div>

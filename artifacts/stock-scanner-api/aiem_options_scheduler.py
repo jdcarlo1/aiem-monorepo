@@ -1877,9 +1877,36 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             return S * _math.exp(0.5 * sig ** 2 * T - d1_t * sig_sqrt_T)
 
         # ── Real-chain helpers (Directive_RealChain_RevC 2026-08-02) ────────────
+        # Gate profile (OE_GATE_PROFILE): balanced default opens morning
+        # opportunity without removing hard liquidity floors entirely.
+        try:
+            from aiem_options_gate_profile import (
+                resolve_gate_profile as _resolve_gate_profile,
+                describe_gate_profile as _describe_gate_profile,
+            )
+            _GATE_CFG = _resolve_gate_profile()
+            log.info(
+                f"[exec] [{trace_id}] gate profile: {_describe_gate_profile(_GATE_CFG)}"
+            )
+        except Exception as _gp_e:
+            log.warning(f"[exec] [{trace_id}] gate profile load failed: {_gp_e}")
+            _GATE_CFG = {
+                "profile": "balanced",
+                "min_dte": 5,
+                "score_min": 50.0,
+                "margin_min": 8.0,
+                "allow_one_sided_quotes": True,
+                "allow_single_leg": True,
+                "one_sided_bid_frac": 0.85,
+            }
+
         _DELTA_TARGET = 0.35
         _LIQ_IV_MAX   = 3.0
-        _MIN_DTE_CHAIN = 5
+        _MIN_DTE_CHAIN = int(_GATE_CFG.get("min_dte", 5) or 5)
+        _ALLOW_ONE_SIDED = bool(_GATE_CFG.get("allow_one_sided_quotes", True))
+        _ONE_SIDED_BID_FRAC = float(_GATE_CFG.get("one_sided_bid_frac", 0.85) or 0.85)
+        _SCORE_MIN = float(_GATE_CFG.get("score_min", 50.0) or 50.0)
+        _MARGIN_MIN = float(_GATE_CFG.get("margin_min", 8.0) or 8.0)
 
         def _pick_expiry(chain, min_dte=_MIN_DTE_CHAIN):
             """Nearest expiration with dte >= min_dte from the chain itself."""
@@ -1904,7 +1931,10 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         def _liquid_chain(chain, typ, expiry):
             """Filter to liquid contracts of given type and expiry.
-            Predicate: bid>0, ask>0, 0<iv<=3.0, abs(delta)>0.
+            Predicate: ask>0, 0<iv<=3.0, abs(delta)>0.
+            When allow_one_sided_quotes: bid may be 0/None early in the session
+            (common on thin morning movers) — synthesize bid = ask * frac so
+            mid/spread math works without inventing a free fill.
             No OI/volume/spread gates — those are downstream gate concerns.
             """
             out = []
@@ -1915,12 +1945,23 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     continue
                 b, a = c.get("bid"), c.get("ask")
                 iv, d = c.get("implied_volatility"), c.get("delta")
-                if not b or not a or b <= 0 or a <= 0:
+                if a is None or a <= 0:
                     continue
+                one_sided = False
+                if b is None or b <= 0:
+                    if not _ALLOW_ONE_SIDED:
+                        continue
+                    # Synthetic bid keeps spread inside profile max for paper path.
+                    b = round(float(a) * _ONE_SIDED_BID_FRAC, 4)
+                    one_sided = True
                 if iv is None or iv <= 0 or iv > _LIQ_IV_MAX:
                     continue
                 if d is None or abs(d) == 0.0:
                     continue
+                if one_sided or b != c.get("bid"):
+                    c = dict(c)
+                    c["bid"] = b
+                    c["_quote_one_sided"] = True
                 out.append(c)
             return out
 
@@ -2605,16 +2646,22 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         # (mirrors the 2026-08-04 pattern_score NoneType>float failure class).
         call_score   = float(call_scoring.get("score") or 0.0)
         put_score    = float(put_scoring.get("score") or 0.0)
+        # Ineligible leg (missing quotes / hard-gate fail) must not invent a
+        # phantom opponent score that eats margin on single-leg morning movers.
+        if not verify_result.get("call_eligible", True):
+            call_score = 0.0
+        if not verify_result.get("put_eligible", True):
+            put_score = 0.0
         margin       = abs(call_score - put_score)
 
         # ── REGISTRY: Stage 5 — REQ6 scoring (Recommendation engine inputs) ───
         if _reg_ready:
             _rc("REQ6", "REQ6_CALL_SCORE",  call_score, call_score/100.0,
-                "BULLISH" if call_score >= 55 else "BEARISH")
+                "BULLISH" if call_score >= _SCORE_MIN else "BEARISH")
             _rc("REQ6", "REQ6_PUT_SCORE",   put_score,  put_score/100.0,
-                "BEARISH" if put_score >= 55 else "NEUTRAL")
+                "BEARISH" if put_score >= _SCORE_MIN else "NEUTRAL")
             _rc("REQ6", "REQ6_MARGIN",      margin, margin/100.0,
-                "BULLISH" if margin >= 10 else "NEUTRAL")
+                "BULLISH" if margin >= _MARGIN_MIN else "NEUTRAL")
             # Capture each of the 12 dimension scores (from call_scoring / put_scoring)
             for _dim_name, _dim_val in (call_scoring.get("dimensions") or {}).items():
                 _d_cid = f"REQ6_CALL_{str(_dim_name).upper().replace(' ','_')[:30]}"
@@ -2630,12 +2677,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         # DETERMINISTIC TIE-BREAKING (Item 8):
         # call_score >= put_score → LONG_CALL (>= gives CALL precedence on exact tie).
         # put_score > call_score (strict) → LONG_PUT.
-        # Both require score >= 55 AND margin >= 10; otherwise → NO_TRADE.
+        # Thresholds from OE_GATE_PROFILE (default balanced: score>=50, margin>=8).
         # Scores are round(x,1) from compute_req6_score — no float ambiguity.
         # Identical inputs always produce identical scores → identical direction.
-        if call_score >= put_score and call_score >= 55 and margin >= 10:
+        if call_score >= put_score and call_score >= _SCORE_MIN and margin >= _MARGIN_MIN:
             direction = "LONG_CALL"
-        elif put_score > call_score and put_score >= 55 and margin >= 10:
+        elif put_score > call_score and put_score >= _SCORE_MIN and margin >= _MARGIN_MIN:
             direction = "LONG_PUT"
         else:
             direction = "NO_TRADE"
@@ -2647,11 +2694,11 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 "BEARISH" if direction == "LONG_PUT" else "NEUTRAL",
                 txt=direction)
             _rc("DECISION", "DECISION_CALL_SCORE",  call_score, call_score/100.0,
-                "BULLISH" if call_score >= 55 else "NEUTRAL")
+                "BULLISH" if call_score >= _SCORE_MIN else "NEUTRAL")
             _rc("DECISION", "DECISION_PUT_SCORE",   put_score,  put_score/100.0,
-                "BEARISH" if put_score >= 55 else "NEUTRAL")
+                "BEARISH" if put_score >= _SCORE_MIN else "NEUTRAL")
             _rc("DECISION", "DECISION_MARGIN",      margin, margin/100.0,
-                "BULLISH" if margin >= 10 else "NEUTRAL")
+                "BULLISH" if margin >= _MARGIN_MIN else "NEUTRAL")
             log.debug(f"[registry] stage6 snapped direction={direction} trace_id={trace_id}")
 
         # ── Trace: DECISION ────────────────────────────────────────────────────
