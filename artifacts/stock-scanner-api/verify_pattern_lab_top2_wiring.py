@@ -233,6 +233,7 @@ def section_entry_flatten_gates():
     _ok("expiry_uses_FLATTEN_TIME", "bar_time >= FLATTEN_TIME" in src)
     _ok("weeks_ahead_3", "next_friday(day, weeks_ahead=3)" in src)
     _ok("pricing_fn_polygon", "price_legs_polygon(" in src)
+    _ok("entry_require_exact", "require_exact=True" in src)
     # deny-string may mention Tradier; fail only if evaluate *calls* a Tradier pricer
     tradier_call = any(x in src.lower() for x in ("tradier_", "fetch_tradier", "price_legs_tradier", "from tradier"))
     print(f"tradier_call_in_evaluate={tradier_call}")
@@ -240,6 +241,8 @@ def section_entry_flatten_gates():
     _ok("no_tradier_pricing_call", not tradier_call)
     print(f"ENTRY_AFTER_const={m.ENTRY_AFTER}")
     print(f"FLATTEN_TIME_const={m.FLATTEN_TIME}")
+    print(f"WAITING_MONDAY_DAILY_in_src={'WAITING_MONDAY_DAILY' in src}")
+    _ok("waiting_monday_daily_status", "WAITING_MONDAY_DAILY" in src)
 
 
 def section_bt_parity_table():

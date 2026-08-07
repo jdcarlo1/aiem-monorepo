@@ -1,0 +1,70 @@
+{
+  "window": {
+    "start": "2025-01-06",
+    "end": "2025-06-30",
+    "mondays": 12
+  },
+  "decision": {
+    "material_divergence": true,
+    "paper_must_use": "BT_ASOF / PAPER_EXACT (Monday daily close; no pre-settle lookback fill)",
+    "reject": "PAPER_0930 live lookback (prior session premium at Mon 09:30)"
+  },
+  "summary": {
+    "bullish_risk_reversal|PAPER_0930": {
+      "n": 7,
+      "entry_diff_sum": -2634.0,
+      "pnl_diff_sum": 27259.0,
+      "entry_diff_abs_sum": 2780.0,
+      "pnl_diff_abs_sum": 43453.0,
+      "same_exit": 4,
+      "exact_match": 0,
+      "mean_abs_entry_diff": 397.1429,
+      "mean_abs_pnl_diff": 6207.5714,
+      "mean_pnl_diff": 3894.1429,
+      "exact_match_pct": 0.0,
+      "same_exit_pct": 57.14
+    },
+    "bullish_risk_reversal|PAPER_EXACT": {
+      "n": 9,
+      "entry_diff_sum": 0.0,
+      "pnl_diff_sum": 0.0,
+      "entry_diff_abs_sum": 0.0,
+      "pnl_diff_abs_sum": 0.0,
+      "same_exit": 9,
+      "exact_match": 9,
+      "mean_abs_entry_diff": 0.0,
+      "mean_abs_pnl_diff": 0.0,
+      "mean_pnl_diff": 0.0,
+      "exact_match_pct": 100.0,
+      "same_exit_pct": 100.0
+    },
+    "narrow_wing_butterfly|PAPER_0930": {
+      "n": 9,
+      "entry_diff_sum": 675.0,
+      "pnl_diff_sum": 6329.0,
+      "entry_diff_abs_sum": 3907.0,
+      "pnl_diff_abs_sum": 19165.0,
+      "same_exit": 4,
+      "exact_match": 0,
+      "mean_abs_entry_diff": 434.1111,
+      "mean_abs_pnl_diff": 2129.4444,
+      "mean_pnl_diff": 703.2222,
+      "exact_match_pct": 0.0,
+      "same_exit_pct": 44.44
+    },
+    "narrow_wing_butterfly|PAPER_EXACT": {
+      "n": 9,
+      "entry_diff_sum": 0.0,
+      "pnl_diff_sum": 0.0,
+      "entry_diff_abs_sum": 0.0,
+      "pnl_diff_abs_sum": 0.0,
+      "same_exit": 9,
+      "exact_match": 9,
+      "mean_abs_entry_diff": 0.0,
+      "mean_abs_pnl_diff": 0.0,
+      "mean_pnl_diff": 0.0,
+      "exact_match_pct": 100.0,
+      "same_exit_pct": 100.0
+    }
+  }
+}

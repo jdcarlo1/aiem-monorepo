@@ -14,10 +14,12 @@ From 2y Polygon BTs (no stop, TP grid):
 Parity with BT engines:
   - Underlying SPY
   - Risk budget $500 debit max per package (credits: 1 package)
-  - Entry: weekly Monday, first RTH bar (09:30 ET)
+  - Entry day: weekly Monday (eligible from 09:30 ET when flat)
+  - Entry fill: Polygon daily option close dated EXACTLY that Monday
+    (catalog BT Monday asof — NOT prior-day lookback at 09:30)
   - Expiry: next_friday(d0, weeks_ahead=3)
   - NO stop loss
-  - Flatten 15:30 ET on expiry Friday
+  - Flatten 15:30 ET on expiry Friday using that day's daily mark
   - Pricing: Polygon daily option aggregates (O:SPY…) — NOT Tradier
   - TP dollars = abs(entry_usd) * (tp_pct / 100); pnl = mark - entry
 """
@@ -111,17 +113,26 @@ def _occ(underlying: str, strike: float, right: str, exp: date) -> str:
     return f"O:{underlying.upper()}{exp.strftime('%y%m%d')}{cp}{sk8}"
 
 
-# Short TTL cache: (occ_symbol, day_iso) -> premium close or None
-_OPT_PX_CACHE: dict[tuple[str, str], tuple[float, Optional[float]]] = {}
+# Short TTL cache: (occ_symbol, day_iso, require_exact) -> premium close or None
+_OPT_PX_CACHE: dict[tuple[str, str, bool], tuple[float, Optional[float]]] = {}
 _OPT_PX_TTL = 300.0  # 5 min
 
 
-def fetch_option_daily_close(occ_symbol: str, asof: date) -> Optional[float]:
+def fetch_option_daily_close(
+    occ_symbol: str,
+    asof: date,
+    *,
+    require_exact: bool = False,
+) -> Optional[float]:
     """
     Polygon daily option aggregate close on/asof `asof` (same source as BT).
     Uses /v2/aggs/ticker/{O:…}/range/1/day — lookback 10 calendar days for asof.
+
+    require_exact=True: only accept a bar dated exactly `asof` (no prior-day
+    lookback). Used for Monday entry so live fills match catalog BT Monday
+    daily closes instead of Friday premiums at 09:30 before Monday settles.
     """
-    cache_key = (occ_symbol, asof.isoformat())
+    cache_key = (occ_symbol, asof.isoformat(), bool(require_exact))
     now = time.time()
     hit = _OPT_PX_CACHE.get(cache_key)
     if hit and (now - hit[0]) < _OPT_PX_TTL:
@@ -137,7 +148,6 @@ def fetch_option_daily_close(occ_symbol: str, asof: date) -> Optional[float]:
     rows = data.get("results") or []
     px: Optional[float] = None
     if rows:
-        # Prefer exact asof day; else last bar <= asof (asof semantics like BT _px_on)
         best_d = None
         for row in rows:
             try:
@@ -146,6 +156,8 @@ def fetch_option_daily_close(occ_symbol: str, asof: date) -> Optional[float]:
             except (KeyError, TypeError, ValueError):
                 continue
             if d > asof or c <= 0:
+                continue
+            if require_exact and d != asof:
                 continue
             if best_d is None or d >= best_d:
                 best_d = d
@@ -159,26 +171,20 @@ def package_value_polygon(
     expiration: date,
     legs: list[tuple[int, str, float]],
     asof: date,
+    *,
+    require_exact: bool = False,
 ) -> Optional[float]:
     """
     Mark package in dollars (qty * premium * 100), Polygon daily closes.
     legs: (qty_signed, 'call'|'put', strike). Returns None if any leg missing.
     """
     total = 0.0
-    priced_legs = []
     for qty, right, strike in legs:
         occ = _occ(underlying, float(strike), right, expiration)
-        px = fetch_option_daily_close(occ, asof)
+        px = fetch_option_daily_close(occ, asof, require_exact=require_exact)
         if px is None or px <= 0:
             return None
         total += int(qty) * float(px) * 100.0
-        priced_legs.append({
-            "qty": int(qty),
-            "right": right.lower(),
-            "strike": float(strike),
-            "premium": float(px),
-            "symbol": occ,
-        })
     return total  # dollars for 1 package; caller scales by packages
 
 
@@ -187,16 +193,20 @@ def price_legs_polygon(
     expiration: date,
     legs: list[tuple[int, str, float]],
     asof: date,
+    *,
+    require_exact: bool = False,
 ) -> Optional[dict]:
     """Entry pricing via Polygon daily — returns debit_per_share + legs."""
-    total_usd = package_value_polygon(underlying, expiration, legs, asof)
+    total_usd = package_value_polygon(
+        underlying, expiration, legs, asof, require_exact=require_exact
+    )
     if total_usd is None:
         return None
     # Rebuild legs with premiums for storage
     priced = []
     for qty, right, strike in legs:
         occ = _occ(underlying, float(strike), right, expiration)
-        px = fetch_option_daily_close(occ, asof)
+        px = fetch_option_daily_close(occ, asof, require_exact=require_exact)
         if px is None:
             return None
         priced.append({
@@ -213,6 +223,8 @@ def price_legs_polygon(
         "legs": priced,
         "expiration": expiration.isoformat(),
         "pricing_source": "polygon_daily_option_aggs",
+        "asof": asof.isoformat(),
+        "require_exact": bool(require_exact),
     }
 
 
@@ -482,7 +494,11 @@ class AsymOptionsLedger:
             "pattern": self.pattern_name,
             "strategy": self.strategy_key,
             "rules": {
-                "entry": "Monday first RTH bar (09:30 ET) when flat",
+                "entry": (
+                    "Monday from 09:30 ET when flat; fill = Polygon daily "
+                    "option close dated exactly that Monday (BT asof Monday — "
+                    "no prior-day lookback fill)"
+                ),
                 "structure": self.pattern_name,
                 "risk_usd": self.risk_usd,
                 "take_profit_pct": self.take_profit_pct,
@@ -492,7 +508,7 @@ class AsymOptionsLedger:
                 "cash_secured": self.cash_secured,
                 "exit": (
                     f"+{self.take_profit_pct:.0f}% of |entry| premium or "
-                    f"flatten 15:30 on expiry Friday"
+                    f"flatten 15:30 on expiry Friday (daily mark asof that day)"
                 ),
             },
             "reserved_collateral_usd": round(self._reserved_collateral_usd, 2),
@@ -637,13 +653,18 @@ class AsymOptionsLedger:
 
         exp = next_friday(day, weeks_ahead=3)
         legs_spec = self.builder(spot)
-        priced = price_legs_polygon(self.underlying, exp, legs_spec, day)
+        # Entry fill must match catalog BT Monday daily close — require exact
+        # Monday bars (do NOT look back to Friday at 09:30 before Monday settles).
+        priced = price_legs_polygon(
+            self.underlying, exp, legs_spec, day, require_exact=True
+        )
         if not priced:
             self.signal_state = {
-                "status": "WAITING_PREMIUM",
+                "status": "WAITING_MONDAY_DAILY",
                 "note": (
-                    "Polygon daily option aggregates unavailable for asof "
-                    f"{day.isoformat()} — not entering synthetic/Tradier"
+                    "Polygon exact Monday daily option aggregates unavailable "
+                    f"for {day.isoformat()} — waiting for BT-parity fill "
+                    "(no prior-day lookback / no Tradier synthetic)"
                 ),
             }
             return

@@ -65,3 +65,10 @@ Local-on-branch engine snapshot **does** expose both keys with correct rules (se
 PASS_COUNT=35
 FAIL_COUNT=1   # live_snapshot_top2 only
 ```
+
+## Follow-up 2026-08-07
+
+See:
+- `FAIL_NAMED.txt` — the one FAIL is `live_snapshot_top2` (undeployed)
+- `CLOCK_COMPARE_*.txt/json` + `CLOCK_RECONCILE_DECISION.md` — PAPER_0930 diverges; paper now `require_exact=True`
+- `DEPLOY_AND_PROD_DB_BLOCKERS.txt` — merge/restart + Neon secret required
