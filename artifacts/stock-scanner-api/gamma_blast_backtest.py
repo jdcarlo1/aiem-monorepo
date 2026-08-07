@@ -6,20 +6,19 @@ Directive_GammaBlast_Backtest_2026-08-07
 HOW THIS IS "TOLD" TO AIEM (no chat inbox):
   Place/run this script under artifacts/stock-scanner-api/ on the stock-api
   host (Replit) where POLYGON_API_KEY is set:
-      python gamma_blast_backtest.py --days 20 --mode synthetic
-      python gamma_blast_backtest.py --days 20 --mode real
+      python gamma_blast_backtest.py --years 2 --mode synthetic --sweep-tp 1.5,2,3 --sweep-sl 0.60,0.65,0.75
 
 Strategy (from user paste, fixes retained):
   - SPY 0DTE directional option after range compression + straddle expansion
-  - Risk $100/trade, TP 3x premium, SL 50% of premium, time stop 45m
+  - Risk $100/trade, TP/SL configurable, time stop 45m
   - Entry window 09:30–14:30 ET
 
 Pricing modes:
   - synthetic : Black-Scholes from underlying bars only — LOGIC sanity check.
                 Do NOT report as real P&L.
-  - real      : Polygon 1-min option aggregates for ATM 0DTE call/put
-                (O:SPY{YYMMDD}{C|P}{strike*1000:08d}). Requires Options plan
-                with historical minute aggregates (Starter+).
+  - real      : Polygon 1-min option aggregates for ATM 0DTE call/put.
+                2-year real sweeps are extremely API-heavy; prefer synthetic
+                for ranking knobs, then spot-check real on a shorter window.
 
 Does NOT place live broker orders. Does NOT touch D1/D2/D3 or Pattern Lab ledgers.
 """
@@ -31,6 +30,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -54,7 +54,9 @@ except ImportError:
     _ET = None
 
 POLYGON_BASE = "https://api.polygon.io"
-RATE_SLEEP = 0.22
+# Free/basic Polygon tiers are ~5 req/min — keep well under that for long pulls.
+RATE_SLEEP = float(os.environ.get("GAMMA_BLAST_RATE_SLEEP", "13"))
+CACHE_DIR = Path(os.environ.get("GAMMA_BLAST_CACHE", "/tmp/gamma_blast_cache"))
 
 # Baseline knobs — keep every run's full config + trade log so we can
 # compare variable sweeps later (do not discard results).
@@ -72,9 +74,7 @@ DEFAULT_CONFIG = {
     "iv_estimate": 0.20,
 }
 
-# Mutable copy used by the engine (overridden per CLI / sweep variant).
 CONFIG = dict(DEFAULT_CONFIG)
-
 ARCHIVE_DIR_NAME = "gamma-blast"
 
 
@@ -92,11 +92,46 @@ def _poly_get(path: str, params: Optional[dict] = None) -> dict:
     params["apiKey"] = _api_key()
     url = f"{POLYGON_BASE}{path}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "aiem-gamma-blast/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return json.loads(r.read())
-    except Exception as e:
-        return {"status": "ERROR", "error": str(e), "results": []}
+    for attempt in range(8):
+        try:
+            with urllib.request.urlopen(req, timeout=45) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")[:300]
+            except Exception:
+                pass
+            if e.code == 429:
+                wait = min(60, 2 ** attempt + 1)
+                print(f"  [poly] 429 rate limit — sleep {wait}s (attempt {attempt+1}/8)")
+                time.sleep(wait)
+                continue
+            return {
+                "status": "ERROR",
+                "error": f"HTTP {e.code}: {body or e.reason}",
+                "results": [],
+            }
+        except Exception as e:
+            if attempt < 3:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            return {"status": "ERROR", "error": str(e), "results": []}
+    return {"status": "ERROR", "error": "rate_limited_exhausted", "results": []}
+
+
+def _bars_from_results(rows: list) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["timestamp"] = pd.to_datetime(df["t"], unit="ms", utc=True).dt.tz_convert(
+        "America/New_York"
+    )
+    df = df.set_index("timestamp").rename(
+        columns={"o": "Open", "h": "High", "l": "Low", "c": "Close", "v": "Volume"}
+    )
+    df = df.between_time("09:30", "16:00")
+    return df[["Open", "High", "Low", "Close", "Volume"]]
 
 
 def fetch_spy_1m(day: date) -> pd.DataFrame:
@@ -107,19 +142,91 @@ def fetch_spy_1m(day: date) -> pd.DataFrame:
         {"adjusted": "true", "sort": "asc", "limit": 50000},
     )
     time.sleep(RATE_SLEEP)
-    rows = data.get("results") or []
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    df["timestamp"] = pd.to_datetime(df["t"], unit="ms", utc=True).dt.tz_convert(
-        "America/New_York"
-    )
-    df = df.set_index("timestamp").rename(
-        columns={"o": "Open", "h": "High", "l": "Low", "c": "Close", "v": "Volume"}
-    )
-    # RTH only
-    df = df.between_time("09:30", "16:00")
-    return df[["Open", "High", "Low", "Close", "Volume"]]
+    if data.get("status") not in ("OK", "DELAYED", None) and not data.get("results"):
+        err = data.get("error") or data.get("status")
+        print(f"  [poly] {d}: {err}")
+    return _bars_from_results(data.get("results") or [])
+
+
+def fetch_spy_range_cached(start: date, end: date) -> pd.DataFrame:
+    """
+    Pull SPY 1-min bars for [start, end] in month chunks; disk-cache to avoid
+    re-downloading across sweep variants.
+    """
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = CACHE_DIR / f"SPY_1m_{start.isoformat()}_{end.isoformat()}.pkl"
+    if cache_path.exists():
+        print(f"[gamma_blast] loading cached SPY bars: {cache_path}")
+        return pd.read_pickle(cache_path)
+
+    print(f"[gamma_blast] downloading SPY 1m {start} → {end} (month chunks)…")
+    edges = pd.date_range(start=start, end=end, freq="MS").date.tolist()
+    if not edges or edges[0] != start:
+        edges = [start] + edges
+    if edges[-1] != end:
+        edges.append(end)
+    # unique sorted
+    edges = sorted(set(edges))
+    if edges[-1] < end:
+        edges.append(end)
+
+    all_rows = []
+    for i in range(len(edges) - 1):
+        a, b = edges[i], edges[i + 1]
+        if a >= b:
+            continue
+        print(f"  chunk {a} → {b}…")
+        path = f"/v2/aggs/ticker/SPY/range/1/minute/{a.isoformat()}/{b.isoformat()}"
+        params = {"adjusted": "true", "sort": "asc", "limit": 50000}
+        url_path = path
+        first = True
+        while url_path:
+            if first:
+                data = _poly_get(url_path, params)
+                first = False
+            else:
+                # next_url already includes query; call raw
+                full = url_path
+                if "apiKey=" not in full:
+                    sep = "&" if "?" in full else "?"
+                    full = f"{full}{sep}apiKey={_api_key()}"
+                req = urllib.request.Request(
+                    full, headers={"User-Agent": "aiem-gamma-blast/1.0"}
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=45) as r:
+                        data = json.loads(r.read())
+                except Exception as e:
+                    data = {"status": "ERROR", "error": str(e), "results": []}
+            rows = data.get("results") or []
+            all_rows.extend(rows)
+            status = data.get("status")
+            if status not in ("OK", "DELAYED") and not rows:
+                print(f"    status={status} error={data.get('error')}")
+                break
+            next_url = data.get("next_url")
+            url_path = next_url
+            time.sleep(RATE_SLEEP)
+        time.sleep(0.35)
+
+    df = _bars_from_results(all_rows)
+    if df.empty:
+        print("[gamma_blast] WARNING: zero SPY bars returned for range")
+        return df
+    df = df[~df.index.duplicated(keep="last")].sort_index()
+    df.to_pickle(cache_path)
+    print(f"[gamma_blast] cached {len(df)} bars → {cache_path}")
+    return df
+
+
+def split_by_session(df: pd.DataFrame) -> dict:
+    """Map date → that day's RTH bars."""
+    out = {}
+    if df.empty:
+        return out
+    for d, g in df.groupby(df.index.date):
+        out[d] = g
+    return out
 
 
 def _occ_symbol(day: date, strike: float, option_type: str) -> str:
@@ -130,7 +237,6 @@ def _occ_symbol(day: date, strike: float, option_type: str) -> str:
 
 
 def fetch_option_1m(day: date, strike: float, option_type: str) -> pd.Series:
-    """Return Series of mid≈close prices indexed by ET timestamp for one contract."""
     d = day.isoformat()
     sym = urllib.parse.quote(_occ_symbol(day, strike, option_type))
     data = _poly_get(
@@ -143,7 +249,6 @@ def fetch_option_1m(day: date, strike: float, option_type: str) -> pd.Series:
         return pd.Series(dtype=float)
     df = pd.DataFrame(rows)
     ts = pd.to_datetime(df["t"], unit="ms", utc=True).dt.tz_convert("America/New_York")
-    # Use close of minute bar as mark (trade-print mid proxy).
     return pd.Series(df["c"].astype(float).values, index=ts)
 
 
@@ -177,7 +282,6 @@ def get_atm_straddle(
         call_s, put_s = opt_cache[key_c], opt_cache[key_p]
         if call_s.empty or put_s.empty:
             return None
-        # nearest bar at or before now
         call_px = call_s.asof(now_ts)
         put_px = put_s.asof(now_ts)
         if pd.isna(call_px) or pd.isna(put_px) or call_px <= 0 or put_px <= 0:
@@ -209,7 +313,9 @@ def run_backtest_day(underlying_bars: pd.DataFrame, mode: str, day: date) -> lis
     if underlying_bars.empty:
         return trades
 
-    expiry_ts = pd.Timestamp(datetime.combine(day, datetime.strptime("16:00", "%H:%M").time()))
+    expiry_ts = pd.Timestamp(
+        datetime.combine(day, datetime.strptime("16:00", "%H:%M").time())
+    )
     if _ET is not None:
         expiry_ts = expiry_ts.tz_localize(_ET)
     else:
@@ -347,11 +453,9 @@ def run_backtest_day(underlying_bars: pd.DataFrame, mode: str, day: date) -> lis
 
 
 def trading_days_back(n: int, end: Optional[date] = None) -> list:
-    """Weekday calendar list (no holiday calendar) — good enough for SPY probe."""
     end = end or date.today()
     out = []
     d = end
-    # if weekend, step back
     while d.weekday() >= 5:
         d -= timedelta(days=1)
     while len(out) < n:
@@ -362,7 +466,6 @@ def trading_days_back(n: int, end: Optional[date] = None) -> list:
 
 
 def _jsonable_trades(trades: list) -> list:
-    """Serialize timestamps so full ledgers survive for later variable sweeps."""
     out = []
     for t in trades:
         row = dict(t)
@@ -384,7 +487,13 @@ def summarize(trades: list, mode: str) -> dict:
     print(banner)
     if not trades:
         print("No trades generated.")
-        return {"trades": 0, "mode": mode, "total_pnl": 0.0, "win_rate": None}
+        return {
+            "trades": 0,
+            "mode": mode,
+            "total_pnl": 0.0,
+            "win_rate": None,
+            "avg_pnl": None,
+        }
 
     df = pd.DataFrame(trades)
     total_pnl = float(df["pnl"].sum())
@@ -406,7 +515,10 @@ def summarize(trades: list, mode: str) -> dict:
         ]
         if c in df.columns
     ]
-    print(df[cols].to_string(index=False))
+    # keep console readable on multi-year runs
+    print(df[cols].tail(30).to_string(index=False))
+    if len(df) > 30:
+        print(f"... ({len(df) - 30} earlier trades omitted from console; full log in archive)")
     return {
         "trades": int(len(df)),
         "mode": mode,
@@ -433,10 +545,6 @@ def save_run_archive(
     label: str,
     out_override: str = "",
 ) -> Path:
-    """
-    Persist FULL run (config + every trade + summary). Never summary-only —
-    needed so Joel can re-sweep variables later without re-pulling history.
-    """
     stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     end = days[-1].isoformat() if days else "na"
     base = f"gamma-blast-{label}-{mode}-{end}-{stamp}"
@@ -468,11 +576,9 @@ def save_run_archive(
     }
     path.write_text(json.dumps(payload, indent=2, default=str))
 
-    # Rolling pointer to latest run for easy follow-up sweeps
     latest = archive_root() / f"LATEST-{mode}.json"
     latest.write_text(json.dumps({"path": str(path), **payload}, indent=2, default=str))
 
-    # Append index row for comparing variants later
     index_path = archive_root() / "RUN_INDEX.jsonl"
     with index_path.open("a") as f:
         f.write(
@@ -485,6 +591,7 @@ def save_run_archive(
                     "trades": summary.get("trades"),
                     "total_pnl": summary.get("total_pnl"),
                     "win_rate": summary.get("win_rate"),
+                    "avg_pnl": summary.get("avg_pnl"),
                     "config": dict(CONFIG),
                 },
                 default=str,
@@ -492,13 +599,10 @@ def save_run_archive(
             + "\n"
         )
     print(f"[gamma_blast] ARCHIVED full ledger → {path}")
-    print(f"[gamma_blast] LATEST pointer → {latest}")
-    print(f"[gamma_blast] index append → {index_path}")
     return path
 
 
 def apply_config_overrides(args) -> str:
-    """Apply CLI knobs onto CONFIG; return a short label for the archive name."""
     global CONFIG
     CONFIG = dict(DEFAULT_CONFIG)
     overrides = {}
@@ -527,7 +631,20 @@ def apply_config_overrides(args) -> str:
     return f"{tag}-{bits}"
 
 
+def run_window_preloaded(mode: str, sessions: dict, day_list: list) -> tuple[list, int]:
+    all_trades = []
+    days_with_bars = 0
+    for d in day_list:
+        bars = sessions.get(d)
+        if bars is None or bars.empty:
+            continue
+        days_with_bars += 1
+        all_trades.extend(run_backtest_day(bars, mode, d))
+    return all_trades, days_with_bars
+
+
 def run_window(mode: str, day_list: list) -> tuple[list, int]:
+    """Fallback path: fetch day-by-day (no cache). Prefer preloaded sessions."""
     all_trades = []
     days_with_bars = 0
     for d in day_list:
@@ -542,58 +659,133 @@ def run_window(mode: str, day_list: list) -> tuple[list, int]:
     return all_trades, days_with_bars
 
 
+def _parse_float_list(s: str) -> list:
+    return [float(x.strip()) for x in s.split(",") if x.strip()]
+
+
+def write_sweep_ranking(rows: list, mode: str, days: list) -> Path:
+    """Rank variants by total_pnl — kept for Joel's variable comparison."""
+    ranked = sorted(rows, key=lambda r: (r.get("total_pnl") is None, -(r.get("total_pnl") or 0)))
+    path = archive_root() / f"SWEEP_RANKING-{mode}-{days[-1].isoformat()}.json"
+    payload = {
+        "strategy": "GAMMA_BLAST",
+        "pricing_mode": mode,
+        "disclaimer": (
+            "synthetic rankings are logic-only — not real dollar performance"
+            if mode == "synthetic"
+            else "real = Polygon option aggregates"
+        ),
+        "risk_per_trade_usd": CONFIG.get("risk_per_trade", DEFAULT_CONFIG["risk_per_trade"]),
+        "window": {"start": days[0].isoformat(), "end": days[-1].isoformat(), "n_days": len(days)},
+        "profit_multiplier_map": {
+            "1.5": "sell at +50% profit (1.5x premium)",
+            "2.0": "sell at +100% profit (2x premium)",
+            "3.0": "sell at +200% profit (3x premium)",
+        },
+        "ranked_best_first": ranked,
+        "winner": ranked[0] if ranked else None,
+    }
+    path.write_text(json.dumps(payload, indent=2, default=str))
+    print("\n========== SWEEP RANKING (best total P&L first) ==========")
+    for i, r in enumerate(ranked, 1):
+        print(
+            f"{i}. {r['label']}: trades={r['trades']} win_rate={r.get('win_rate')} "
+            f"total_pnl=${r.get('total_pnl')} avg=${r.get('avg_pnl')}"
+        )
+    print(f"[gamma_blast] wrote ranking → {path}")
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser(description="Gamma Blast Polygon backtest (AIEM handoff)")
-    ap.add_argument("--days", type=int, default=20, help="Trading days lookback")
+    ap.add_argument("--days", type=int, default=None, help="Trading days lookback")
+    ap.add_argument("--years", type=float, default=None, help="Lookback in years (~252*years days)")
     ap.add_argument(
         "--mode",
         choices=("synthetic", "real"),
         default="synthetic",
         help="synthetic=BS logic check; real=Polygon option 1m aggs",
     )
-    ap.add_argument(
-        "--out",
-        default="",
-        help="Optional explicit archive path (still writes LATEST + RUN_INDEX)",
-    )
-    ap.add_argument("--label", default="", help="Archive label (e.g. baseline, sweep-tp2)")
+    ap.add_argument("--out", default="", help="Optional explicit archive path")
+    ap.add_argument("--label", default="", help="Archive label")
     ap.add_argument("--risk-per-trade", type=float, default=None)
-    ap.add_argument("--take-profit", type=float, default=None, help="Premium multiple, e.g. 3.0")
-    ap.add_argument("--stop-loss", type=float, default=None, help="Fraction of premium, e.g. 0.50")
+    ap.add_argument("--take-profit", type=float, default=None, help="Premium multiple, e.g. 2.0 = +100%")
+    ap.add_argument("--stop-loss", type=float, default=None, help="Fraction of premium lost, e.g. 0.65")
     ap.add_argument("--range-threshold", type=float, default=None)
     ap.add_argument("--breakout-threshold", type=float, default=None)
     ap.add_argument("--time-stop", type=int, default=None, help="Minutes")
     ap.add_argument(
         "--sweep-quick",
         action="store_true",
-        help="Run a small TP/SL grid and archive each variant (keeps all results)",
+        help="Legacy small TP/SL grid",
+    )
+    ap.add_argument(
+        "--sweep-tp",
+        default="",
+        help="Comma list of take-profit multipliers (1.5=+50%, 2=+100%, 3=+200%)",
+    )
+    ap.add_argument(
+        "--sweep-sl",
+        default="",
+        help="Comma list of stop-loss fractions (0.60,0.65,0.75)",
     )
     args = ap.parse_args()
 
-    days = trading_days_back(args.days)
+    if args.years is not None:
+        n_days = max(int(round(args.years * 252)), 1)
+    elif args.days is not None:
+        n_days = args.days
+    else:
+        n_days = 20
 
-    if args.sweep_quick:
-        # Small grid for later "best settings" comparison — every variant archived.
+    days = trading_days_back(n_days)
+    start, end = days[0], days[-1]
+
+    # Preload SPY once for all variants
+    spy_df = fetch_spy_range_cached(start, end)
+    sessions = split_by_session(spy_df)
+    print(f"[gamma_blast] sessions with bars: {len(sessions)} / {len(days)} requested")
+
+    sweep_tps = _parse_float_list(args.sweep_tp) if args.sweep_tp else []
+    sweep_sls = _parse_float_list(args.sweep_sl) if args.sweep_sl else []
+
+    if args.sweep_quick and not (sweep_tps and sweep_sls):
+        sweep_tps = [2.0, 3.0, 4.0]
+        sweep_sls = [0.35, 0.50, 0.65]
+
+    if sweep_tps and sweep_sls:
         grid = [
             {"take_profit_multiplier": tp, "stop_loss_pct": sl}
-            for tp in (2.0, 3.0, 4.0)
-            for sl in (0.35, 0.50, 0.65)
+            for tp in sweep_tps
+            for sl in sweep_sls
         ]
         print(
-            f"[gamma_blast] SWEEP mode={args.mode} days={args.days} "
-            f"variants={len(grid)} range={days[0]}→{days[-1]}"
+            f"[gamma_blast] SWEEP mode={args.mode} days={n_days} "
+            f"variants={len(grid)} range={start}→{end} risk=$100"
         )
         if args.mode == "synthetic":
             print("[gamma_blast] WARNING: synthetic — compare ranks, not dollar P&L.")
+        if args.mode == "real":
+            print(
+                "[gamma_blast] WARNING: real 2y sweeps are very API-heavy; "
+                "expect long runtime / rate limits."
+            )
+
+        ranking_rows = []
         for i, knobs in enumerate(grid, 1):
             global CONFIG
             CONFIG = dict(DEFAULT_CONFIG)
+            if args.risk_per_trade is not None:
+                CONFIG["risk_per_trade"] = float(args.risk_per_trade)
             CONFIG.update(knobs)
-            label = f"sweep-tp{knobs['take_profit_multiplier']}-sl{knobs['stop_loss_pct']}"
+            # Label: tp1.5 = +50% profit, tp2 = +100%, tp3 = +200%
+            profit_pct = int(round((knobs["take_profit_multiplier"] - 1.0) * 100))
+            sl_pct = int(round(knobs["stop_loss_pct"] * 100))
+            label = f"sweep-tp{knobs['take_profit_multiplier']}-profit{profit_pct}pct-sl{sl_pct}pct"
             print(f"\n--- variant {i}/{len(grid)} {label} ---")
-            trades, n_bars = run_window(args.mode, days)
+            trades, n_bars = run_window_preloaded(args.mode, sessions, days)
             summary = summarize(trades, args.mode)
-            save_run_archive(
+            path = save_run_archive(
                 mode=args.mode,
                 days=days,
                 days_with_bars=n_bars,
@@ -601,13 +793,28 @@ def main():
                 summary=summary,
                 label=label,
             )
-        print(f"\n[gamma_blast] sweep complete — see {archive_root()}/RUN_INDEX.jsonl")
-        return 0
+            ranking_rows.append(
+                {
+                    "label": label,
+                    "path": str(path),
+                    "take_profit_multiplier": knobs["take_profit_multiplier"],
+                    "profit_pct_target": profit_pct,
+                    "stop_loss_pct": knobs["stop_loss_pct"],
+                    "trades": summary.get("trades"),
+                    "win_rate": summary.get("win_rate"),
+                    "total_pnl": summary.get("total_pnl"),
+                    "avg_pnl": summary.get("avg_pnl"),
+                    "days_with_bars": n_bars,
+                }
+            )
+        write_sweep_ranking(ranking_rows, args.mode, days)
+        print(f"\n[gamma_blast] sweep complete — see {archive_root()}/")
+        return 0 if sessions else 1
 
     label = apply_config_overrides(args)
     print(
-        f"[gamma_blast] mode={args.mode} days={args.days} label={label} "
-        f"range={days[0]}→{days[-1]} ticker={CONFIG['ticker']} "
+        f"[gamma_blast] mode={args.mode} days={n_days} label={label} "
+        f"range={start}→{end} ticker={CONFIG['ticker']} "
         f"risk=${CONFIG['risk_per_trade']}"
     )
     if args.mode == "synthetic":
@@ -615,7 +822,7 @@ def main():
             "[gamma_blast] WARNING: synthetic Black-Scholes — report as logic check only."
         )
 
-    all_trades, days_with_bars = run_window(args.mode, days)
+    all_trades, days_with_bars = run_window_preloaded(args.mode, sessions, days)
     summary = summarize(all_trades, args.mode)
     save_run_archive(
         mode=args.mode,
