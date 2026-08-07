@@ -1,0 +1,1865 @@
+{
+  "strategy": "Weekly Bear Call Spread",
+  "tp_pct": 150,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 97,
+    "total_pnl": 2760.0,
+    "win_rate": 0.7526,
+    "avg_pnl": 28.45,
+    "tp_hits": 0,
+    "sl_hits": 0,
+    "expiry_exits": 97
+  },
+  "trades": [
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-09-06",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 1,
+      "entry_val": -174.0,
+      "exit_val": -479.0,
+      "premium_basis": 174.0,
+      "pnl": -305.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240816C00538000",
+        "1xO:SPY240816C00543000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-13",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": -67.0,
+      "exit_val": 0.0,
+      "premium_basis": 67.0,
+      "pnl": 67.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240823C00565000",
+        "1xO:SPY240823C00570000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": -103.0,
+      "exit_val": 0.0,
+      "premium_basis": 103.0,
+      "pnl": 103.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240830C00566000",
+        "1xO:SPY240830C00571000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-27",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": -132.0,
+      "exit_val": 0.0,
+      "premium_basis": 132.0,
+      "pnl": 132.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240906C00557000",
+        "1xO:SPY240906C00562000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-10-04",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": -159.0,
+      "exit_val": -500.0,
+      "premium_basis": 159.0,
+      "pnl": -341.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240913C00551000",
+        "1xO:SPY240913C00556000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-11",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": -111.0,
+      "exit_val": -2.0,
+      "premium_basis": 111.0,
+      "pnl": 109.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240920C00568000",
+        "1xO:SPY240920C00573000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 1,
+      "entry_val": -60.0,
+      "exit_val": 0.0,
+      "premium_basis": 60.0,
+      "pnl": 60.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240927C00575000",
+        "1xO:SPY240927C00580000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-25",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": -117.0,
+      "exit_val": 0.0,
+      "premium_basis": 117.0,
+      "pnl": 117.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241004C00579000",
+        "1xO:SPY241004C00584000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-11-01",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": -148.0,
+      "exit_val": -510.0,
+      "premium_basis": 148.0,
+      "pnl": -362.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241011C00573000",
+        "1xO:SPY241011C00578000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-08",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 1,
+      "entry_val": -87.0,
+      "exit_val": 0.0,
+      "premium_basis": 87.0,
+      "pnl": 87.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241018C00589000",
+        "1xO:SPY241018C00594000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-15",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": -69.0,
+      "exit_val": 0.0,
+      "premium_basis": 69.0,
+      "pnl": 69.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241025C00589000",
+        "1xO:SPY241025C00594000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-22",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": -138.0,
+      "exit_val": 0.0,
+      "premium_basis": 138.0,
+      "pnl": 138.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241101C00586000",
+        "1xO:SPY241101C00591000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-29",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 1,
+      "entry_val": -208.0,
+      "exit_val": -495.0,
+      "premium_basis": 208.0,
+      "pnl": -287.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241108C00575000",
+        "1xO:SPY241108C00580000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-12-06",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": -83.0,
+      "exit_val": 0.0,
+      "premium_basis": 83.0,
+      "pnl": 83.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241115C00604000",
+        "1xO:SPY241115C00609000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-13",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": -126.0,
+      "exit_val": -246.0,
+      "premium_basis": 126.0,
+      "pnl": -120.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241122C00593000",
+        "1xO:SPY241122C00598000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": -49.0,
+      "exit_val": 0.0,
+      "premium_basis": 49.0,
+      "pnl": 49.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241129C00603000",
+        "1xO:SPY241129C00608000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-27",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": -81.0,
+      "exit_val": 0.0,
+      "premium_basis": 81.0,
+      "pnl": 81.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241206C00609000",
+        "1xO:SPY241206C00614000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": -59.0,
+      "exit_val": 0.0,
+      "premium_basis": 59.0,
+      "pnl": 59.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241213C00610000",
+        "1xO:SPY241213C00615000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": -54.0,
+      "exit_val": 0.0,
+      "premium_basis": 54.0,
+      "pnl": 54.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241220C00612000",
+        "1xO:SPY241220C00617000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-17",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": -77.0,
+      "exit_val": 0.0,
+      "premium_basis": 77.0,
+      "pnl": 77.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241227C00600000",
+        "1xO:SPY241227C00605000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-24",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": -121.0,
+      "exit_val": 0.0,
+      "premium_basis": 121.0,
+      "pnl": 121.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250103C00593000",
+        "1xO:SPY250103C00598000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-31",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": -125.0,
+      "exit_val": 0.0,
+      "premium_basis": 125.0,
+      "pnl": 125.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250110C00600000",
+        "1xO:SPY250110C00605000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-02-07",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": -171.0,
+      "exit_val": -488.0,
+      "premium_basis": 171.0,
+      "pnl": -317.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250117C00586000",
+        "1xO:SPY250117C00591000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-14",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": -70.0,
+      "exit_val": 0.0,
+      "premium_basis": 70.0,
+      "pnl": 70.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250124C00608000",
+        "1xO:SPY250124C00613000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": -163.0,
+      "exit_val": 0.0,
+      "premium_basis": 163.0,
+      "pnl": 163.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250131C00604000",
+        "1xO:SPY250131C00609000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-28",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": -167.0,
+      "exit_val": 0.0,
+      "premium_basis": 167.0,
+      "pnl": 167.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250207C00603000",
+        "1xO:SPY250207C00608000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": -95.0,
+      "exit_val": -1.0,
+      "premium_basis": 95.0,
+      "pnl": 94.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250214C00610000",
+        "1xO:SPY250214C00615000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": -50.0,
+      "exit_val": 0.0,
+      "premium_basis": 50.0,
+      "pnl": 50.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250221C00616000",
+        "1xO:SPY250221C00621000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 1,
+      "entry_val": -173.0,
+      "exit_val": 0.0,
+      "premium_basis": 173.0,
+      "pnl": 173.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250228C00602000",
+        "1xO:SPY250228C00607000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-03",
+      "exit_date": "2025-03-28",
+      "spot": 583.77,
+      "exp_near": "2025-03-28",
+      "mult": 1,
+      "entry_val": -192.0,
+      "exit_val": 0.0,
+      "premium_basis": 192.0,
+      "pnl": 192.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250307C00589000",
+        "1xO:SPY250307C00594000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-10",
+      "exit_date": "2025-04-04",
+      "spot": 560.58,
+      "exp_near": "2025-04-04",
+      "mult": 1,
+      "entry_val": -191.0,
+      "exit_val": 0.0,
+      "premium_basis": 191.0,
+      "pnl": 191.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250314C00566000",
+        "1xO:SPY250314C00571000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-04-11",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": -144.0,
+      "exit_val": 0.0,
+      "premium_basis": 144.0,
+      "pnl": 144.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250321C00572000",
+        "1xO:SPY250321C00577000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-24",
+      "exit_date": "2025-04-17",
+      "spot": 574.08,
+      "exp_near": "2025-04-18",
+      "mult": 1,
+      "entry_val": -136.0,
+      "exit_val": 0.0,
+      "premium_basis": 136.0,
+      "pnl": 136.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250328C00579000",
+        "1xO:SPY250328C00584000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-25",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 1,
+      "entry_val": -181.0,
+      "exit_val": 0.0,
+      "premium_basis": 181.0,
+      "pnl": 181.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250404C00564000",
+        "1xO:SPY250404C00569000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-07",
+      "exit_date": "2025-05-02",
+      "spot": 504.38,
+      "exp_near": "2025-05-02",
+      "mult": 1,
+      "entry_val": -304.0,
+      "exit_val": -530.0,
+      "premium_basis": 304.0,
+      "pnl": -226.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250411C00509000",
+        "1xO:SPY250411C00514000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-05-16",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": -178.0,
+      "exit_val": -370.0,
+      "premium_basis": 178.0,
+      "pnl": -192.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250425C00519000",
+        "1xO:SPY250425C00524000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-23",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": -173.0,
+      "exit_val": -521.0,
+      "premium_basis": 173.0,
+      "pnl": -348.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250502C00556000",
+        "1xO:SPY250502C00561000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-30",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": -141.0,
+      "exit_val": 0.0,
+      "premium_basis": 141.0,
+      "pnl": 141.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250509C00569000",
+        "1xO:SPY250509C00574000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-06-06",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": -124.0,
+      "exit_val": -497.0,
+      "premium_basis": 124.0,
+      "pnl": -373.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250516C00588000",
+        "1xO:SPY250516C00593000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-13",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": -109.0,
+      "exit_val": 0.0,
+      "premium_basis": 109.0,
+      "pnl": 109.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250523C00600000",
+        "1xO:SPY250523C00605000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": 0.0,
+      "premium_basis": 130.0,
+      "pnl": 130.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250530C00596000",
+        "1xO:SPY250530C00601000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": -141.0,
+      "exit_val": -118.0,
+      "premium_basis": 141.0,
+      "pnl": 23.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250606C00598000",
+        "1xO:SPY250606C00603000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-09",
+      "exit_date": "2025-07-03",
+      "spot": 599.68,
+      "exp_near": "2025-07-04",
+      "mult": 1,
+      "entry_val": -110.0,
+      "exit_val": 0.0,
+      "premium_basis": 110.0,
+      "pnl": 110.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250613C00605000",
+        "1xO:SPY250613C00610000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-07-11",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": -88.0,
+      "exit_val": 0.0,
+      "premium_basis": 88.0,
+      "pnl": 88.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250620C00608000",
+        "1xO:SPY250620C00613000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-18",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": -124.0,
+      "exit_val": -601.0,
+      "premium_basis": 124.0,
+      "pnl": -477.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250627C00605000",
+        "1xO:SPY250627C00610000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-08-01",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": -107.0,
+      "exit_val": 0.0,
+      "premium_basis": 107.0,
+      "pnl": 107.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250711C00626000",
+        "1xO:SPY250711C00631000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-08",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": -102.0,
+      "exit_val": 0.0,
+      "premium_basis": 102.0,
+      "pnl": 102.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250718C00630000",
+        "1xO:SPY250718C00635000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-15",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": -83.0,
+      "exit_val": -293.0,
+      "premium_basis": 83.0,
+      "pnl": -210.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250725C00634000",
+        "1xO:SPY250725C00639000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-22",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": -124.0,
+      "exit_val": 0.0,
+      "premium_basis": 124.0,
+      "pnl": 124.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250801C00642000",
+        "1xO:SPY250801C00647000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-29",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": -127.0,
+      "exit_val": -219.0,
+      "premium_basis": 127.0,
+      "pnl": -92.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250808C00636000",
+        "1xO:SPY250808C00641000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": -116.0,
+      "exit_val": -188.0,
+      "premium_basis": 116.0,
+      "pnl": -72.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250815C00641000",
+        "1xO:SPY250815C00646000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-09-12",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": -108.0,
+      "exit_val": 0.0,
+      "premium_basis": 108.0,
+      "pnl": 108.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250822C00648000",
+        "1xO:SPY250822C00653000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-19",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": -124.0,
+      "exit_val": 0.0,
+      "premium_basis": 124.0,
+      "pnl": 124.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250829C00647000",
+        "1xO:SPY250829C00652000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-26",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": -156.0,
+      "exit_val": -190.0,
+      "premium_basis": 156.0,
+      "pnl": -34.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250905C00645000",
+        "1xO:SPY250905C00650000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-10-03",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": -88.0,
+      "exit_val": -338.0,
+      "premium_basis": 88.0,
+      "pnl": -250.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250912C00654000",
+        "1xO:SPY250912C00659000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": -77.0,
+      "exit_val": 0.0,
+      "premium_basis": 77.0,
+      "pnl": 77.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250919C00666000",
+        "1xO:SPY250919C00671000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-17",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": -67.0,
+      "exit_val": 0.0,
+      "premium_basis": 67.0,
+      "pnl": 67.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250926C00672000",
+        "1xO:SPY250926C00677000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-24",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": -92.0,
+      "exit_val": -7.0,
+      "premium_basis": 92.0,
+      "pnl": 85.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251003C00669000",
+        "1xO:SPY251003C00674000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-31",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": -79.0,
+      "exit_val": 0.0,
+      "premium_basis": 79.0,
+      "pnl": 79.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251010C00677000",
+        "1xO:SPY251010C00682000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-11-07",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": -141.0,
+      "exit_val": 0.0,
+      "premium_basis": 141.0,
+      "pnl": 141.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251017C00668000",
+        "1xO:SPY251017C00673000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-14",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": -142.0,
+      "exit_val": -99.0,
+      "premium_basis": 142.0,
+      "pnl": 43.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251024C00676000",
+        "1xO:SPY251024C00681000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": -141.0,
+      "exit_val": 0.0,
+      "premium_basis": 141.0,
+      "pnl": 141.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251031C00690000",
+        "1xO:SPY251031C00695000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-28",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": -128.0,
+      "exit_val": 0.0,
+      "premium_basis": 128.0,
+      "pnl": 128.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251107C00688000",
+        "1xO:SPY251107C00693000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-12-05",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": -144.0,
+      "exit_val": 0.0,
+      "premium_basis": 144.0,
+      "pnl": 144.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251114C00686000",
+        "1xO:SPY251114C00691000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-12-12",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 1,
+      "entry_val": -197.0,
+      "exit_val": 0.0,
+      "premium_basis": 197.0,
+      "pnl": 197.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251121C00671000",
+        "1xO:SPY251121C00676000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-19",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": -135.0,
+      "exit_val": -499.0,
+      "premium_basis": 135.0,
+      "pnl": -364.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251128C00674000",
+        "1xO:SPY251128C00679000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-26",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": -128.0,
+      "exit_val": -103.0,
+      "premium_basis": 128.0,
+      "pnl": 25.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251205C00685000",
+        "1xO:SPY251205C00690000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2026-01-02",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": -132.0,
+      "exit_val": 0.0,
+      "premium_basis": 132.0,
+      "pnl": 132.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251212C00689000",
+        "1xO:SPY251212C00694000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2026-01-09",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": -115.0,
+      "exit_val": 0.0,
+      "premium_basis": 115.0,
+      "pnl": 115.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251219C00686000",
+        "1xO:SPY251219C00691000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-16",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": -31.0,
+      "exit_val": -8.0,
+      "premium_basis": 31.0,
+      "pnl": 23.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251226C00690000",
+        "1xO:SPY251226C00695000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-23",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": -59.0,
+      "exit_val": 0.0,
+      "premium_basis": 59.0,
+      "pnl": 59.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260102C00693000",
+        "1xO:SPY260102C00698000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-30",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": -90.0,
+      "exit_val": -92.0,
+      "premium_basis": 90.0,
+      "pnl": -2.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260109C00693000",
+        "1xO:SPY260109C00698000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-02-06",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": -114.0,
+      "exit_val": 0.0,
+      "premium_basis": 114.0,
+      "pnl": 114.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260116C00700000",
+        "1xO:SPY260116C00705000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-02-13",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": -158.0,
+      "exit_val": -513.0,
+      "premium_basis": 158.0,
+      "pnl": -355.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260123C00683000",
+        "1xO:SPY260123C00688000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-20",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": -129.0,
+      "exit_val": 0.0,
+      "premium_basis": 129.0,
+      "pnl": 129.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260130C00698000",
+        "1xO:SPY260130C00703000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-27",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": -136.0,
+      "exit_val": 0.0,
+      "premium_basis": 136.0,
+      "pnl": 136.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260206C00700000",
+        "1xO:SPY260206C00705000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-03-06",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": -155.0,
+      "exit_val": 0.0,
+      "premium_basis": 155.0,
+      "pnl": 155.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260213C00699000",
+        "1xO:SPY260213C00704000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-13",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 1,
+      "entry_val": -166.0,
+      "exit_val": -182.0,
+      "premium_basis": 166.0,
+      "pnl": -16.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260220C00688000",
+        "1xO:SPY260220C00693000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-20",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": -207.0,
+      "exit_val": 0.0,
+      "premium_basis": 207.0,
+      "pnl": 207.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260227C00687000",
+        "1xO:SPY260227C00692000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-27",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 1,
+      "entry_val": -188.0,
+      "exit_val": 0.0,
+      "premium_basis": 188.0,
+      "pnl": 188.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260306C00691000",
+        "1xO:SPY260306C00696000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-09",
+      "exit_date": "2026-04-02",
+      "spot": 678.27,
+      "exp_near": "2026-04-03",
+      "mult": 1,
+      "entry_val": -213.0,
+      "exit_val": 0.0,
+      "premium_basis": 213.0,
+      "pnl": 213.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260313C00683000",
+        "1xO:SPY260313C00688000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-04-10",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": -198.0,
+      "exit_val": 0.0,
+      "premium_basis": 198.0,
+      "pnl": 198.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260320C00674000",
+        "1xO:SPY260320C00679000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-04-17",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 1,
+      "entry_val": -217.0,
+      "exit_val": 0.0,
+      "premium_basis": 217.0,
+      "pnl": 217.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260327C00660000",
+        "1xO:SPY260327C00665000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-05-01",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": -192.0,
+      "exit_val": -523.0,
+      "premium_basis": 192.0,
+      "pnl": -331.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260410C00664000",
+        "1xO:SPY260410C00669000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-05-08",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": -143.0,
+      "exit_val": -493.0,
+      "premium_basis": 143.0,
+      "pnl": -350.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260417C00691000",
+        "1xO:SPY260417C00696000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-05-15",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 1,
+      "entry_val": -146.0,
+      "exit_val": -11.0,
+      "premium_basis": 146.0,
+      "pnl": 135.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260424C00714000",
+        "1xO:SPY260424C00719000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-05-22",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 1,
+      "entry_val": -158.0,
+      "exit_val": -43.0,
+      "premium_basis": 158.0,
+      "pnl": 115.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260501C00720000",
+        "1xO:SPY260501C00725000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-29",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 1,
+      "entry_val": -143.0,
+      "exit_val": -485.0,
+      "premium_basis": 143.0,
+      "pnl": -342.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260508C00723000",
+        "1xO:SPY260508C00728000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-06-05",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": -142.0,
+      "exit_val": 0.0,
+      "premium_basis": 142.0,
+      "pnl": 142.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260515C00744000",
+        "1xO:SPY260515C00749000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-06-12",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": -142.0,
+      "exit_val": -192.0,
+      "premium_basis": 142.0,
+      "pnl": -50.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260522C00744000",
+        "1xO:SPY260522C00749000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-26",
+      "exit_date": "2026-06-18",
+      "spot": 750.59,
+      "exp_near": "2026-06-19",
+      "mult": 1,
+      "entry_val": -95.0,
+      "exit_val": -70.0,
+      "premium_basis": 95.0,
+      "pnl": 25.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260529C00756000",
+        "1xO:SPY260529C00761000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-26",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": -120.0,
+      "exit_val": 0.0,
+      "premium_basis": 120.0,
+      "pnl": 120.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260605C00764000",
+        "1xO:SPY260605C00769000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-08",
+      "exit_date": "2026-07-02",
+      "spot": 739.22,
+      "exp_near": "2026-07-03",
+      "mult": 1,
+      "entry_val": -172.0,
+      "exit_val": -2.0,
+      "premium_basis": 172.0,
+      "pnl": 170.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260612C00744000",
+        "1xO:SPY260612C00749000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-07-17",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 1,
+      "entry_val": -182.0,
+      "exit_val": -1.0,
+      "premium_basis": 182.0,
+      "pnl": 181.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260626C00749000",
+        "1xO:SPY260626C00754000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-31",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": -111.0,
+      "exit_val": 0.0,
+      "premium_basis": 111.0,
+      "pnl": 111.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260710C00756000",
+        "1xO:SPY260710C00761000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-08-05",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": -143.0,
+      "exit_val": 0.0,
+      "premium_basis": 143.0,
+      "pnl": 143.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260717C00754000",
+        "1xO:SPY260717C00759000"
+      ]
+    },
+    {
+      "strategy": "Weekly Bear Call Spread",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-08-05",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 1,
+      "entry_val": -163.0,
+      "exit_val": 0.0,
+      "premium_basis": 163.0,
+      "pnl": 163.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260724C00747000",
+        "1xO:SPY260724C00752000"
+      ]
+    }
+  ]
+}

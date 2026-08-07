@@ -1,0 +1,1789 @@
+{
+  "strategy": "Bull Put Credit Spread",
+  "tp_pct": 100,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 93,
+    "total_pnl": 9393.0,
+    "win_rate": 0.8495,
+    "avg_pnl": 101.0,
+    "tp_hits": 72,
+    "sl_hits": 0,
+    "expiry_exits": 21
+  },
+  "trades": [
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-09-05",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 1,
+      "entry_val": -137.0,
+      "exit_val": 1.0,
+      "premium_basis": 137.0,
+      "pnl": 138.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY240906P00528000",
+        "1xO:SPY240906P00523000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-13",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": -131.0,
+      "exit_val": 0.0,
+      "premium_basis": 131.0,
+      "pnl": 131.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY240913P00555000",
+        "1xO:SPY240913P00550000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": -134.0,
+      "exit_val": 0.0,
+      "premium_basis": 134.0,
+      "pnl": 134.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY240920P00556000",
+        "1xO:SPY240920P00551000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-27",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": -188.0,
+      "exit_val": 0.0,
+      "premium_basis": 188.0,
+      "pnl": 188.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY240927P00547000",
+        "1xO:SPY240927P00542000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-10",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": -133.0,
+      "exit_val": 0.0,
+      "premium_basis": 133.0,
+      "pnl": 133.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241011P00558000",
+        "1xO:SPY241011P00553000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 1,
+      "entry_val": -119.0,
+      "exit_val": 0.0,
+      "premium_basis": 119.0,
+      "pnl": 119.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241018P00565000",
+        "1xO:SPY241018P00560000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-25",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": -125.0,
+      "exit_val": 0.0,
+      "premium_basis": 125.0,
+      "pnl": 125.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241025P00569000",
+        "1xO:SPY241025P00564000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-11-01",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": -159.0,
+      "exit_val": 0.0,
+      "premium_basis": 159.0,
+      "pnl": 159.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241101P00563000",
+        "1xO:SPY241101P00558000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-07",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 1,
+      "entry_val": -134.0,
+      "exit_val": 0.0,
+      "premium_basis": 134.0,
+      "pnl": 134.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241108P00579000",
+        "1xO:SPY241108P00574000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-15",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": -113.0,
+      "exit_val": 0.0,
+      "premium_basis": 113.0,
+      "pnl": 113.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241115P00579000",
+        "1xO:SPY241115P00574000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-22",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": -138.0,
+      "exit_val": 0.0,
+      "premium_basis": 138.0,
+      "pnl": 138.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241122P00576000",
+        "1xO:SPY241122P00571000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-26",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 1,
+      "entry_val": -189.0,
+      "exit_val": 0.0,
+      "premium_basis": 189.0,
+      "pnl": 189.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241129P00565000",
+        "1xO:SPY241129P00560000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-12-06",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": -129.0,
+      "exit_val": 0.0,
+      "premium_basis": 129.0,
+      "pnl": 129.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241206P00594000",
+        "1xO:SPY241206P00589000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-11",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": -128.0,
+      "exit_val": 0.0,
+      "premium_basis": 128.0,
+      "pnl": 128.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY241213P00583000",
+        "1xO:SPY241213P00578000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": -133.0,
+      "exit_val": -249.0,
+      "premium_basis": 133.0,
+      "pnl": -116.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241220P00593000",
+        "1xO:SPY241220P00588000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-27",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": -116.0,
+      "exit_val": -377.0,
+      "premium_basis": 116.0,
+      "pnl": -261.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241227P00599000",
+        "1xO:SPY241227P00594000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": -143.0,
+      "exit_val": -489.0,
+      "premium_basis": 143.0,
+      "pnl": -346.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250103P00600000",
+        "1xO:SPY250103P00595000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": -133.0,
+      "exit_val": -491.0,
+      "premium_basis": 133.0,
+      "pnl": -358.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250110P00602000",
+        "1xO:SPY250110P00597000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-17",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": -123.0,
+      "exit_val": 0.0,
+      "premium_basis": 123.0,
+      "pnl": 123.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250117P00590000",
+        "1xO:SPY250117P00585000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-23",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": -41.0,
+      "exit_val": 1.0,
+      "premium_basis": 41.0,
+      "pnl": 42.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250124P00583000",
+        "1xO:SPY250124P00578000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-31",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": -131.0,
+      "exit_val": 0.0,
+      "premium_basis": 131.0,
+      "pnl": 131.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250131P00590000",
+        "1xO:SPY250131P00585000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-02-06",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": -153.0,
+      "exit_val": 0.0,
+      "premium_basis": 153.0,
+      "pnl": 153.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250207P00576000",
+        "1xO:SPY250207P00571000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-14",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": -160.0,
+      "exit_val": 0.0,
+      "premium_basis": 160.0,
+      "pnl": 160.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250214P00598000",
+        "1xO:SPY250214P00593000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-20",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": -135.0,
+      "exit_val": 0.0,
+      "premium_basis": 135.0,
+      "pnl": 135.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250221P00594000",
+        "1xO:SPY250221P00589000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-28",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": -145.0,
+      "exit_val": -17.0,
+      "premium_basis": 145.0,
+      "pnl": 128.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250228P00593000",
+        "1xO:SPY250228P00588000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": -136.0,
+      "exit_val": -460.0,
+      "premium_basis": 136.0,
+      "pnl": -324.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250307P00600000",
+        "1xO:SPY250307P00595000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-02-28",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": -117.0,
+      "exit_val": 85.0,
+      "premium_basis": 117.0,
+      "pnl": 202.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250314P00606000",
+        "1xO:SPY250314P00601000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 1,
+      "entry_val": -148.0,
+      "exit_val": -298.0,
+      "premium_basis": 148.0,
+      "pnl": -150.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250321P00592000",
+        "1xO:SPY250321P00587000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-04-08",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": -159.0,
+      "exit_val": 2507.0,
+      "premium_basis": 159.0,
+      "pnl": 2666.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250411P00562000",
+        "1xO:SPY250411P00557000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-25",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 1,
+      "entry_val": -109.0,
+      "exit_val": -323.0,
+      "premium_basis": 109.0,
+      "pnl": -214.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250425P00554000",
+        "1xO:SPY250425P00549000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-05-08",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 1,
+      "entry_val": -113.0,
+      "exit_val": 0.0,
+      "premium_basis": 113.0,
+      "pnl": 113.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250509P00534000",
+        "1xO:SPY250509P00529000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-05-01",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": -154.0,
+      "exit_val": 1.0,
+      "premium_basis": 154.0,
+      "pnl": 155.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250516P00509000",
+        "1xO:SPY250516P00504000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-22",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": -103.0,
+      "exit_val": 1.0,
+      "premium_basis": 103.0,
+      "pnl": 104.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250523P00546000",
+        "1xO:SPY250523P00541000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-28",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": -156.0,
+      "exit_val": 0.0,
+      "premium_basis": 156.0,
+      "pnl": 156.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250530P00559000",
+        "1xO:SPY250530P00554000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-06-06",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": -86.0,
+      "exit_val": 0.0,
+      "premium_basis": 86.0,
+      "pnl": 86.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250606P00578000",
+        "1xO:SPY250606P00573000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-13",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": -157.0,
+      "exit_val": 0.0,
+      "premium_basis": 157.0,
+      "pnl": 157.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250613P00590000",
+        "1xO:SPY250613P00585000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": -148.0,
+      "exit_val": -1.0,
+      "premium_basis": 148.0,
+      "pnl": 147.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250620P00586000",
+        "1xO:SPY250620P00581000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": -147.0,
+      "exit_val": 0.0,
+      "premium_basis": 147.0,
+      "pnl": 147.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250627P00588000",
+        "1xO:SPY250627P00583000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-07-11",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": -107.0,
+      "exit_val": 0.0,
+      "premium_basis": 107.0,
+      "pnl": 107.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250711P00598000",
+        "1xO:SPY250711P00593000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-18",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": -126.0,
+      "exit_val": 0.0,
+      "premium_basis": 126.0,
+      "pnl": 126.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250718P00595000",
+        "1xO:SPY250718P00590000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-30",
+      "exit_date": "2025-07-24",
+      "spot": 617.85,
+      "exp_near": "2025-07-25",
+      "mult": 1,
+      "entry_val": -117.0,
+      "exit_val": 1.0,
+      "premium_basis": 117.0,
+      "pnl": 118.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250725P00613000",
+        "1xO:SPY250725P00608000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-08-01",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": -35.0,
+      "exit_val": 0.0,
+      "premium_basis": 35.0,
+      "pnl": 35.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250801P00616000",
+        "1xO:SPY250801P00611000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-08",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": -136.0,
+      "exit_val": 0.0,
+      "premium_basis": 136.0,
+      "pnl": 136.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250808P00620000",
+        "1xO:SPY250808P00615000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-14",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": -144.0,
+      "exit_val": 0.0,
+      "premium_basis": 144.0,
+      "pnl": 144.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250815P00624000",
+        "1xO:SPY250815P00619000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-07-30",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": -107.0,
+      "exit_val": 104.0,
+      "premium_basis": 107.0,
+      "pnl": 211.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250822P00632000",
+        "1xO:SPY250822P00627000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-28",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": -118.0,
+      "exit_val": 0.0,
+      "premium_basis": 118.0,
+      "pnl": 118.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250829P00626000",
+        "1xO:SPY250829P00621000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": -136.0,
+      "exit_val": 0.0,
+      "premium_basis": 136.0,
+      "pnl": 136.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250905P00631000",
+        "1xO:SPY250905P00626000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-09-12",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": -109.0,
+      "exit_val": 0.0,
+      "premium_basis": 109.0,
+      "pnl": 109.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250912P00638000",
+        "1xO:SPY250912P00633000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-19",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": -104.0,
+      "exit_val": 0.0,
+      "premium_basis": 104.0,
+      "pnl": 104.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250919P00637000",
+        "1xO:SPY250919P00632000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-26",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": -128.0,
+      "exit_val": 0.0,
+      "premium_basis": 128.0,
+      "pnl": 128.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY250926P00635000",
+        "1xO:SPY250926P00630000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-10-03",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": -126.0,
+      "exit_val": 0.0,
+      "premium_basis": 126.0,
+      "pnl": 126.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251003P00644000",
+        "1xO:SPY251003P00639000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": -131.0,
+      "exit_val": -175.0,
+      "premium_basis": 131.0,
+      "pnl": -44.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251010P00656000",
+        "1xO:SPY251010P00651000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-17",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": -126.0,
+      "exit_val": 0.0,
+      "premium_basis": 126.0,
+      "pnl": 126.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251017P00662000",
+        "1xO:SPY251017P00657000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-24",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": -149.0,
+      "exit_val": 0.0,
+      "premium_basis": 149.0,
+      "pnl": 149.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251024P00659000",
+        "1xO:SPY251024P00654000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-31",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": -117.0,
+      "exit_val": 0.0,
+      "premium_basis": 117.0,
+      "pnl": 117.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251031P00667000",
+        "1xO:SPY251031P00662000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-10-15",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": -114.0,
+      "exit_val": 30.0,
+      "premium_basis": 114.0,
+      "pnl": 144.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251107P00658000",
+        "1xO:SPY251107P00653000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-14",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": -106.0,
+      "exit_val": 0.0,
+      "premium_basis": 106.0,
+      "pnl": 106.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251114P00666000",
+        "1xO:SPY251114P00661000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": -136.0,
+      "exit_val": -481.0,
+      "premium_basis": 136.0,
+      "pnl": -345.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251121P00680000",
+        "1xO:SPY251121P00675000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-28",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": -140.0,
+      "exit_val": 0.0,
+      "premium_basis": 140.0,
+      "pnl": 140.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251128P00678000",
+        "1xO:SPY251128P00673000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-12-05",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": -115.0,
+      "exit_val": 0.0,
+      "premium_basis": 115.0,
+      "pnl": 115.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251205P00676000",
+        "1xO:SPY251205P00671000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-11-20",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 1,
+      "entry_val": -75.0,
+      "exit_val": 48.0,
+      "premium_basis": 75.0,
+      "pnl": 123.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251212P00661000",
+        "1xO:SPY251212P00656000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-19",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": -153.0,
+      "exit_val": 0.0,
+      "premium_basis": 153.0,
+      "pnl": 153.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251219P00664000",
+        "1xO:SPY251219P00659000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-26",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": -117.0,
+      "exit_val": 0.0,
+      "premium_basis": 117.0,
+      "pnl": 117.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY251226P00675000",
+        "1xO:SPY251226P00670000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2026-01-02",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": -154.0,
+      "exit_val": 0.0,
+      "premium_basis": 154.0,
+      "pnl": 154.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260102P00679000",
+        "1xO:SPY260102P00674000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2026-01-09",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": -144.0,
+      "exit_val": 0.0,
+      "premium_basis": 144.0,
+      "pnl": 144.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260109P00676000",
+        "1xO:SPY260109P00671000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-16",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": -117.0,
+      "exit_val": 0.0,
+      "premium_basis": 117.0,
+      "pnl": 117.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260116P00680000",
+        "1xO:SPY260116P00675000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-23",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": -118.0,
+      "exit_val": 0.0,
+      "premium_basis": 118.0,
+      "pnl": 118.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260123P00683000",
+        "1xO:SPY260123P00678000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-30",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": -126.0,
+      "exit_val": 0.0,
+      "premium_basis": 126.0,
+      "pnl": 126.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260130P00683000",
+        "1xO:SPY260130P00678000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-02-06",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": -135.0,
+      "exit_val": -4.0,
+      "premium_basis": 135.0,
+      "pnl": 131.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260206P00690000",
+        "1xO:SPY260206P00685000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-02-13",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": -126.0,
+      "exit_val": 0.0,
+      "premium_basis": 126.0,
+      "pnl": 126.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260213P00673000",
+        "1xO:SPY260213P00668000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-20",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": -133.0,
+      "exit_val": 0.0,
+      "premium_basis": 133.0,
+      "pnl": 133.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260220P00688000",
+        "1xO:SPY260220P00683000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-27",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": -418.0,
+      "premium_basis": 130.0,
+      "pnl": -288.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260227P00690000",
+        "1xO:SPY260227P00685000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-03-06",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": -104.0,
+      "exit_val": -561.0,
+      "premium_basis": 104.0,
+      "pnl": -457.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260306P00689000",
+        "1xO:SPY260306P00684000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-13",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 1,
+      "entry_val": -175.0,
+      "exit_val": -497.0,
+      "premium_basis": 175.0,
+      "pnl": -322.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260313P00678000",
+        "1xO:SPY260313P00673000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-20",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": -141.0,
+      "exit_val": -544.0,
+      "premium_basis": 141.0,
+      "pnl": -403.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260320P00677000",
+        "1xO:SPY260320P00672000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-18",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 1,
+      "entry_val": -110.0,
+      "exit_val": 38.0,
+      "premium_basis": 110.0,
+      "pnl": 148.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260327P00681000",
+        "1xO:SPY260327P00676000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-04-10",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": -130.0,
+      "exit_val": 0.0,
+      "premium_basis": 130.0,
+      "pnl": 130.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260410P00664000",
+        "1xO:SPY260410P00659000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-04-15",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 1,
+      "entry_val": -148.0,
+      "exit_val": 0.0,
+      "premium_basis": 148.0,
+      "pnl": 148.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260417P00650000",
+        "1xO:SPY260417P00645000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-04-02",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 1,
+      "entry_val": -183.0,
+      "exit_val": 0.0,
+      "premium_basis": 183.0,
+      "pnl": 183.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260424P00627000",
+        "1xO:SPY260424P00622000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-04-30",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": -170.0,
+      "exit_val": 0.0,
+      "premium_basis": 170.0,
+      "pnl": 170.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260501P00654000",
+        "1xO:SPY260501P00649000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-05-04",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": -141.0,
+      "exit_val": 1.0,
+      "premium_basis": 141.0,
+      "pnl": 142.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260508P00681000",
+        "1xO:SPY260508P00676000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-04-21",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 1,
+      "entry_val": -188.0,
+      "exit_val": 15.0,
+      "premium_basis": 188.0,
+      "pnl": 203.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260515P00704000",
+        "1xO:SPY260515P00699000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-05-21",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 1,
+      "entry_val": -143.0,
+      "exit_val": 0.0,
+      "premium_basis": 143.0,
+      "pnl": 143.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260522P00710000",
+        "1xO:SPY260522P00705000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-27",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 1,
+      "entry_val": -141.0,
+      "exit_val": 0.0,
+      "premium_basis": 141.0,
+      "pnl": 141.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260529P00713000",
+        "1xO:SPY260529P00708000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-05-18",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": -133.0,
+      "exit_val": 32.0,
+      "premium_basis": 133.0,
+      "pnl": 165.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260605P00734000",
+        "1xO:SPY260605P00729000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-06-12",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": -241.0,
+      "exit_val": 0.0,
+      "premium_basis": 241.0,
+      "pnl": 241.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260612P00734000",
+        "1xO:SPY260612P00729000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-26",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": -151.0,
+      "exit_val": -555.0,
+      "premium_basis": 151.0,
+      "pnl": -404.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260626P00754000",
+        "1xO:SPY260626P00749000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-07-10",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 1,
+      "entry_val": -166.0,
+      "exit_val": 0.0,
+      "premium_basis": 166.0,
+      "pnl": 166.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260710P00750000",
+        "1xO:SPY260710P00745000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-07-17",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 1,
+      "entry_val": -153.0,
+      "exit_val": -1.0,
+      "premium_basis": 153.0,
+      "pnl": 152.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260717P00739000",
+        "1xO:SPY260717P00734000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-24",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 1,
+      "entry_val": -159.0,
+      "exit_val": 0.0,
+      "premium_basis": 159.0,
+      "pnl": 159.0,
+      "exit_reason": "TP_100PCT",
+      "legs": [
+        "-1xO:SPY260724P00736000",
+        "1xO:SPY260724P00731000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-31",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": -133.0,
+      "exit_val": -2.0,
+      "premium_basis": 133.0,
+      "pnl": 131.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260731P00746000",
+        "1xO:SPY260731P00741000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-08-05",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": -148.0,
+      "exit_val": -2.0,
+      "premium_basis": 148.0,
+      "pnl": 146.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260807P00744000",
+        "1xO:SPY260807P00739000"
+      ]
+    },
+    {
+      "strategy": "Bull Put Credit Spread",
+      "tp_pct": 100,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-08-05",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 1,
+      "entry_val": -163.0,
+      "exit_val": -6.0,
+      "premium_basis": 163.0,
+      "pnl": 157.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260814P00737000",
+        "1xO:SPY260814P00732000"
+      ]
+    }
+  ]
+}

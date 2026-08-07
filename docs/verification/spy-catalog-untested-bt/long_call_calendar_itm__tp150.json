@@ -1,0 +1,117 @@
+{
+  "strategy": "Long Call Calendar ITM",
+  "tp_pct": 150,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 5,
+    "total_pnl": 1822.0,
+    "win_rate": 0.8,
+    "avg_pnl": 364.4,
+    "tp_hits": 1,
+    "sl_hits": 0,
+    "expiry_exits": 4
+  },
+  "trades": [
+    {
+      "strategy": "Long Call Calendar ITM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 428.0,
+      "exit_val": 672.0,
+      "premium_basis": 428.0,
+      "pnl": 244.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240920C00556000",
+        "1xO:SPY241018C00556000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar ITM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": 425.0,
+      "exit_val": 971.0,
+      "premium_basis": 425.0,
+      "pnl": 546.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241220C00593000",
+        "1xO:SPY250117C00593000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar ITM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-01-31",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": 379.0,
+      "exit_val": 983.0,
+      "premium_basis": 379.0,
+      "pnl": 604.0,
+      "exit_reason": "TP_150PCT",
+      "legs": [
+        "-1xO:SPY250221C00594000",
+        "1xO:SPY250321C00594000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar ITM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": 495.0,
+      "exit_val": 931.0,
+      "premium_basis": 495.0,
+      "pnl": 436.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250620C00586000",
+        "1xO:SPY250718C00586000"
+      ]
+    },
+    {
+      "strategy": "Long Call Calendar ITM",
+      "tp_pct": 150,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-20",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": 457.0,
+      "exit_val": 449.0,
+      "premium_basis": 457.0,
+      "pnl": -8.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260320C00677000",
+        "1xO:SPY260417C00677000"
+      ]
+    }
+  ]
+}

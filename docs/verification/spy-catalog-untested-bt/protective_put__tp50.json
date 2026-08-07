@@ -1,0 +1,155 @@
+{
+  "strategy": "Protective Put",
+  "tp_pct": 50,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 7,
+    "total_pnl": -1254.0,
+    "win_rate": 0.4286,
+    "avg_pnl": -179.14,
+    "tp_hits": 3,
+    "sl_hits": 0,
+    "expiry_exits": 4
+  },
+  "trades": [
+    {
+      "strategy": "Protective Put",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-13",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": 56441.0,
+      "exit_val": 56202.0,
+      "premium_basis": 480.0,
+      "pnl": -239.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY240913P00555000"
+      ]
+    },
+    {
+      "strategy": "Protective Put",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-12-04",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": 60372.0,
+      "exit_val": 60774.0,
+      "premium_basis": 496.0,
+      "pnl": 402.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY241206P00594000"
+      ]
+    },
+    {
+      "strategy": "Protective Put",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-04",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": 60793.0,
+      "exit_val": 61077.0,
+      "premium_basis": 430.0,
+      "pnl": 284.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY241227P00599000"
+      ]
+    },
+    {
+      "strategy": "Protective Put",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": 60946.0,
+      "exit_val": 60013.0,
+      "premium_basis": 478.0,
+      "pnl": -933.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250103P00600000"
+      ]
+    },
+    {
+      "strategy": "Protective Put",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": 61160.0,
+      "exit_val": 60223.0,
+      "premium_basis": 481.0,
+      "pnl": -937.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250110P00602000"
+      ]
+    },
+    {
+      "strategy": "Protective Put",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-03",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": 59319.0,
+      "exit_val": 59581.0,
+      "premium_basis": 497.0,
+      "pnl": 262.0,
+      "exit_reason": "TP_50PCT",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250124P00583000"
+      ]
+    },
+    {
+      "strategy": "Protective Put",
+      "tp_pct": 50,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": 61624.0,
+      "exit_val": 61531.0,
+      "premium_basis": 475.0,
+      "pnl": -93.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "100xSTK",
+        "1xO:SPY250314P00606000"
+      ]
+    }
+  ]
+}

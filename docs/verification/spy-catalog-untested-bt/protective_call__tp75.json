@@ -1,0 +1,79 @@
+{
+  "strategy": "Protective Call",
+  "tp_pct": 75,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 3,
+    "total_pnl": 4592.0,
+    "win_rate": 1.0,
+    "avg_pnl": 1530.67,
+    "tp_hits": 3,
+    "sl_hits": 0,
+    "expiry_exits": 0
+  },
+  "trades": [
+    {
+      "strategy": "Protective Call",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-18",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": -59964.0,
+      "exit_val": -58603.0,
+      "premium_basis": 399.0,
+      "pnl": 1361.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-100xSTK",
+        "1xO:SPY241227C00609000"
+      ]
+    },
+    {
+      "strategy": "Protective Call",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2024-12-18",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": -60082.0,
+      "exit_val": -58565.0,
+      "premium_basis": 386.0,
+      "pnl": 1517.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-100xSTK",
+        "1xO:SPY250103C00610000"
+      ]
+    },
+    {
+      "strategy": "Protective Call",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2024-12-18",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": -60242.0,
+      "exit_val": -58528.0,
+      "premium_basis": 437.0,
+      "pnl": 1714.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-100xSTK",
+        "1xO:SPY250110C00612000"
+      ]
+    }
+  ]
+}

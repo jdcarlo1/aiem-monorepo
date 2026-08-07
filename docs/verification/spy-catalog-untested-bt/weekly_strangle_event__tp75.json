@@ -1,0 +1,1295 @@
+{
+  "strategy": "Weekly Strangle Event",
+  "tp_pct": 75,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 67,
+    "total_pnl": 721.0,
+    "win_rate": 0.3284,
+    "avg_pnl": 10.76,
+    "tp_hits": 15,
+    "sl_hits": 0,
+    "expiry_exits": 52
+  },
+  "trades": [
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-13",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 2,
+      "entry_val": 468.0,
+      "exit_val": 4.0,
+      "premium_basis": 468.0,
+      "pnl": -464.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY240823C00565000",
+        "2xO:SPY240823P00555000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 320.0,
+      "exit_val": 2.0,
+      "premium_basis": 320.0,
+      "pnl": -318.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240830C00566000",
+        "1xO:SPY240830P00556000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-27",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": 409.0,
+      "exit_val": 693.0,
+      "premium_basis": 409.0,
+      "pnl": 284.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240906C00557000",
+        "1xO:SPY240906P00547000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-09-13",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": 471.0,
+      "exit_val": 1060.0,
+      "premium_basis": 471.0,
+      "pnl": 589.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY240913C00551000",
+        "1xO:SPY240913P00541000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-11",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": 452.0,
+      "exit_val": 4.0,
+      "premium_basis": 452.0,
+      "pnl": -448.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY240920C00568000",
+        "1xO:SPY240920P00558000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-18",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 2,
+      "entry_val": 384.0,
+      "exit_val": 4.0,
+      "premium_basis": 384.0,
+      "pnl": -380.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY240927C00575000",
+        "2xO:SPY240927P00565000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-25",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": 376.0,
+      "exit_val": 2.0,
+      "premium_basis": 376.0,
+      "pnl": -374.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241004C00579000",
+        "1xO:SPY241004P00569000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-11-01",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": 481.0,
+      "exit_val": 628.0,
+      "premium_basis": 481.0,
+      "pnl": 147.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241011C00573000",
+        "1xO:SPY241011P00563000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-08",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 2,
+      "entry_val": 484.0,
+      "exit_val": 4.0,
+      "premium_basis": 484.0,
+      "pnl": -480.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241018C00589000",
+        "2xO:SPY241018P00579000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-15",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 2,
+      "entry_val": 376.0,
+      "exit_val": 76.0,
+      "premium_basis": 376.0,
+      "pnl": -300.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241025C00589000",
+        "2xO:SPY241025P00579000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-22",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": 425.0,
+      "exit_val": 431.0,
+      "premium_basis": 425.0,
+      "pnl": 6.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241101C00586000",
+        "1xO:SPY241101P00576000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-11-15",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": 251.0,
+      "exit_val": 784.0,
+      "premium_basis": 251.0,
+      "pnl": 533.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY241115C00604000",
+        "1xO:SPY241115P00594000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-12-13",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": 359.0,
+      "exit_val": 248.0,
+      "premium_basis": 359.0,
+      "pnl": -111.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY241122C00593000",
+        "1xO:SPY241122P00583000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 3,
+      "entry_val": 384.0,
+      "exit_val": 6.0,
+      "premium_basis": 384.0,
+      "pnl": -378.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "3xO:SPY241129C00603000",
+        "3xO:SPY241129P00593000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-27",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 2,
+      "entry_val": 400.0,
+      "exit_val": 4.0,
+      "premium_basis": 400.0,
+      "pnl": -396.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241206C00609000",
+        "2xO:SPY241206P00599000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 2,
+      "entry_val": 366.0,
+      "exit_val": 4.0,
+      "premium_basis": 366.0,
+      "pnl": -362.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241213C00610000",
+        "2xO:SPY241213P00600000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2024-12-18",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 2,
+      "entry_val": 496.0,
+      "exit_val": 3538.0,
+      "premium_basis": 496.0,
+      "pnl": 3042.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY241220C00612000",
+        "2xO:SPY241220P00602000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-17",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 2,
+      "entry_val": 488.0,
+      "exit_val": 4.0,
+      "premium_basis": 488.0,
+      "pnl": -484.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY241227C00600000",
+        "2xO:SPY241227P00590000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-24",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": 367.0,
+      "exit_val": 2.0,
+      "premium_basis": 367.0,
+      "pnl": -365.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250103C00593000",
+        "1xO:SPY250103P00583000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-10",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": 308.0,
+      "exit_val": 1004.0,
+      "premium_basis": 308.0,
+      "pnl": 696.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250110C00600000",
+        "1xO:SPY250110P00590000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-14",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 2,
+      "entry_val": 364.0,
+      "exit_val": 4.0,
+      "premium_basis": 364.0,
+      "pnl": -360.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250124C00608000",
+        "2xO:SPY250124P00598000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": 304.0,
+      "exit_val": 3.0,
+      "premium_basis": 304.0,
+      "pnl": -301.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250214C00610000",
+        "1xO:SPY250214P00600000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-02-21",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 3,
+      "entry_val": 414.0,
+      "exit_val": 1803.0,
+      "premium_basis": 414.0,
+      "pnl": 1389.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "3xO:SPY250221C00616000",
+        "3xO:SPY250221P00606000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-24",
+      "exit_date": "2025-03-28",
+      "spot": 574.08,
+      "exp_near": "2025-04-18",
+      "mult": 1,
+      "entry_val": 390.0,
+      "exit_val": 1423.0,
+      "premium_basis": 390.0,
+      "pnl": 1033.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250328C00579000",
+        "1xO:SPY250328P00569000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-06-06",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": 472.0,
+      "exit_val": 606.0,
+      "premium_basis": 472.0,
+      "pnl": 134.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250516C00588000",
+        "1xO:SPY250516P00578000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-05-21",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": 411.0,
+      "exit_val": 833.0,
+      "premium_basis": 411.0,
+      "pnl": 422.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250523C00600000",
+        "1xO:SPY250523P00590000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-20",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": 397.0,
+      "exit_val": 2.0,
+      "premium_basis": 397.0,
+      "pnl": -395.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250530C00596000",
+        "1xO:SPY250530P00586000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-27",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": 472.0,
+      "exit_val": 120.0,
+      "premium_basis": 472.0,
+      "pnl": -352.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250606C00598000",
+        "1xO:SPY250606P00588000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-09",
+      "exit_date": "2025-07-03",
+      "spot": 599.68,
+      "exp_near": "2025-07-04",
+      "mult": 1,
+      "entry_val": 372.0,
+      "exit_val": 4.0,
+      "premium_basis": 372.0,
+      "pnl": -368.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250613C00605000",
+        "1xO:SPY250613P00595000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-07-11",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": 367.0,
+      "exit_val": 345.0,
+      "premium_basis": 367.0,
+      "pnl": -22.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250620C00608000",
+        "1xO:SPY250620P00598000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-06-26",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": 381.0,
+      "exit_val": 688.0,
+      "premium_basis": 381.0,
+      "pnl": 307.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250627C00605000",
+        "1xO:SPY250627P00595000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-08-01",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": 385.0,
+      "exit_val": 2.0,
+      "premium_basis": 385.0,
+      "pnl": -383.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250711C00626000",
+        "1xO:SPY250711P00616000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-08-08",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": 319.0,
+      "exit_val": 4.0,
+      "premium_basis": 319.0,
+      "pnl": -315.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250718C00630000",
+        "1xO:SPY250718P00620000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-15",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 2,
+      "entry_val": 474.0,
+      "exit_val": 590.0,
+      "premium_basis": 474.0,
+      "pnl": 116.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY250725C00634000",
+        "2xO:SPY250725P00624000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-01",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": 361.0,
+      "exit_val": 1033.0,
+      "premium_basis": 361.0,
+      "pnl": 672.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY250801C00642000",
+        "1xO:SPY250801P00632000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-29",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": 346.0,
+      "exit_val": 221.0,
+      "premium_basis": 346.0,
+      "pnl": -125.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250808C00636000",
+        "1xO:SPY250808P00626000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-09-05",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": 396.0,
+      "exit_val": 191.0,
+      "premium_basis": 396.0,
+      "pnl": -205.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250815C00641000",
+        "1xO:SPY250815P00631000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-09-12",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": 282.0,
+      "exit_val": 2.0,
+      "premium_basis": 282.0,
+      "pnl": -280.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250822C00648000",
+        "1xO:SPY250822P00638000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-19",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": 302.0,
+      "exit_val": 2.0,
+      "premium_basis": 302.0,
+      "pnl": -300.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250829C00647000",
+        "1xO:SPY250829P00637000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-26",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": 374.0,
+      "exit_val": 192.0,
+      "premium_basis": 374.0,
+      "pnl": -182.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250905C00645000",
+        "1xO:SPY250905P00635000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-10-03",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": 260.0,
+      "exit_val": 340.0,
+      "premium_basis": 260.0,
+      "pnl": 80.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250912C00654000",
+        "1xO:SPY250912P00644000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-10",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": 370.0,
+      "exit_val": 2.0,
+      "premium_basis": 370.0,
+      "pnl": -368.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250919C00666000",
+        "1xO:SPY250919P00656000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-17",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": 251.0,
+      "exit_val": 6.0,
+      "premium_basis": 251.0,
+      "pnl": -245.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY250926C00672000",
+        "1xO:SPY250926P00662000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-24",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": 291.0,
+      "exit_val": 9.0,
+      "premium_basis": 291.0,
+      "pnl": -282.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251003C00669000",
+        "1xO:SPY251003P00659000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-10",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 2,
+      "entry_val": 486.0,
+      "exit_val": 2566.0,
+      "premium_basis": 486.0,
+      "pnl": 2080.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "2xO:SPY251010C00677000",
+        "2xO:SPY251010P00667000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-11-07",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": 476.0,
+      "exit_val": 2.0,
+      "premium_basis": 476.0,
+      "pnl": -474.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251017C00668000",
+        "1xO:SPY251017P00658000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-14",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": 409.0,
+      "exit_val": 101.0,
+      "premium_basis": 409.0,
+      "pnl": -308.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251024C00676000",
+        "1xO:SPY251024P00666000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": 438.0,
+      "exit_val": 2.0,
+      "premium_basis": 438.0,
+      "pnl": -436.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251031C00690000",
+        "1xO:SPY251031P00680000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-06",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": 373.0,
+      "exit_val": 674.0,
+      "premium_basis": 373.0,
+      "pnl": 301.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY251107C00688000",
+        "1xO:SPY251107P00678000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-12-05",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": 403.0,
+      "exit_val": 337.0,
+      "premium_basis": 403.0,
+      "pnl": -66.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251114C00686000",
+        "1xO:SPY251114P00676000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-11-28",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": 419.0,
+      "exit_val": 899.0,
+      "premium_basis": 419.0,
+      "pnl": 480.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY251128C00674000",
+        "1xO:SPY251128P00664000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-26",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": 401.0,
+      "exit_val": 105.0,
+      "premium_basis": 401.0,
+      "pnl": -296.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251205C00685000",
+        "1xO:SPY251205P00675000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2026-01-02",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": 474.0,
+      "exit_val": 2.0,
+      "premium_basis": 474.0,
+      "pnl": -472.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251212C00689000",
+        "1xO:SPY251212P00679000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2026-01-09",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": 472.0,
+      "exit_val": 2.0,
+      "premium_basis": 472.0,
+      "pnl": -470.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY251219C00686000",
+        "1xO:SPY251219P00676000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-16",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 5,
+      "entry_val": 490.0,
+      "exit_val": 50.0,
+      "premium_basis": 490.0,
+      "pnl": -440.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "5xO:SPY251226C00690000",
+        "5xO:SPY251226P00680000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-23",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 2,
+      "entry_val": 334.0,
+      "exit_val": 8.0,
+      "premium_basis": 334.0,
+      "pnl": -326.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "2xO:SPY260102C00693000",
+        "2xO:SPY260102P00683000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-30",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": 268.0,
+      "exit_val": 94.0,
+      "premium_basis": 268.0,
+      "pnl": -174.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260109C00693000",
+        "1xO:SPY260109P00683000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-02-06",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": 297.0,
+      "exit_val": 2.0,
+      "premium_basis": 297.0,
+      "pnl": -295.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260116C00700000",
+        "1xO:SPY260116P00690000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-20",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": 413.0,
+      "exit_val": 2.0,
+      "premium_basis": 413.0,
+      "pnl": -411.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260130C00698000",
+        "1xO:SPY260130P00688000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-05",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": 371.0,
+      "exit_val": 1265.0,
+      "premium_basis": 371.0,
+      "pnl": 894.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY260206C00700000",
+        "1xO:SPY260206P00690000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-03-06",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": 445.0,
+      "exit_val": 775.0,
+      "premium_basis": 445.0,
+      "pnl": 330.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260213C00699000",
+        "1xO:SPY260213P00689000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-04-15",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": 494.0,
+      "exit_val": 977.0,
+      "premium_basis": 494.0,
+      "pnl": 483.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY260417C00691000",
+        "1xO:SPY260417P00681000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-06-05",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": 484.0,
+      "exit_val": 4.0,
+      "premium_basis": 484.0,
+      "pnl": -480.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260515C00744000",
+        "1xO:SPY260515P00734000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-26",
+      "exit_date": "2026-06-18",
+      "spot": 750.59,
+      "exp_near": "2026-06-19",
+      "mult": 1,
+      "entry_val": 336.0,
+      "exit_val": 72.0,
+      "premium_basis": 336.0,
+      "pnl": -264.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260529C00756000",
+        "1xO:SPY260529P00746000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-05",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": 384.0,
+      "exit_val": 1972.0,
+      "premium_basis": 384.0,
+      "pnl": 1588.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "1xO:SPY260605C00764000",
+        "1xO:SPY260605P00754000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-31",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": 284.0,
+      "exit_val": 2.0,
+      "premium_basis": 284.0,
+      "pnl": -282.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260710C00756000",
+        "1xO:SPY260710P00746000"
+      ]
+    },
+    {
+      "strategy": "Weekly Strangle Event",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-08-05",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": 494.0,
+      "exit_val": 146.0,
+      "premium_basis": 494.0,
+      "pnl": -348.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "1xO:SPY260717C00754000",
+        "1xO:SPY260717P00744000"
+      ]
+    }
+  ]
+}

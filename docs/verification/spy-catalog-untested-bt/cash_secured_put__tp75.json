@@ -1,0 +1,1750 @@
+{
+  "strategy": "Cash-Secured Put",
+  "tp_pct": 75,
+  "sl_pct": 0,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 96,
+    "total_pnl": 34628.0,
+    "win_rate": 0.8438,
+    "avg_pnl": 360.71,
+    "tp_hits": 77,
+    "sl_hits": 0,
+    "expiry_exits": 19
+  },
+  "trades": [
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-12",
+      "exit_date": "2024-08-15",
+      "spot": 533.27,
+      "exp_near": "2024-09-06",
+      "mult": 1,
+      "entry_val": -949.0,
+      "exit_val": -169.0,
+      "premium_basis": 949.0,
+      "pnl": 780.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY240906P00533000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-19",
+      "exit_date": "2024-09-13",
+      "spot": 559.61,
+      "exp_near": "2024-09-13",
+      "mult": 1,
+      "entry_val": -658.0,
+      "exit_val": -1.0,
+      "premium_basis": 658.0,
+      "pnl": 657.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY240913P00560000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-19",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": -764.0,
+      "exit_val": -27.0,
+      "premium_basis": 764.0,
+      "pnl": 737.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY240920P00561000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-03",
+      "exit_date": "2024-09-19",
+      "spot": 552.08,
+      "exp_near": "2024-09-27",
+      "mult": 1,
+      "entry_val": -851.0,
+      "exit_val": -65.0,
+      "premium_basis": 851.0,
+      "pnl": 786.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY240927P00552000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-09",
+      "exit_date": "2024-09-19",
+      "spot": 546.41,
+      "exp_near": "2024-10-04",
+      "mult": 1,
+      "entry_val": -907.0,
+      "exit_val": -112.0,
+      "premium_basis": 907.0,
+      "pnl": 795.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241004P00546000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-16",
+      "exit_date": "2024-10-04",
+      "spot": 562.84,
+      "exp_near": "2024-10-11",
+      "mult": 1,
+      "entry_val": -833.0,
+      "exit_val": -161.0,
+      "premium_basis": 833.0,
+      "pnl": 672.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241011P00563000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-23",
+      "exit_date": "2024-10-11",
+      "spot": 569.67,
+      "exp_near": "2024-10-18",
+      "mult": 1,
+      "entry_val": -662.0,
+      "exit_val": -121.0,
+      "premium_basis": 662.0,
+      "pnl": 541.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241018P00570000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-09-30",
+      "exit_date": "2024-10-14",
+      "spot": 573.76,
+      "exp_near": "2024-10-25",
+      "mult": 1,
+      "entry_val": -717.0,
+      "exit_val": -176.0,
+      "premium_basis": 717.0,
+      "pnl": 541.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241025P00574000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-07",
+      "exit_date": "2024-10-17",
+      "spot": 567.8,
+      "exp_near": "2024-11-01",
+      "mult": 1,
+      "entry_val": -866.0,
+      "exit_val": -188.0,
+      "premium_basis": 866.0,
+      "pnl": 678.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241101P00568000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-14",
+      "exit_date": "2024-11-06",
+      "spot": 584.32,
+      "exp_near": "2024-11-08",
+      "mult": 1,
+      "entry_val": -858.0,
+      "exit_val": -75.0,
+      "premium_basis": 858.0,
+      "pnl": 783.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241108P00584000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-21",
+      "exit_date": "2024-11-07",
+      "spot": 583.63,
+      "exp_near": "2024-11-15",
+      "mult": 1,
+      "entry_val": -841.0,
+      "exit_val": -90.0,
+      "premium_basis": 841.0,
+      "pnl": 751.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241115P00584000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-07",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": -945.0,
+      "exit_val": -174.0,
+      "premium_basis": 945.0,
+      "pnl": 771.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241122P00581000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-04",
+      "exit_date": "2024-11-06",
+      "spot": 569.81,
+      "exp_near": "2024-11-29",
+      "mult": 1,
+      "entry_val": -1001.0,
+      "exit_val": -213.0,
+      "premium_basis": 1001.0,
+      "pnl": 788.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241129P00570000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-11",
+      "exit_date": "2024-12-02",
+      "spot": 598.76,
+      "exp_near": "2024-12-06",
+      "mult": 1,
+      "entry_val": -657.0,
+      "exit_val": -102.0,
+      "premium_basis": 657.0,
+      "pnl": 555.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241206P00599000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-18",
+      "exit_date": "2024-11-26",
+      "spot": 588.15,
+      "exp_near": "2024-12-13",
+      "mult": 1,
+      "entry_val": -685.0,
+      "exit_val": -170.0,
+      "premium_basis": 685.0,
+      "pnl": 515.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241213P00588000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-06",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": -666.0,
+      "exit_val": -166.0,
+      "premium_basis": 666.0,
+      "pnl": 500.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY241220P00598000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-02",
+      "exit_date": "2024-12-27",
+      "spot": 603.63,
+      "exp_near": "2024-12-27",
+      "mult": 1,
+      "entry_val": -610.0,
+      "exit_val": -900.0,
+      "premium_basis": 610.0,
+      "pnl": -290.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241227P00604000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-09",
+      "exit_date": "2025-01-03",
+      "spot": 604.68,
+      "exp_near": "2025-01-03",
+      "mult": 1,
+      "entry_val": -648.0,
+      "exit_val": -1343.0,
+      "premium_basis": 648.0,
+      "pnl": -695.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250103P00605000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-16",
+      "exit_date": "2025-01-10",
+      "spot": 606.79,
+      "exp_near": "2025-01-10",
+      "mult": 1,
+      "entry_val": -667.0,
+      "exit_val": -2600.0,
+      "premium_basis": 667.0,
+      "pnl": -1933.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250110P00607000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-23",
+      "exit_date": "2025-01-17",
+      "spot": 594.69,
+      "exp_near": "2025-01-17",
+      "mult": 1,
+      "entry_val": -750.0,
+      "exit_val": -1.0,
+      "premium_basis": 750.0,
+      "pnl": 749.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250117P00595000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2024-12-30",
+      "exit_date": "2025-01-17",
+      "spot": 588.22,
+      "exp_near": "2025-01-24",
+      "mult": 1,
+      "entry_val": -768.0,
+      "exit_val": -127.0,
+      "premium_basis": 768.0,
+      "pnl": 641.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250124P00588000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-22",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": -714.0,
+      "exit_val": -133.0,
+      "premium_basis": 714.0,
+      "pnl": 581.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250131P00595000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-13",
+      "exit_date": "2025-01-21",
+      "spot": 581.39,
+      "exp_near": "2025-02-07",
+      "mult": 1,
+      "entry_val": -884.0,
+      "exit_val": -133.0,
+      "premium_basis": 884.0,
+      "pnl": 751.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250207P00581000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-21",
+      "exit_date": "2025-02-13",
+      "spot": 603.05,
+      "exp_near": "2025-02-14",
+      "mult": 1,
+      "entry_val": -676.0,
+      "exit_val": -24.0,
+      "premium_basis": 676.0,
+      "pnl": 652.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250214P00603000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-13",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": -785.0,
+      "exit_val": -103.0,
+      "premium_basis": 785.0,
+      "pnl": 682.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250221P00599000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-03",
+      "exit_date": "2025-02-14",
+      "spot": 597.77,
+      "exp_near": "2025-02-28",
+      "mult": 1,
+      "entry_val": -878.0,
+      "exit_val": -184.0,
+      "premium_basis": 878.0,
+      "pnl": 694.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250228P00598000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-10",
+      "exit_date": "2025-03-07",
+      "spot": 604.85,
+      "exp_near": "2025-03-07",
+      "mult": 1,
+      "entry_val": -731.0,
+      "exit_val": -2927.0,
+      "premium_basis": 731.0,
+      "pnl": -2196.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250307P00605000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-18",
+      "exit_date": "2025-03-14",
+      "spot": 611.49,
+      "exp_near": "2025-03-14",
+      "mult": 1,
+      "entry_val": -636.0,
+      "exit_val": -5338.0,
+      "premium_basis": 636.0,
+      "pnl": -4702.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250314P00611000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-02-24",
+      "exit_date": "2025-03-21",
+      "spot": 597.21,
+      "exp_near": "2025-03-21",
+      "mult": 1,
+      "entry_val": -890.0,
+      "exit_val": -3265.0,
+      "premium_basis": 890.0,
+      "pnl": -2375.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250321P00597000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-03",
+      "exit_date": "2025-03-28",
+      "spot": 583.77,
+      "exp_near": "2025-03-28",
+      "mult": 1,
+      "entry_val": -1133.0,
+      "exit_val": -2651.0,
+      "premium_basis": 1133.0,
+      "pnl": -1518.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250328P00584000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-10",
+      "exit_date": "2025-03-24",
+      "spot": 560.58,
+      "exp_near": "2025-04-04",
+      "mult": 1,
+      "entry_val": -1418.0,
+      "exit_val": -279.0,
+      "premium_basis": 1418.0,
+      "pnl": 1139.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250404P00561000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-17",
+      "exit_date": "2025-04-11",
+      "spot": 567.15,
+      "exp_near": "2025-04-11",
+      "mult": 1,
+      "entry_val": -1117.0,
+      "exit_val": -3663.0,
+      "premium_basis": 1117.0,
+      "pnl": -2546.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250411P00567000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-03-31",
+      "exit_date": "2025-04-25",
+      "spot": 559.39,
+      "exp_near": "2025-04-25",
+      "mult": 1,
+      "entry_val": -1063.0,
+      "exit_val": -948.0,
+      "premium_basis": 1063.0,
+      "pnl": 115.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250425P00559000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-14",
+      "exit_date": "2025-04-29",
+      "spot": 539.12,
+      "exp_near": "2025-05-09",
+      "mult": 1,
+      "entry_val": -1456.0,
+      "exit_val": -353.0,
+      "premium_basis": 1456.0,
+      "pnl": 1103.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250509P00539000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-21",
+      "exit_date": "2025-04-24",
+      "spot": 513.88,
+      "exp_near": "2025-05-16",
+      "mult": 1,
+      "entry_val": -1616.0,
+      "exit_val": -391.0,
+      "premium_basis": 1616.0,
+      "pnl": 1225.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250516P00514000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-04-28",
+      "exit_date": "2025-05-12",
+      "spot": 550.85,
+      "exp_near": "2025-05-23",
+      "mult": 1,
+      "entry_val": -1230.0,
+      "exit_val": -74.0,
+      "premium_basis": 1230.0,
+      "pnl": 1156.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250523P00551000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-05",
+      "exit_date": "2025-05-12",
+      "spot": 563.51,
+      "exp_near": "2025-05-30",
+      "mult": 1,
+      "entry_val": -1144.0,
+      "exit_val": -272.0,
+      "premium_basis": 1144.0,
+      "pnl": 872.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250530P00564000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-12",
+      "exit_date": "2025-06-02",
+      "spot": 582.99,
+      "exp_near": "2025-06-06",
+      "mult": 1,
+      "entry_val": -874.0,
+      "exit_val": -137.0,
+      "premium_basis": 874.0,
+      "pnl": 737.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250606P00583000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-19",
+      "exit_date": "2025-06-09",
+      "spot": 594.85,
+      "exp_near": "2025-06-13",
+      "mult": 1,
+      "entry_val": -908.0,
+      "exit_val": -209.0,
+      "premium_basis": 908.0,
+      "pnl": 699.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250613P00595000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-05-27",
+      "exit_date": "2025-06-10",
+      "spot": 591.15,
+      "exp_near": "2025-06-20",
+      "mult": 1,
+      "entry_val": -897.0,
+      "exit_val": -214.0,
+      "premium_basis": 897.0,
+      "pnl": 683.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250620P00591000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-02",
+      "exit_date": "2025-06-23",
+      "spot": 592.71,
+      "exp_near": "2025-06-27",
+      "mult": 1,
+      "entry_val": -935.0,
+      "exit_val": -170.0,
+      "premium_basis": 935.0,
+      "pnl": 765.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250627P00593000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-16",
+      "exit_date": "2025-06-27",
+      "spot": 602.68,
+      "exp_near": "2025-07-11",
+      "mult": 1,
+      "entry_val": -915.0,
+      "exit_val": -221.0,
+      "premium_basis": 915.0,
+      "pnl": 694.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250711P00603000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-23",
+      "exit_date": "2025-07-02",
+      "spot": 600.15,
+      "exp_near": "2025-07-18",
+      "mult": 1,
+      "entry_val": -882.0,
+      "exit_val": -171.0,
+      "premium_basis": 882.0,
+      "pnl": 711.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250718P00600000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-06-30",
+      "exit_date": "2025-07-17",
+      "spot": 617.85,
+      "exp_near": "2025-07-25",
+      "mult": 1,
+      "entry_val": -794.0,
+      "exit_val": -134.0,
+      "premium_basis": 794.0,
+      "pnl": 660.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250725P00618000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-07",
+      "exit_date": "2025-07-23",
+      "spot": 620.68,
+      "exp_near": "2025-08-01",
+      "mult": 1,
+      "entry_val": -929.0,
+      "exit_val": -141.0,
+      "premium_basis": 929.0,
+      "pnl": 788.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250801P00621000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-14",
+      "exit_date": "2025-07-25",
+      "spot": 624.81,
+      "exp_near": "2025-08-08",
+      "mult": 1,
+      "entry_val": -858.0,
+      "exit_val": -209.0,
+      "premium_basis": 858.0,
+      "pnl": 649.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250808P00625000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-21",
+      "exit_date": "2025-08-08",
+      "spot": 628.77,
+      "exp_near": "2025-08-15",
+      "mult": 1,
+      "entry_val": -806.0,
+      "exit_val": -135.0,
+      "premium_basis": 806.0,
+      "pnl": 671.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250815P00629000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-07-28",
+      "exit_date": "2025-08-13",
+      "spot": 636.94,
+      "exp_near": "2025-08-22",
+      "mult": 1,
+      "entry_val": -708.0,
+      "exit_val": -175.0,
+      "premium_basis": 708.0,
+      "pnl": 533.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250822P00637000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-04",
+      "exit_date": "2025-08-18",
+      "spot": 631.17,
+      "exp_near": "2025-08-29",
+      "mult": 1,
+      "entry_val": -833.0,
+      "exit_val": -178.0,
+      "premium_basis": 833.0,
+      "pnl": 655.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250829P00631000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-11",
+      "exit_date": "2025-08-26",
+      "spot": 635.92,
+      "exp_near": "2025-09-05",
+      "mult": 1,
+      "entry_val": -794.0,
+      "exit_val": -184.0,
+      "premium_basis": 794.0,
+      "pnl": 610.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250905P00636000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-18",
+      "exit_date": "2025-09-08",
+      "spot": 643.3,
+      "exp_near": "2025-09-12",
+      "mult": 1,
+      "entry_val": -689.0,
+      "exit_val": -135.0,
+      "premium_basis": 689.0,
+      "pnl": 554.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250912P00643000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-08-25",
+      "exit_date": "2025-09-11",
+      "spot": 642.47,
+      "exp_near": "2025-09-19",
+      "mult": 1,
+      "entry_val": -723.0,
+      "exit_val": -105.0,
+      "premium_basis": 723.0,
+      "pnl": 618.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250919P00642000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-02",
+      "exit_date": "2025-09-11",
+      "spot": 640.27,
+      "exp_near": "2025-09-26",
+      "mult": 1,
+      "entry_val": -812.0,
+      "exit_val": -181.0,
+      "premium_basis": 812.0,
+      "pnl": 631.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY250926P00640000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-08",
+      "exit_date": "2025-09-19",
+      "spot": 648.83,
+      "exp_near": "2025-10-03",
+      "mult": 1,
+      "entry_val": -840.0,
+      "exit_val": -200.0,
+      "premium_basis": 840.0,
+      "pnl": 640.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251003P00649000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-15",
+      "exit_date": "2025-10-02",
+      "spot": 660.91,
+      "exp_near": "2025-10-10",
+      "mult": 1,
+      "entry_val": -849.0,
+      "exit_val": -199.0,
+      "premium_basis": 849.0,
+      "pnl": 650.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251010P00661000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-22",
+      "exit_date": "2025-10-17",
+      "spot": 666.84,
+      "exp_near": "2025-10-17",
+      "mult": 1,
+      "entry_val": -840.0,
+      "exit_val": -197.0,
+      "premium_basis": 840.0,
+      "pnl": 643.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251017P00667000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-09-29",
+      "exit_date": "2025-10-20",
+      "spot": 663.68,
+      "exp_near": "2025-10-24",
+      "mult": 1,
+      "entry_val": -800.0,
+      "exit_val": -171.0,
+      "premium_basis": 800.0,
+      "pnl": 629.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251024P00664000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-06",
+      "exit_date": "2025-10-27",
+      "spot": 671.61,
+      "exp_near": "2025-10-31",
+      "mult": 1,
+      "entry_val": -847.0,
+      "exit_val": -100.0,
+      "premium_basis": 847.0,
+      "pnl": 747.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251031P00672000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-13",
+      "exit_date": "2025-10-27",
+      "spot": 663.04,
+      "exp_near": "2025-11-07",
+      "mult": 1,
+      "entry_val": -990.0,
+      "exit_val": -116.0,
+      "premium_basis": 990.0,
+      "pnl": 874.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251107P00663000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-20",
+      "exit_date": "2025-11-10",
+      "spot": 671.3,
+      "exp_near": "2025-11-14",
+      "mult": 1,
+      "entry_val": -916.0,
+      "exit_val": -111.0,
+      "premium_basis": 916.0,
+      "pnl": 805.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251114P00671000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-10-27",
+      "exit_date": "2025-11-21",
+      "spot": 685.24,
+      "exp_near": "2025-11-21",
+      "mult": 1,
+      "entry_val": -828.0,
+      "exit_val": -2633.0,
+      "premium_basis": 828.0,
+      "pnl": -1805.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY251121P00685000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-03",
+      "exit_date": "2025-11-28",
+      "spot": 683.34,
+      "exp_near": "2025-11-28",
+      "mult": 1,
+      "entry_val": -911.0,
+      "exit_val": -2.0,
+      "premium_basis": 911.0,
+      "pnl": 909.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251128P00683000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-10",
+      "exit_date": "2025-12-03",
+      "spot": 681.44,
+      "exp_near": "2025-12-05",
+      "mult": 1,
+      "entry_val": -908.0,
+      "exit_val": -123.0,
+      "premium_basis": 908.0,
+      "pnl": 785.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251205P00681000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-17",
+      "exit_date": "2025-11-28",
+      "spot": 665.67,
+      "exp_near": "2025-12-12",
+      "mult": 1,
+      "entry_val": -1215.0,
+      "exit_val": -235.0,
+      "premium_basis": 1215.0,
+      "pnl": 980.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251212P00666000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-11-24",
+      "exit_date": "2025-12-05",
+      "spot": 668.73,
+      "exp_near": "2025-12-19",
+      "mult": 1,
+      "entry_val": -1142.0,
+      "exit_val": -246.0,
+      "premium_basis": 1142.0,
+      "pnl": 896.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251219P00669000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-01",
+      "exit_date": "2025-12-22",
+      "spot": 680.27,
+      "exp_near": "2025-12-26",
+      "mult": 1,
+      "entry_val": -998.0,
+      "exit_val": -64.0,
+      "premium_basis": 998.0,
+      "pnl": 934.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY251226P00680000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-08",
+      "exit_date": "2025-12-23",
+      "spot": 683.63,
+      "exp_near": "2026-01-02",
+      "mult": 1,
+      "entry_val": -1023.0,
+      "exit_val": -226.0,
+      "premium_basis": 1023.0,
+      "pnl": 797.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260102P00684000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-15",
+      "exit_date": "2025-12-26",
+      "spot": 680.73,
+      "exp_near": "2026-01-09",
+      "mult": 1,
+      "entry_val": -894.0,
+      "exit_val": -207.0,
+      "premium_basis": 894.0,
+      "pnl": 687.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260109P00681000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-22",
+      "exit_date": "2026-01-09",
+      "spot": 684.83,
+      "exp_near": "2026-01-16",
+      "mult": 1,
+      "entry_val": -708.0,
+      "exit_val": -121.0,
+      "premium_basis": 708.0,
+      "pnl": 587.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260116P00685000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2025-12-29",
+      "exit_date": "2026-01-22",
+      "spot": 687.85,
+      "exp_near": "2026-01-23",
+      "mult": 1,
+      "entry_val": -726.0,
+      "exit_val": -132.0,
+      "premium_basis": 726.0,
+      "pnl": 594.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260123P00688000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-05",
+      "exit_date": "2026-01-27",
+      "spot": 687.72,
+      "exp_near": "2026-01-30",
+      "mult": 1,
+      "entry_val": -824.0,
+      "exit_val": -150.0,
+      "premium_basis": 824.0,
+      "pnl": 674.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260130P00688000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-12",
+      "exit_date": "2026-02-06",
+      "spot": 695.16,
+      "exp_near": "2026-02-06",
+      "mult": 1,
+      "entry_val": -794.0,
+      "exit_val": -463.0,
+      "premium_basis": 794.0,
+      "pnl": 331.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260206P00695000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-20",
+      "exit_date": "2026-01-28",
+      "spot": 677.58,
+      "exp_near": "2026-02-13",
+      "mult": 1,
+      "entry_val": -1161.0,
+      "exit_val": -290.0,
+      "premium_basis": 1161.0,
+      "pnl": 871.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260213P00678000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-01-26",
+      "exit_date": "2026-02-20",
+      "spot": 692.73,
+      "exp_near": "2026-02-20",
+      "mult": 1,
+      "entry_val": -863.0,
+      "exit_val": -340.0,
+      "premium_basis": 863.0,
+      "pnl": 523.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260220P00693000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-02",
+      "exit_date": "2026-02-27",
+      "spot": 695.41,
+      "exp_near": "2026-02-27",
+      "mult": 1,
+      "entry_val": -850.0,
+      "exit_val": -910.0,
+      "premium_basis": 850.0,
+      "pnl": -60.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260227P00695000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-09",
+      "exit_date": "2026-03-06",
+      "spot": 693.95,
+      "exp_near": "2026-03-06",
+      "mult": 1,
+      "entry_val": -944.0,
+      "exit_val": -2169.0,
+      "premium_basis": 944.0,
+      "pnl": -1225.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260306P00694000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-17",
+      "exit_date": "2026-03-13",
+      "spot": 682.85,
+      "exp_near": "2026-03-13",
+      "mult": 1,
+      "entry_val": -1150.0,
+      "exit_val": -2128.0,
+      "premium_basis": 1150.0,
+      "pnl": -978.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260313P00683000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-02-23",
+      "exit_date": "2026-03-20",
+      "spot": 682.39,
+      "exp_near": "2026-03-20",
+      "mult": 1,
+      "entry_val": -1230.0,
+      "exit_val": -3286.0,
+      "premium_basis": 1230.0,
+      "pnl": -2056.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260320P00682000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-02",
+      "exit_date": "2026-03-27",
+      "spot": 686.38,
+      "exp_near": "2026-03-27",
+      "mult": 1,
+      "entry_val": -1237.0,
+      "exit_val": -3945.0,
+      "premium_basis": 1237.0,
+      "pnl": -2708.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260327P00686000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-16",
+      "exit_date": "2026-04-08",
+      "spot": 669.03,
+      "exp_near": "2026-04-10",
+      "mult": 1,
+      "entry_val": -1377.0,
+      "exit_val": -175.0,
+      "premium_basis": 1377.0,
+      "pnl": 1202.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260410P00669000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-23",
+      "exit_date": "2026-04-08",
+      "spot": 655.38,
+      "exp_near": "2026-04-17",
+      "mult": 1,
+      "entry_val": -1425.0,
+      "exit_val": -225.0,
+      "premium_basis": 1425.0,
+      "pnl": 1200.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260417P00655000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-03-30",
+      "exit_date": "2026-04-08",
+      "spot": 631.97,
+      "exp_near": "2026-04-24",
+      "mult": 1,
+      "entry_val": -1610.0,
+      "exit_val": -171.0,
+      "premium_basis": 1610.0,
+      "pnl": 1439.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260424P00632000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-06",
+      "exit_date": "2026-04-13",
+      "spot": 658.93,
+      "exp_near": "2026-05-01",
+      "mult": 1,
+      "entry_val": -1342.0,
+      "exit_val": -303.0,
+      "premium_basis": 1342.0,
+      "pnl": 1039.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260501P00659000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-13",
+      "exit_date": "2026-04-24",
+      "spot": 686.1,
+      "exp_near": "2026-05-08",
+      "mult": 1,
+      "entry_val": -1019.0,
+      "exit_val": -204.0,
+      "premium_basis": 1019.0,
+      "pnl": 815.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260508P00686000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-20",
+      "exit_date": "2026-05-05",
+      "spot": 708.72,
+      "exp_near": "2026-05-15",
+      "mult": 1,
+      "entry_val": -1082.0,
+      "exit_val": -235.0,
+      "premium_basis": 1082.0,
+      "pnl": 847.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260515P00709000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-04-27",
+      "exit_date": "2026-05-08",
+      "spot": 715.17,
+      "exp_near": "2026-05-22",
+      "mult": 1,
+      "entry_val": -1072.0,
+      "exit_val": -199.0,
+      "premium_basis": 1072.0,
+      "pnl": 873.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260522P00715000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-04",
+      "exit_date": "2026-05-13",
+      "spot": 718.01,
+      "exp_near": "2026-05-29",
+      "mult": 1,
+      "entry_val": -1066.0,
+      "exit_val": -241.0,
+      "premium_basis": 1066.0,
+      "pnl": 825.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260529P00718000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-11",
+      "exit_date": "2026-05-26",
+      "spot": 739.3,
+      "exp_near": "2026-06-05",
+      "mult": 1,
+      "entry_val": -1098.0,
+      "exit_val": -272.0,
+      "premium_basis": 1098.0,
+      "pnl": 826.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260605P00739000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-05-18",
+      "exit_date": "2026-05-28",
+      "spot": 738.65,
+      "exp_near": "2026-06-12",
+      "mult": 1,
+      "entry_val": -1121.0,
+      "exit_val": -243.0,
+      "premium_basis": 1121.0,
+      "pnl": 878.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260612P00739000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-01",
+      "exit_date": "2026-06-26",
+      "spot": 758.54,
+      "exp_near": "2026-06-26",
+      "mult": 1,
+      "entry_val": -1045.0,
+      "exit_val": -2588.0,
+      "premium_basis": 1045.0,
+      "pnl": -1543.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260626P00759000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-15",
+      "exit_date": "2026-07-10",
+      "spot": 754.83,
+      "exp_near": "2026-07-10",
+      "mult": 1,
+      "entry_val": -1030.0,
+      "exit_val": -8.0,
+      "premium_basis": 1030.0,
+      "pnl": 1022.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260710P00755000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-22",
+      "exit_date": "2026-07-09",
+      "spot": 744.39,
+      "exp_near": "2026-07-17",
+      "mult": 1,
+      "entry_val": -1000.0,
+      "exit_val": -232.0,
+      "premium_basis": 1000.0,
+      "pnl": 768.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260717P00744000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-06-29",
+      "exit_date": "2026-07-10",
+      "spot": 741.0,
+      "exp_near": "2026-07-24",
+      "mult": 1,
+      "entry_val": -1027.0,
+      "exit_val": -215.0,
+      "premium_basis": 1027.0,
+      "pnl": 812.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260724P00741000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-06",
+      "exit_date": "2026-07-31",
+      "spot": 751.28,
+      "exp_near": "2026-07-31",
+      "mult": 1,
+      "entry_val": -879.0,
+      "exit_val": -400.0,
+      "premium_basis": 879.0,
+      "pnl": 479.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY260731P00751000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-13",
+      "exit_date": "2026-08-03",
+      "spot": 749.17,
+      "exp_near": "2026-08-07",
+      "mult": 1,
+      "entry_val": -1020.0,
+      "exit_val": -116.0,
+      "premium_basis": 1020.0,
+      "pnl": 904.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260807P00749000"
+      ]
+    },
+    {
+      "strategy": "Cash-Secured Put",
+      "tp_pct": 75,
+      "sl_pct": 0.0,
+      "entry_date": "2026-07-20",
+      "exit_date": "2026-08-03",
+      "spot": 742.09,
+      "exp_near": "2026-08-14",
+      "mult": 1,
+      "entry_val": -1087.0,
+      "exit_val": -182.0,
+      "premium_basis": 1087.0,
+      "pnl": 905.0,
+      "exit_reason": "TP_75PCT",
+      "legs": [
+        "-1xO:SPY260814P00742000"
+      ]
+    }
+  ]
+}
