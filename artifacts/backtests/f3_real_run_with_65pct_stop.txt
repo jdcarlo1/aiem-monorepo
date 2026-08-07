@@ -1,0 +1,29 @@
+
+F3 SPY 0DTE Backtest (REAL OPTION PRICING)  |  2025-08-06 -> 2026-08-06
+$200 notional/trade  |  stop=65%  |  else sell 4PM ET
+
+Pricing path: Polygon /v2/aggs/ticker/O:.../range/1/minute (options aggs)
+Also available: /v3/snapshot/options/SPY for live ATM lookup
+[1] Daily data: 251 trading days loaded
+[2] Bars: chunk 1 = 11536  [DELAYED]
+    +10558 bars  total=22094
+    +10299 bars  total=32393
+    +10521 bars  total=42914
+    +4979 bars  total=47893
+    47893 total bars fetched
+[3] Organized: 251 days with intraday data
+[5] Strategy complete: 178 trades, 0 skipped (missing option data)
+
+======================================================================
+  F3 STRATEGY RESULTS -- REAL OPTION PRICING (Polygon options aggs)
+======================================================================
+  Total trades (real fills) : 178
+  Skipped (no quote)        : 0
+  Skip rate (of signals)    : 0.0%
+  Win rate                  : 38.8%
+  Total notional out        : $35,600
+  Total profit              : $+13,717.21
+  Cash-on-cash              : +38.5%
+  Avg per trade             : $+77.06
+======================================================================
+  Full trade log written to artifacts/backtests/f3_real_options_trades.csv
