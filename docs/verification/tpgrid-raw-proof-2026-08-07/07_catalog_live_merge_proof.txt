@@ -1,0 +1,36 @@
+=== Directive_CatalogScript_LiveMergeProof_2026-08-07 ===
+
+Path onto origin/dev: direct push of identical blob
+  branch: cursor/catalog-script-live-merge-fc0f
+  commit: c603e8e1c3e04c4f37f49d415294bb14535fd955
+  (PR #44 could not merge as-is: base=main, mergeStateStatus=BEHIND;
+   PR #47 merge blocked: still a draft)
+
+$ git fetch origin dev
+From https://github.com/jdcarlo1/aiem-monorepo
+ * branch              dev        -> FETCH_HEAD
+
+$ git rev-parse HEAD
+c603e8e1c3e04c4f37f49d415294bb14535fd955
+
+$ git rev-parse origin/dev
+c603e8e1c3e04c4f37f49d415294bb14535fd955
+
+$ git ls-tree origin/dev artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+100644 blob b01aef558ceecfe3fca9bb91341353729ea4a913	artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+
+$ git hash-object artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+b01aef558ceecfe3fca9bb91341353729ea4a913
+
+$ git show origin/dev:artifacts/stock-scanner-api/spy_catalog_untested_bt.py | git hash-object --stdin
+b01aef558ceecfe3fca9bb91341353729ea4a913
+
+Originally tested blob: b01aef558ceecfe3fca9bb91341353729ea4a913
+match_ls_tree_vs_hash_object=YES
+match_vs_originally_tested_b01aef55=YES — no #1/#2 rerun required
+
+$ git ls-tree origin/main artifacts/stock-scanner-api/spy_catalog_untested_bt.py
+(absent on origin/main — directive target was origin/dev)
+
+$ git log -1 --oneline origin/dev
+c603e8e1 Add spy_catalog_untested_bt.py to dev (live-merge proof)
