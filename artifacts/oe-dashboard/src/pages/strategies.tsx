@@ -48,13 +48,20 @@ type Snapshot = {
   put_butterfly?: StrategySnap;
   call_butterfly?: StrategySnap;
   put_ladder?: StrategySnap;
+  narrow_wing_butterfly?: StrategySnap;
+  bullish_risk_reversal?: StrategySnap;
   gap_fill?: unknown;
   orb?: unknown;
   error?: string;
 };
 
 const ASYM_CARDS: Array<{
-  key: 'put_butterfly' | 'call_butterfly' | 'put_ladder';
+  key:
+    | 'put_butterfly'
+    | 'call_butterfly'
+    | 'put_ladder'
+    | 'narrow_wing_butterfly'
+    | 'bullish_risk_reversal';
   title: string;
   blurb: string;
 }> = [
@@ -76,6 +83,18 @@ const ASYM_CARDS: Array<{
     blurb:
       'Long ATM / short −5/−10 / long −15 puts · Monday 09:30 ET · ≤$500 debit · TP +150% · no stop · Polygon daily',
   },
+  {
+    key: 'narrow_wing_butterfly',
+    title: 'Narrow-Wing Call Butterfly',
+    blurb:
+      'ATM ±2 call fly · Monday 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily · catalog #1',
+  },
+  {
+    key: 'bullish_risk_reversal',
+    title: 'Bullish Risk Reversal',
+    blurb:
+      'Long call k+5 / short put k−5 · Monday 09:30 ET · cash-secured credit · TP +75% of |entry| · no stop · Polygon daily · catalog #2',
+  },
 ];
 
 export default function StrategiesPage() {
@@ -96,7 +115,7 @@ export default function StrategiesPage() {
             Strategies
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            Live paper on Options Engine — F3 0DTE + top-3 asymmetric debit packages
+            Live paper on Options Engine — F3 0DTE + asym packages (flies, ladder, narrow-wing, bullish RR)
           </p>
         </div>
         <div className="font-mono text-sm text-muted-foreground text-left sm:text-right shrink-0">
@@ -120,7 +139,18 @@ export default function StrategiesPage() {
         <F3Card snap={data?.f3} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {ASYM_CARDS.map((c) => (
+          {ASYM_CARDS.slice(0, 3).map((c) => (
+            <AsymCard
+              key={c.key}
+              title={c.title}
+              blurb={c.blurb}
+              snap={data?.[c.key]}
+            />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {ASYM_CARDS.slice(3).map((c) => (
             <AsymCard
               key={c.key}
               title={c.title}
@@ -362,7 +392,7 @@ function AsymCard({
                 <span>{qty != null ? `${qty} pkg` : ''}</span>
               </div>
               <div className="text-muted-foreground">
-                DEBIT{' '}
+                {Number(pos.entry_debit_usd ?? 0) < 0 ? 'CREDIT' : 'DEBIT'}{' '}
                 <span className="text-foreground">
                   $
                   {Number(
