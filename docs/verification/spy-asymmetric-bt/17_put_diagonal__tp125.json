@@ -1,0 +1,110 @@
+{
+  "strategy": "17_put_diagonal",
+  "tp_pct": 125,
+  "no_stop_loss": true,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 5,
+    "total_pnl": 893.0,
+    "win_rate": 0.8,
+    "avg_pnl": 178.6,
+    "tp_hits": 0,
+    "expiry_exits": 5
+  },
+  "trades": [
+    {
+      "strategy": "17_put_diagonal",
+      "tp_pct": 125,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 441.0,
+      "exit_val": 495.0,
+      "premium_basis": 441.0,
+      "pnl": 54.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240920P00556000",
+        "1xO:SPY241018P00561000"
+      ]
+    },
+    {
+      "strategy": "17_put_diagonal",
+      "tp_pct": 125,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-22",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": 491.0,
+      "exit_val": 354.0,
+      "premium_basis": 491.0,
+      "pnl": -137.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241122P00576000",
+        "1xO:SPY241220P00581000"
+      ]
+    },
+    {
+      "strategy": "17_put_diagonal",
+      "tp_pct": 125,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": 456.0,
+      "exit_val": 943.0,
+      "premium_basis": 456.0,
+      "pnl": 487.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241220P00593000",
+        "1xO:SPY250117P00598000"
+      ]
+    },
+    {
+      "strategy": "17_put_diagonal",
+      "tp_pct": 125,
+      "entry_date": "2025-01-06",
+      "exit_date": "2025-01-31",
+      "spot": 595.36,
+      "exp_near": "2025-01-31",
+      "mult": 1,
+      "entry_val": 468.0,
+      "exit_val": 598.0,
+      "premium_basis": 468.0,
+      "pnl": 130.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250131P00590000",
+        "1xO:SPY250228P00595000"
+      ]
+    },
+    {
+      "strategy": "17_put_diagonal",
+      "tp_pct": 125,
+      "entry_date": "2025-01-27",
+      "exit_date": "2025-02-21",
+      "spot": 599.37,
+      "exp_near": "2025-02-21",
+      "mult": 1,
+      "entry_val": 497.0,
+      "exit_val": 856.0,
+      "premium_basis": 497.0,
+      "pnl": 359.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY250221P00594000",
+        "1xO:SPY250321P00599000"
+      ]
+    }
+  ]
+}

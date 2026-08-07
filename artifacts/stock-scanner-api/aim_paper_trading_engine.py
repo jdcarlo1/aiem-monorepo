@@ -145,9 +145,13 @@ class PatternLedger:
 
 class AIMPaperTradingEngine:
     """
-    Runs Gap Fill, ORB, and F3 SPY 0DTE as independent paper ledgers.
-    Gap Fill / ORB: $10k each, 1.5% risk equity. F3: $200 notional ATM 0DTE
-    long call/put with premarket-aligned breakout, −65% premium stop, else exit 16:00.
+    Runs Gap Fill, ORB, F3 SPY 0DTE, and top-3 asymmetric debit packages
+    as independent paper ledgers.
+
+    Gap Fill / ORB: $10k each, 1.5% risk equity.
+    F3: $200 notional ATM 0DTE long call/put, −65% premium stop, else 16:00.
+    Asym (put butterfly / call butterfly / put ladder): ~$500 debit, Monday
+    first RTH bar (09:30 ET), no stop, TP +200% / +100% / +150%, Polygon daily.
     """
 
     def __init__(self, symbol: str = "SPY", initial_capital_usd: float = 10000.0):
@@ -164,11 +168,33 @@ class AIMPaperTradingEngine:
             logging.warning("F3 ledger unavailable: %s", _f3e)
             self.f3 = None
 
+        self.asym = {}
+        try:
+            from aim_asym_paper_strategies import build_default_asym_ledgers as _build_asym
+            self.asym = _build_asym(underlying=symbol, capital=initial_capital_usd)
+        except Exception as _asyme:
+            logging.warning("Asym paper ledgers unavailable: %s", _asyme)
+            self.asym = {}
+
+    def _evaluate_options_ledgers(self, df: pd.DataFrame):
+        if self.f3 is not None:
+            try:
+                self.f3.evaluate(df)
+            except Exception as _f3ev:
+                logging.warning("[F3] evaluate error: %s", _f3ev)
+        for _key, ledger in (self.asym or {}).items():
+            try:
+                ledger.evaluate(df)
+            except Exception as _asym_ev:
+                logging.warning("[asym:%s] evaluate error: %s", _key, _asym_ev)
+
     def dashboard_snapshot(self) -> dict:
         """Everything a dashboard terminal needs to render pattern tiles."""
         out = {"gap_fill": self.gap_fill.snapshot(), "orb": self.orb.snapshot()}
         if self.f3 is not None:
             out["f3"] = self.f3.snapshot()
+        for key, ledger in (self.asym or {}).items():
+            out[key] = ledger.snapshot()
         return out
 
     def evaluate_market_bars(self, prior_close: float, today_dataframe: pd.DataFrame):
@@ -177,12 +203,8 @@ class AIMPaperTradingEngine:
         opening_bar = df.between_time('09:30', '09:30')
         opening_15min_window = df.between_time('09:30', '09:45')
         if opening_bar.empty or len(opening_15min_window) < 15:
-            # F3 can still evaluate with a shorter ORB once 09:44 bars exist
-            if self.f3 is not None:
-                try:
-                    self.f3.evaluate(df)
-                except Exception as _f3ev:
-                    logging.warning("[F3] evaluate error: %s", _f3ev)
+            # F3 / asym can still evaluate without a full Gap Fill / ORB window
+            self._evaluate_options_ledgers(df)
             return
 
         market_open_price = opening_bar.iloc[-1]['open']
@@ -220,9 +242,5 @@ class AIMPaperTradingEngine:
                     orb_target = latest_bar['close'] - (abs(range_high - latest_bar['close']) * 3.0)
                     self.orb.enter(self.symbol, latest_bar['close'], orb_stop, orb_target, "SHORT")
 
-        # --- F3 SPY 0DTE: PM-aligned ORB breakout → ATM long call/put, exit 16:00 ---
-        if self.f3 is not None:
-            try:
-                self.f3.evaluate(df)
-            except Exception as _f3ev:
-                logging.warning("[F3] evaluate error: %s", _f3ev)
+        # --- F3 + asymmetric weekly debit packages ---
+        self._evaluate_options_ledgers(df)

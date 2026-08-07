@@ -1,0 +1,22 @@
+{
+  "strategy": "12_long_straddle",
+  "tp_pct": 0,
+  "sl_pct": 25.0,
+  "ride_to_expiry": true,
+  "no_stop_loss": false,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 0,
+    "total_pnl": 0.0,
+    "win_rate": null,
+    "avg_pnl": null,
+    "tp_hits": 0,
+    "sl_hits": 0,
+    "expiry_exits": 0
+  },
+  "trades": []
+}

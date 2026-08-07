@@ -6,16 +6,20 @@ type ActivePosition = {
   symbol: string;
   shares?: number;
   contracts?: number;
+  packages?: number;
   side: string;
   direction?: string;
   entry: number;
   entry_premium?: number;
+  entry_debit_usd?: number;
   stop: number;
   target: number;
   strike?: number;
   option_symbol?: string;
   mark_premium?: number;
   unrealized_pnl?: number;
+  expiration?: string;
+  legs?: Array<{ qty: number; right: string; strike: number }>;
 } | null;
 
 type PatternSnap = {
@@ -33,30 +37,42 @@ type PatternSnap = {
   orb_high?: number | null;
   orb_low?: number | null;
   rules?: Record<string, unknown>;
+  recent_trades?: Array<{
+    direction?: string;
+    pnl_usd?: number;
+    result?: string;
+    reason?: string;
+  }>;
 };
 
 type Snapshot = {
   gap_fill?: PatternSnap;
   orb?: PatternSnap;
   f3?: PatternSnap;
+  put_butterfly?: PatternSnap;
+  call_butterfly?: PatternSnap;
+  put_ladder?: PatternSnap;
   error?: string;
 };
 
 function PatternCard({
   snap,
   title,
-  optionsMode = false,
+  mode = "equity",
 }: {
   snap?: PatternSnap;
   title: string;
-  optionsMode?: boolean;
+  mode?: "equity" | "f3" | "asym";
 }) {
   const pos = snap?.active_position;
   const profit = snap?.profit_rate_pct ?? 0;
   const profitColor =
     profit > 0 ? "text-success" : profit < 0 ? "text-destructive" : "text-muted-foreground";
-  const qty = pos?.contracts ?? pos?.shares;
+  const qty = pos?.packages ?? pos?.contracts ?? pos?.shares;
   const dir = pos?.direction || pos?.side;
+  const optionsMode = mode === "f3" || mode === "asym";
+  const tpPct = Number(snap?.rules?.take_profit_pct ?? 0);
+  const riskUsd = Number(snap?.rules?.risk_usd ?? 500);
 
   return (
     <div className="border border-border bg-card flex flex-col h-full">
@@ -115,7 +131,7 @@ function PatternCard({
           </div>
         </div>
 
-        {optionsMode ? (
+        {mode === "f3" ? (
           <div className="border border-border bg-black/20 p-3 font-mono text-[11px] text-muted-foreground space-y-1">
             <div>
               PM{" "}
@@ -142,6 +158,22 @@ function PatternCard({
           </div>
         ) : null}
 
+        {mode === "asym" ? (
+          <div className="border border-border bg-black/20 p-3 font-mono text-[11px] text-muted-foreground space-y-1">
+            <div>
+              SIGNAL{" "}
+              <span className="text-primary">{snap?.signal_state?.status || "—"}</span>
+              {snap?.signal_state?.note ? (
+                <span className="block text-muted-foreground mt-1">{snap.signal_state.note}</span>
+              ) : null}
+            </div>
+            <div className="text-[10px] uppercase tracking-wide pt-1">
+              Mon 09:30 ET · ~${riskUsd.toFixed(0)} debit · TP +{tpPct || "—"}% · no stop ·
+              ~3wk Friday · Polygon daily
+            </div>
+          </div>
+        ) : null}
+
         <div className="border border-border bg-black/20 p-3">
           <div className="text-[10px] font-mono text-muted-foreground uppercase mb-2 flex items-center gap-2">
             <Activity size={12} /> Active Position
@@ -149,20 +181,24 @@ function PatternCard({
           {pos ? (
             <div className="grid grid-cols-2 gap-2 font-mono text-sm">
               <div className="flex items-center gap-2 flex-wrap">
-                {dir === "CALL" || dir === "LONG" ? (
+                {dir === "CALL" || dir === "LONG" || String(dir || "").includes("CALL") ? (
                   <TrendingUp size={14} className="text-success" />
                 ) : (
                   <TrendingDown size={14} className="text-destructive" />
                 )}
                 <span
                   className={
-                    dir === "CALL" || dir === "LONG" ? "text-success" : "text-destructive"
+                    dir === "CALL" || dir === "LONG" || String(dir || "").includes("CALL")
+                      ? "text-success"
+                      : "text-destructive"
                   }
                 >
                   {dir}
                 </span>
                 <span className="text-white">
-                  {qty != null ? `${qty}${optionsMode ? " ctr" : " sh"}` : ""}
+                  {qty != null
+                    ? `${qty}${mode === "asym" ? " pkg" : mode === "f3" ? " ctr" : " sh"}`
+                    : ""}
                 </span>
                 <span className="text-muted-foreground">
                   {pos.option_symbol || pos.symbol}
@@ -172,10 +208,15 @@ function PatternCard({
                 <div>
                   ENTRY{" "}
                   <span className="text-white">
-                    ${Number(pos.entry_premium ?? pos.entry).toFixed(optionsMode ? 3 : 2)}
+                    $
+                    {Number(
+                      mode === "asym"
+                        ? pos.entry_debit_usd ?? pos.entry_premium ?? pos.entry
+                        : pos.entry_premium ?? pos.entry
+                    ).toFixed(mode === "equity" ? 2 : 3)}
                   </span>
                 </div>
-                {optionsMode ? (
+                {mode === "f3" ? (
                   <>
                     {pos.strike != null ? (
                       <div>
@@ -194,9 +235,48 @@ function PatternCard({
                         ${Number(pos.stop).toFixed(3)} (−65%)
                       </span>
                     </div>
-                    <div>ELSE EXIT <span className="text-success">16:00 ET</span></div>
+                    <div>
+                      ELSE EXIT <span className="text-success">16:00 ET</span>
+                    </div>
                   </>
-                ) : (
+                ) : null}
+                {mode === "asym" ? (
+                  <>
+                    {pos.expiration ? (
+                      <div>
+                        EXP <span className="text-white">{pos.expiration}</span>
+                      </div>
+                    ) : null}
+                    {pos.mark_premium != null ? (
+                      <div>
+                        MARK{" "}
+                        <span className="text-white">${Number(pos.mark_premium).toFixed(3)}</span>
+                      </div>
+                    ) : null}
+                    {pos.unrealized_pnl != null ? (
+                      <div>
+                        UPNL{" "}
+                        <span
+                          className={
+                            pos.unrealized_pnl >= 0 ? "text-success" : "text-destructive"
+                          }
+                        >
+                          ${Number(pos.unrealized_pnl).toFixed(2)}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div>
+                      TP{" "}
+                      <span className="text-success">
+                        {tpPct ? `+${tpPct}%` : "—"}
+                      </span>
+                    </div>
+                    <div>
+                      STOP <span className="text-muted-foreground">NONE</span>
+                    </div>
+                  </>
+                ) : null}
+                {mode === "equity" ? (
                   <>
                     <div>
                       STOP <span className="text-destructive">${Number(pos.stop).toFixed(2)}</span>
@@ -205,7 +285,7 @@ function PatternCard({
                       TARGET <span className="text-success">${Number(pos.target).toFixed(2)}</span>
                     </div>
                   </>
-                )}
+                ) : null}
               </div>
             </div>
           ) : (
@@ -232,8 +312,7 @@ export default function PatternLab() {
             Pattern Lab
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            Gap Fill &amp; ORB equity paper ($10k / 1.5% / ORB 3.0R) · F3 SPY 0DTE ATM options
-            ($200 notional, PM-aligned breakout, exit 16:00)
+            Gap Fill &amp; ORB equity · F3 0DTE · asym put/call butterfly + put ladder (paper)
           </p>
         </div>
         <div className="font-mono text-xs text-muted-foreground text-right">
@@ -248,10 +327,24 @@ export default function PatternLab() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <PatternCard snap={data?.gap_fill} title="Gap Fill" />
         <PatternCard snap={data?.orb} title="Opening Range Breakout" />
-        <PatternCard snap={data?.f3} title="F3 SPY 0DTE" optionsMode />
+        <PatternCard snap={data?.f3} title="F3 SPY 0DTE" mode="f3" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+        <PatternCard
+          snap={data?.put_butterfly}
+          title="Long Put Butterfly"
+          mode="asym"
+        />
+        <PatternCard
+          snap={data?.call_butterfly}
+          title="Long Call Butterfly"
+          mode="asym"
+        />
+        <PatternCard snap={data?.put_ladder} title="Put Ladder Defined" mode="asym" />
       </div>
 
       <DataFooter lastUpdated={lastUpdated} source="/stock-api/pattern-lab/snapshot" />
