@@ -50,19 +50,29 @@ def _api_key() -> str:
     return k
 
 
-def _poly_get(path: str, params: dict) -> dict:
+def _poly_get(path: str, params: dict, retries: int = 8) -> dict:
     params = dict(params)
     params["apiKey"] = _api_key()
     url = f"{POLYGON_BASE}{path}?{urllib.parse.urlencode(params)}"
-    try:
-        with urllib.request.urlopen(url, timeout=60) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")[:400]
-        return {"status": "ERROR", "error": f"HTTP {e.code}: {body}", "results": []}
-    except Exception as e:
-        return {"status": "ERROR", "error": str(e), "results": []}
-
+    delay = max(RATE_SLEEP, 1.0)
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")[:400]
+            if e.code == 429 and attempt < retries - 1:
+                wait = min(90.0, delay * (2 ** attempt))
+                print(f"  [f3_bag] 429 — sleep {wait:.0f}s then retry ({attempt+1}/{retries})")
+                time.sleep(wait)
+                continue
+            return {"status": "ERROR", "error": f"HTTP {e.code}: {body}", "results": []}
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(delay * (attempt + 1))
+                continue
+            return {"status": "ERROR", "error": str(e), "results": []}
+    return {"status": "ERROR", "error": "retries exhausted", "results": []}
 
 def _et_minute(ts_ms: int) -> int:
     utc_dt = datetime.utcfromtimestamp(int(ts_ms) / 1000)
@@ -86,16 +96,27 @@ def get_atm_ticker(spot: float, exp_date: date, is_call: bool) -> str:
     return f"O:SPY{exp_date.strftime('%y%m%d')}{cp}{s}"
 
 
-def fetch_spy_aggs(start: date, end: date, multiplier: int, timespan: str) -> list:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cache_path = CACHE_DIR / f"SPY_{multiplier}{timespan}_{start}_{end}.json"
-    if cache_path.exists():
-        try:
-            return json.loads(cache_path.read_text())
-        except Exception:
-            pass
+def _month_edges(start: date, end: date) -> list[date]:
+    """Inclusive chunk edges for month-sized Polygon pulls (minute bars need this)."""
+    edges = [start]
+    y, m = start.year, start.month
+    while True:
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+        nxt = date(y, m, 1)
+        if nxt >= end:
+            break
+        if nxt > start:
+            edges.append(nxt)
+    if edges[-1] != end:
+        edges.append(end)
+    return edges
 
-    print(f"[f3_bag] fetching SPY {multiplier}/{timespan} {start}→{end} …")
+
+def _fetch_aggs_range(start: date, end: date, multiplier: int, timespan: str) -> list:
+    """One Polygon range pull with next_url pagination."""
     all_rows: list = []
     path = (
         f"/v2/aggs/ticker/SPY/range/{multiplier}/{timespan}/"
@@ -104,27 +125,83 @@ def fetch_spy_aggs(start: date, end: date, multiplier: int, timespan: str) -> li
     data = _poly_get(path, {"adjusted": "true", "sort": "asc", "limit": 50000})
     rows = data.get("results") or []
     all_rows.extend(rows)
+    if not rows and data.get("error"):
+        print(f"  [f3_bag] {start}→{end} error={data.get('error')}")
     next_url = data.get("next_url")
     while next_url:
         time.sleep(RATE_SLEEP)
-        # next_url already has query; append apiKey
         sep = "&" if "?" in next_url else "?"
         url = f"{next_url}{sep}apiKey={urllib.parse.quote(_api_key())}"
-        try:
-            with urllib.request.urlopen(url, timeout=60) as resp:
-                data = json.loads(resp.read().decode())
-        except Exception as e:
-            print(f"  [f3_bag] next_url failed: {e}")
-            break
-        more = data.get("results") or []
+        data = None
+        for attempt in range(8):
+            try:
+                with urllib.request.urlopen(url, timeout=60) as resp:
+                    data = json.loads(resp.read().decode())
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < 7:
+                    wait = min(90.0, max(RATE_SLEEP, 1.0) * (2 ** attempt))
+                    print(f"  [f3_bag] next_url 429 — sleep {wait:.0f}s")
+                    time.sleep(wait)
+                    continue
+                print(f"  [f3_bag] next_url failed: HTTP {e.code}")
+                data = {"results": []}
+                break
+            except Exception as e:
+                print(f"  [f3_bag] next_url failed: {e}")
+                data = {"results": []}
+                break
+        more = (data or {}).get("results") or []
         all_rows.extend(more)
         print(f"  +{len(more)} total={len(all_rows)}")
-        next_url = data.get("next_url")
-
-    cache_path.write_text(json.dumps(all_rows))
-    print(f"[f3_bag] cached {len(all_rows)} bars → {cache_path}")
+        next_url = (data or {}).get("next_url")
     return all_rows
 
+
+def fetch_spy_aggs(start: date, end: date, multiplier: int, timespan: str) -> list:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = CACHE_DIR / f"SPY_{multiplier}{timespan}_{start}_{end}.json"
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text())
+            # Ignore empty caches from failed wide-range pulls.
+            if cached:
+                return cached
+        except Exception:
+            pass
+
+    print(f"[f3_bag] fetching SPY {multiplier}/{timespan} {start}→{end} …")
+    all_rows: list = []
+    # Day bars can be one shot; minute bars must be month-chunked or Polygon
+    # returns empty / errors on multi-year windows.
+    if timespan == "day":
+        chunks = [(start, end)]
+    else:
+        edges = _month_edges(start, end)
+        chunks = [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)]
+
+    empty_chunks = 0
+    for a, b in chunks:
+        if a >= b:
+            continue
+        print(f"  chunk {a} → {b}…")
+        rows = _fetch_aggs_range(a, b, multiplier, timespan)
+        if not rows:
+            empty_chunks += 1
+        all_rows.extend(rows)
+        print(f"    → {len(rows)} (running {len(all_rows)})")
+        time.sleep(RATE_SLEEP)
+
+    # Only persist a complete-looking cache (avoid locking in partial 429 pulls).
+    if empty_chunks == 0 or (timespan == "day" and all_rows):
+        cache_path.write_text(json.dumps(all_rows))
+        print(f"[f3_bag] cached {len(all_rows)} bars → {cache_path}")
+    else:
+        print(
+            f"[f3_bag] NOT caching incomplete pull "
+            f"({empty_chunks} empty chunks, {len(all_rows)} bars)"
+        )
+    return all_rows
 
 def organize_intraday(raw_bars: list):
     reg: dict[str, list] = defaultdict(list)
