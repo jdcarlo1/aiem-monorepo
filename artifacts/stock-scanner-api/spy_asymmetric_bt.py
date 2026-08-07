@@ -443,15 +443,14 @@ def run_strategy(
         entry_val *= mult
         # Premium basis for TP%: debit paid, or credit received
         premium_basis = abs(entry_val)
-        tp_dollars = premium_basis * (tp_pct / 100.0)
+        # tp_pct == 0 → no take-profit; ride until expiry flatten only
+        tp_dollars = None if tp_pct <= 0 else premium_basis * (tp_pct / 100.0)
         is_debit = entry_val > 0
 
         def _pnl(mark: float) -> float:
-            # Debit: long package — profit when mark rises
-            # Credit: short net package — profit when mark rises toward 0 (becomes less negative)
             if is_debit:
                 return mark - entry_val
-            return mark - entry_val  # entry=-200, mark=-50 → pnl=+150
+            return mark - entry_val
 
         hold_end = min(exp_near, end)
         sessions = [x for x in spy.index if d0 < x <= hold_end]
@@ -465,7 +464,7 @@ def run_strategy(
             if mark is None:
                 continue
             pnl_now = _pnl(mark)
-            if pnl_now >= tp_dollars:
+            if tp_dollars is not None and pnl_now >= tp_dollars:
                 exit_d, exit_val, exit_reason, pnl = d, mark, f"TP_{tp_pct}PCT", pnl_now
                 break
 
@@ -521,7 +520,11 @@ def main():
     ap.add_argument("--max-entries", type=int, default=0, help="cap Mondays (0=all) for smoke tests")
     args = ap.parse_args()
 
-    tp_list = [int(x) for x in args.tp.split(",") if x.strip()]
+    tp_list = []
+    if args.tp.strip().lower() in ("none", "0", "ride", "expiry"):
+        tp_list = [0]  # 0 = no take-profit; ride to expiry flatten only
+    else:
+        tp_list = [int(x) for x in args.tp.split(",") if x.strip()]
     end = date.today()
     start = end - timedelta(days=int(args.years * 365.25))
 
@@ -544,7 +547,7 @@ def main():
 
     for sname, builder in strat_items:
         for tp in tp_list:
-            label = f"{sname}__tp{tp}"
+            label = f"{sname}__tp{tp}" if tp > 0 else f"{sname}__RIDE"
             print(f"\n=== {label} ===")
             trades = run_strategy(sname, builder, spy, entries, tp, end)
             summary = summarize(trades)
@@ -552,6 +555,7 @@ def main():
             payload = {
                 "strategy": sname,
                 "tp_pct": tp,
+                "ride_to_expiry": tp <= 0,
                 "no_stop_loss": True,
                 "risk_usd": RISK_USD,
                 "window": {"start": start.isoformat(), "end": end.isoformat()},
@@ -564,25 +568,33 @@ def main():
                 "label": label,
                 "strategy": sname,
                 "tp_pct": tp,
+                "ride_to_expiry": tp <= 0,
                 **summary,
                 "path": str(out),
             })
             all_trades_by_key[label] = summary
 
     ranking_sorted = sorted(ranking, key=lambda r: (r.get("total_pnl") is None, -(r.get("total_pnl") or 0)))
-    rank_path = archive_root() / f"RANKING_NOSTOP_TPGRID_{end.isoformat()}.json"
+    rank_path = archive_root() / (
+        f"RANKING_RIDE_{end.isoformat()}.json"
+        if tp_list == [0]
+        else f"RANKING_NOSTOP_TPGRID_{end.isoformat()}.json"
+    )
     rank_payload = {
         "rules": {
             "underlying": "SPY",
             "risk_usd": RISK_USD,
             "entry": "weekly Monday",
-            "exit": f"TP grid {tp_list}% of entry premium/credit — NO STOP LOSS; else flatten near expiry",
+            "exit": (
+                "NO take-profit — ride to near-expiry flatten only; NO STOP LOSS"
+                if tp_list == [0]
+                else f"TP grid {tp_list}% of entry premium/credit — NO STOP LOSS; else flatten near expiry"
+            ),
             "pricing": "Polygon daily option aggregates",
             "strategies_n": len(strat_items),
         },
         "ranked_best_first": ranking_sorted,
         "winner": ranking_sorted[0] if ranking_sorted else None,
-        # pivot: best TP per strategy
         "best_tp_per_strategy": {},
     }
     best = {}
