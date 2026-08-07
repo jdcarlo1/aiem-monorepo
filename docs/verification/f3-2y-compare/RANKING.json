@@ -1,0 +1,88 @@
+{
+  "ranked_by_total_pnl": [
+    {
+      "name": "Narrow-Wing Call Butterfly",
+      "tp": 200,
+      "trades": 94,
+      "wr": 0.8617,
+      "pnl": 260940.0,
+      "avg": 2775.96,
+      "ror": 555.1914893617021,
+      "risk": 500,
+      "window": "~2y weekly",
+      "src": "catalog TP-grid",
+      "status": "2y BT done"
+    },
+    {
+      "name": "Bullish Risk Reversal",
+      "tp": 75,
+      "trades": 94,
+      "wr": 0.9149,
+      "pnl": 202238.0,
+      "avg": 2151.47,
+      "ror": 430.29361702127653,
+      "risk": 500,
+      "window": "~2y weekly",
+      "src": "catalog TP-grid",
+      "status": "2y BT done"
+    },
+    {
+      "name": "Long Put Butterfly",
+      "tp": 200,
+      "trades": 91,
+      "wr": 0.6374,
+      "pnl": 104676.0,
+      "avg": 1150.29,
+      "ror": 230.05714285714288,
+      "risk": 500,
+      "window": "~2y weekly",
+      "src": "asym TP-grid",
+      "status": "2y BT done"
+    },
+    {
+      "name": "Long Call Butterfly",
+      "tp": 100,
+      "trades": 92,
+      "wr": 0.8478,
+      "pnl": 76186.0,
+      "avg": 828.11,
+      "ror": 165.62173913043478,
+      "risk": 500,
+      "window": "~2y weekly",
+      "src": "asym TP-grid",
+      "status": "2y BT done"
+    },
+    {
+      "name": "Put Ladder Defined",
+      "tp": 150,
+      "trades": 92,
+      "wr": 0.5217,
+      "pnl": 69455.0,
+      "avg": 754.95,
+      "ror": 150.98913043478262,
+      "risk": 500,
+      "window": "~2y weekly",
+      "src": "asym TP-grid",
+      "status": "2y BT done"
+    },
+    {
+      "name": "F3 SPY 0DTE (\u221265% stop)",
+      "tp": null,
+      "trades": 28,
+      "wr": 0.25,
+      "pnl": 640.59,
+      "avg": 22.878214285714286,
+      "ror": 11.439107142857145,
+      "risk": 200,
+      "window": "~3m only",
+      "src": "f3_bag real Polygon",
+      "status": "2y RUNNING"
+    }
+  ],
+  "notes": [
+    "Asym/catalog packages: ~2y Monday weekly, ~$500 risk, TP of |entry|, no stop, Polygon daily option aggs.",
+    "F3: live website rules $200/day 0DTE \u221265% stop; only ~3m complete so far; full 2y run in progress.",
+    "Gap Fill & ORB: equity paper on site; no archived 2y BT comparable to options packages.",
+    "Raw $ totals favor larger weekly packages; use avg $/trade and RoR for fairer cross-style compare."
+  ]
+}
