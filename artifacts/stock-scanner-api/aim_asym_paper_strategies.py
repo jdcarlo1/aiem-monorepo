@@ -2,19 +2,24 @@
 """
 Asymmetric SPY paper strategies — Pattern Lab / OE Strategies.
 
-Top-3 from 2y real Polygon backtest (no stop, TP grid):
-  1. Long put butterfly   — take-profit +200% of debit
-  2. Long call butterfly  — take-profit +100% of debit
-  3. Put ladder (defined) — take-profit +150% of debit
+From 2y Polygon BTs (no stop, TP grid):
+  Asym top-3 (spy_asymmetric_bt):
+    1. Long put butterfly   — TP +200% of |entry|
+    2. Long call butterfly  — TP +100% of |entry|
+    3. Put ladder (defined) — TP +150% of |entry|
+  Catalog winners (spy_catalog_untested_bt):
+    4. Narrow-wing call butterfly — TP +200% of |entry|
+    5. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
 
-Parity with spy_asymmetric_bt.py (exact):
+Parity with BT engines:
   - Underlying SPY
-  - Risk budget $500 debit max per package
-  - Entry: weekly Monday, first RTH bar (09:30 ET) — BT docstring L9
-  - Expiry: next_friday(d0, weeks_ahead=3) — same helper as BT
+  - Risk budget $500 debit max per package (credits: 1 package)
+  - Entry: weekly Monday, first RTH bar (09:30 ET)
+  - Expiry: next_friday(d0, weeks_ahead=3)
   - NO stop loss
-  - Flatten 15:30 ET on expiry Friday — BT docstring L12
+  - Flatten 15:30 ET on expiry Friday
   - Pricing: Polygon daily option aggregates (O:SPY…) — NOT Tradier
+  - TP dollars = abs(entry_usd) * (tp_pct / 100); pnl = mark - entry
 """
 from __future__ import annotations
 
@@ -43,7 +48,16 @@ POLYGON_BASE = "https://api.polygon.io"
 RATE_SLEEP = float(os.environ.get("ASYM_PAPER_RATE_SLEEP", "0.12"))
 
 # strategy key -> ledger (must match aiem_paper_trades.strategy filter)
-STRATEGY_KEYS = ("put_butterfly", "call_butterfly", "put_ladder")
+STRATEGY_KEYS = (
+    "put_butterfly",
+    "call_butterfly",
+    "put_ladder",
+    "narrow_wing_butterfly",
+    "bullish_risk_reversal",
+)
+
+# Cash-secured SPY short put needs ~strike×100; keep a dedicated paper book.
+RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
 
 
 def _api_key() -> str:
@@ -217,6 +231,31 @@ def build_put_ladder_defined(spot: float) -> list[tuple[int, str, float]]:
     return [(1, "put", k), (-1, "put", k - 5), (-1, "put", k - 10), (1, "put", k - 15)]
 
 
+def build_narrow_wing_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
+    """ATM ±2 call butterfly — catalog Narrow-Wing Butterfly (+200% TP winner)."""
+    k = float(round(spot))
+    return [(1, "call", k - 2), (-2, "call", k), (1, "call", k + 2)]
+
+
+def build_bullish_risk_reversal(spot: float) -> list[tuple[int, str, float]]:
+    """Long OTM call + short OTM put — catalog Bullish Risk Reversal (+75% TP)."""
+    k = float(round(spot))
+    return [(1, "call", k + 5), (-1, "put", k - 5)]
+
+
+def _short_put_collateral_usd(legs: list[dict], packages: int) -> float:
+    """Cash-secured put collateral = sum(short put strike * 100 * |qty|) * packages."""
+    total = 0.0
+    for L in legs:
+        if str(L.get("right", "")).lower() != "put":
+            continue
+        qty = int(L.get("qty") or 0)
+        if qty >= 0:
+            continue
+        total += float(L["strike"]) * 100.0 * abs(qty) * packages
+    return total
+
+
 def _db_url() -> str:
     return (
         os.environ.get("DATABASE_URL")
@@ -268,7 +307,7 @@ def persist_asym_paper_open(
                      option_entry_mid, strategy, fill_price)
                 VALUES (
                     (NOW() AT TIME ZONE 'America/New_York')::date,
-                    %s, 'OPTIONS_PACKAGE', 'DEBIT_PACKAGE',
+                    %s, 'OPTIONS_PACKAGE', %s,
                     %s, %s, %s,
                     %s, %s, 21,
                     %s, 'OPEN', %s, %s,
@@ -279,6 +318,7 @@ def persist_asym_paper_open(
                 """,
                 (
                     ticker,
+                    "CREDIT_PACKAGE" if float(entry_debit_usd) < 0 else "DEBIT_PACKAGE",
                     float(entry_premium_ps),
                     float(packages),
                     float(entry_debit_usd),
@@ -399,9 +439,11 @@ class AsymOptionsLedger:
         underlying: str = "SPY",
         starting_capital_usd: float = 10000.0,
         risk_usd: float = RISK_USD,
+        allow_credit: bool = False,
+        cash_secured: bool = False,
     ):
         self.pattern_name = pattern_name
-        self.strategy_key = strategy_key  # put_butterfly | call_butterfly | put_ladder
+        self.strategy_key = strategy_key
         self.builder = builder
         self.take_profit_pct = take_profit_pct
         self.underlying = underlying
@@ -409,6 +451,8 @@ class AsymOptionsLedger:
         self.account_balance_usd = starting_capital_usd
         self.net_liquidation_usd = starting_capital_usd
         self.risk_usd = risk_usd
+        self.allow_credit = allow_credit
+        self.cash_secured = cash_secured
         self.active_position: Optional[dict] = None
         self.signal_state: dict = {"status": "IDLE"}
         self.trade_log: list = []
@@ -416,6 +460,7 @@ class AsymOptionsLedger:
         self.losses = 0
         self._day_key: Optional[str] = None
         self._entered_week: Optional[str] = None
+        self._reserved_collateral_usd = 0.0
 
     @property
     def total_trades(self) -> int:
@@ -443,8 +488,14 @@ class AsymOptionsLedger:
                 "take_profit_pct": self.take_profit_pct,
                 "stop_loss": None,
                 "pricing": "Polygon daily option aggregates",
-                "exit": f"+{self.take_profit_pct:.0f}% of debit or flatten 15:30 on expiry Friday",
+                "allow_credit": self.allow_credit,
+                "cash_secured": self.cash_secured,
+                "exit": (
+                    f"+{self.take_profit_pct:.0f}% of |entry| premium or "
+                    f"flatten 15:30 on expiry Friday"
+                ),
             },
+            "reserved_collateral_usd": round(self._reserved_collateral_usd, 2),
             "account_balance_usd": round(self.account_balance_usd, 2),
             "net_liquidation_usd": round(self.net_liquidation_usd, 2),
             "total_trades": self.total_trades,
@@ -465,22 +516,31 @@ class AsymOptionsLedger:
         spec = [(int(L["qty"]), str(L["right"]), float(L["strike"])) for L in legs]
         return package_value_polygon(self.underlying, expiration, spec, asof)
 
+    def _free_cash_usd(self) -> float:
+        return float(self.account_balance_usd) - float(self._reserved_collateral_usd)
+
     def _close(self, exit_value_usd: float, reason: str):
         pos = self.active_position
         if not pos:
             return
-        entry_debit = float(pos["entry_debit_usd"])
-        pnl = float(exit_value_usd) - entry_debit
+        entry_usd = float(pos["entry_debit_usd"])
+        pnl = float(exit_value_usd) - entry_usd
         self.account_balance_usd += float(exit_value_usd)
+        coll = float(pos.get("collateral_usd") or 0.0)
+        if coll > 0:
+            self._reserved_collateral_usd = max(
+                0.0, float(self._reserved_collateral_usd) - coll
+            )
         result = "WIN" if pnl > 0 else "LOSS"
         if result == "WIN":
             self.wins += 1
         else:
             self.losses += 1
+        side = "CREDIT_PACKAGE" if entry_usd < 0 else "DEBIT_PACKAGE"
         self.trade_log.append({
             "symbol": self.underlying,
             "direction": pos.get("direction"),
-            "side": "DEBIT_PACKAGE",
+            "side": side,
             "entry": pos.get("entry_debit_usd"),
             "exit": round(exit_value_usd, 2),
             "shares": pos.get("packages"),
@@ -500,8 +560,8 @@ class AsymOptionsLedger:
             reason=reason,
         )
         log.info(
-            "[%s] %s (%s): debit $%.2f -> mark $%.2f | P&L $%.2f | Bal $%.2f",
-            self.pattern_name, result, reason, entry_debit, exit_value_usd, pnl,
+            "[%s] %s (%s): entry $%.2f -> mark $%.2f | P&L $%.2f | Bal $%.2f",
+            self.pattern_name, result, reason, entry_usd, exit_value_usd, pnl,
             self.account_balance_usd,
         )
         self.active_position = None
@@ -534,16 +594,16 @@ class AsymOptionsLedger:
             if mark is not None:
                 packages = float(self.active_position["packages"])
                 mark_usd = mark * packages
+                entry_usd = float(self.active_position["entry_debit_usd"])
+                pnl = mark_usd - entry_usd
                 self.active_position["mark_premium"] = round(
                     mark_usd / max(packages, 1) / 100.0, 4
                 )
-                self.active_position["unrealized_pnl"] = round(
-                    mark_usd - float(self.active_position["entry_debit_usd"]), 2
-                )
+                self.active_position["unrealized_pnl"] = round(pnl, 2)
                 self.net_liquidation_usd = self.account_balance_usd + mark_usd
-                entry_debit = float(self.active_position["entry_debit_usd"])
-                tp = entry_debit * (1.0 + self.take_profit_pct / 100.0)
-                if mark_usd >= tp:
+                # Catalog/asym BT: TP dollars = abs(entry) * (tp_pct / 100)
+                tp_dollars = abs(entry_usd) * (self.take_profit_pct / 100.0)
+                if pnl >= tp_dollars:
                     self._close(mark_usd, f"TP_{int(self.take_profit_pct)}PCT")
                     return
                 if day >= exp and bar_time >= FLATTEN_TIME:
@@ -555,7 +615,7 @@ class AsymOptionsLedger:
             self.signal_state = {
                 "status": "IN_POSITION",
                 "note": (
-                    f"TP +{int(self.take_profit_pct)}% · no stop · "
+                    f"TP +{int(self.take_profit_pct)}% of |entry| · no stop · "
                     f"Polygon daily · exp {self.active_position['expiration']}"
                 ),
             }
@@ -588,34 +648,64 @@ class AsymOptionsLedger:
             }
             return
         debit_ps = float(priced["debit_per_share"])
-        if debit_ps <= 0:
+        unit_cost = debit_ps * 100.0  # signed: >0 debit, <0 credit
+        collateral = 0.0
+        packages = 1
+
+        if unit_cost > 0:
+            # Debit package — size within risk budget (BT debit path)
+            if unit_cost > self.risk_usd:
+                self.signal_state = {
+                    "status": "SKIP_BUDGET",
+                    "note": f"1-lot debit ${unit_cost:.0f} > risk ${self.risk_usd:.0f}",
+                }
+                return
+            packages = max(int(self.risk_usd / unit_cost), 1)
+            while packages > 1 and unit_cost * packages > self.risk_usd:
+                packages -= 1
+            entry_usd = unit_cost * packages
+            if entry_usd > self._free_cash_usd() + 1e-9:
+                self.signal_state = {
+                    "status": "SKIP_CASH",
+                    "note": f"need ${entry_usd:.0f} free cash",
+                }
+                return
+        elif unit_cost < 0 and self.allow_credit:
+            # Credit package — BT uses mult=1; optional cash-secured short put
+            packages = 1
+            entry_usd = unit_cost * packages  # negative
+            if self.cash_secured:
+                collateral = _short_put_collateral_usd(priced["legs"], packages)
+                if collateral > self._free_cash_usd() + 1e-9:
+                    self.signal_state = {
+                        "status": "SKIP_COLLATERAL",
+                        "note": (
+                            f"need ${collateral:.0f} cash-secured collateral "
+                            f"(free ${self._free_cash_usd():.0f})"
+                        ),
+                    }
+                    return
+                self._reserved_collateral_usd += collateral
+        else:
             self.signal_state = {
                 "status": "SKIP_CREDIT",
-                "note": f"package debit/share {debit_ps:.3f} ≤ 0 — skip",
+                "note": f"package net/share {debit_ps:.3f} ≤ 0 — skip (debit-only)",
             }
             return
-        debit_1 = debit_ps * 100.0
-        if debit_1 > self.risk_usd:
-            self.signal_state = {
-                "status": "SKIP_BUDGET",
-                "note": f"1-lot debit ${debit_1:.0f} > risk ${self.risk_usd:.0f}",
-            }
-            return
-        packages = max(int(self.risk_usd / debit_1), 1)
-        while packages > 1 and debit_1 * packages > self.risk_usd:
-            packages -= 1
-        entry_debit = debit_1 * packages
-        self.account_balance_usd -= entry_debit
+
+        # Debit: pay premium. Credit: receive premium (subtract negative).
+        self.account_balance_usd -= entry_usd
         paper_id = persist_asym_paper_open(
             strategy=self.strategy_key,
             underlying=self.underlying,
-            entry_debit_usd=entry_debit,
+            entry_debit_usd=entry_usd,
             packages=packages,
             expiration=priced["expiration"],
             legs=priced["legs"],
             entry_premium_ps=debit_ps,
             take_profit_pct=self.take_profit_pct,
         )
+        side = "LONG" if entry_usd >= 0 else "CREDIT"
         self.active_position = {
             "symbol": self.underlying,
             "option_symbol": ",".join(
@@ -624,13 +714,16 @@ class AsymOptionsLedger:
             "shares": packages,
             "contracts": packages,
             "packages": packages,
-            "side": "LONG",
+            "side": side,
             "direction": self.pattern_name,
             "entry": round(debit_ps, 4),
             "entry_premium": round(debit_ps, 4),
-            "entry_debit_usd": round(entry_debit, 2),
+            "entry_debit_usd": round(entry_usd, 2),
+            "collateral_usd": round(collateral, 2),
             "stop": 0.0,
-            "target": round(debit_ps * (1.0 + self.take_profit_pct / 100.0), 4),
+            "target": round(
+                abs(debit_ps) * (self.take_profit_pct / 100.0), 4
+            ),
             "strike": float(round(spot)),
             "legs": priced["legs"],
             "expiration": priced["expiration"],
@@ -641,17 +734,19 @@ class AsymOptionsLedger:
             "strategy": self.strategy_key,
         }
         self._entered_week = week_key
+        kind = "credit" if entry_usd < 0 else "debit"
         self.signal_state = {
             "status": "IN_POSITION",
             "note": (
-                f"entered {packages} pkg debit ${entry_debit:.2f} "
-                f"TP +{int(self.take_profit_pct)}% Polygon daily"
+                f"entered {packages} pkg {kind} ${entry_usd:.2f} "
+                f"TP +{int(self.take_profit_pct)}% of |entry| Polygon daily"
+                + (f" · CSP ${collateral:.0f}" if collateral else "")
             ),
         }
-        self.net_liquidation_usd = self.account_balance_usd + entry_debit
+        self.net_liquidation_usd = self.account_balance_usd + entry_usd
         log.info(
-            "[%s] ENTRY: %d pkg @ $%.2f debit | TP +%.0f%% | exp %s | paper_id=%s",
-            self.pattern_name, packages, entry_debit, self.take_profit_pct,
+            "[%s] ENTRY: %d pkg @ $%.2f %s | TP +%.0f%% | exp %s | paper_id=%s",
+            self.pattern_name, packages, entry_usd, kind, self.take_profit_pct,
             priced["expiration"], paper_id,
         )
 
@@ -669,5 +764,15 @@ def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0
         "put_ladder": AsymOptionsLedger(
             "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
             "put_ladder", underlying, capital,
+        ),
+        "narrow_wing_butterfly": AsymOptionsLedger(
+            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 200.0,
+            "narrow_wing_butterfly", underlying, capital,
+        ),
+        "bullish_risk_reversal": AsymOptionsLedger(
+            "BULLISH_RISK_REVERSAL", build_bullish_risk_reversal, 75.0,
+            "bullish_risk_reversal", underlying, RR_PAPER_CAPITAL_USD,
+            allow_credit=True,
+            cash_secured=True,
         ),
     }
