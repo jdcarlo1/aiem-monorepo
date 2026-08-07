@@ -388,23 +388,22 @@ def run_strategy(
     entry_dates: list,
     tp_pct: int,
     end: date,
+    sl_pct: float = 0.0,
 ) -> list:
     trades = []
     for d0 in entry_dates:
         if d0 not in spy.index:
-            # nearest next session
             later = [x for x in spy.index if x >= d0]
             if not later:
                 continue
             d0 = later[0]
         spot = float(spy.loc[d0, "close"])
-        exp_near = next_friday(d0, weeks_ahead=3)  # ~4 weeks out
-        exp_far = next_friday(d0, weeks_ahead=7)   # calendar/diagonal back month
+        exp_near = next_friday(d0, weeks_ahead=3)
+        exp_far = next_friday(d0, weeks_ahead=7)
         if exp_near > end + timedelta(days=7):
             continue
 
         raw_legs = builder(spot, d0, exp_near, exp_far)
-        # fetch series for each unique symbol
         unique = {}
         leg_pos = []
         ok = True
@@ -423,33 +422,26 @@ def run_strategy(
         entry_val = package_value(leg_pos, d0)
         if entry_val is None:
             continue
-        # entry_val > 0 = net debit; entry_val < 0 = net credit
         unit_cost = entry_val
         if abs(unit_cost) < 1.0:
             continue
         if unit_cost > 0:
             if unit_cost > RISK_USD:
-                # cannot fit even 1 package into $100 risk budget
                 continue
             mult = max(int(RISK_USD / unit_cost), 1)
-            # keep debit <= RISK_USD
             while mult > 1 and unit_cost * mult > RISK_USD:
                 mult -= 1
         else:
-            # credit structures: 1 package (defined-risk wings keep loss bounded in our builds)
             mult = 1
         for lp in leg_pos:
             lp.qty *= mult
         entry_val *= mult
-        # Premium basis for TP%: debit paid, or credit received
         premium_basis = abs(entry_val)
-        # tp_pct == 0 → no take-profit; ride until expiry flatten only
         tp_dollars = None if tp_pct <= 0 else premium_basis * (tp_pct / 100.0)
+        sl_dollars = None if sl_pct <= 0 else premium_basis * (sl_pct / 100.0)
         is_debit = entry_val > 0
 
         def _pnl(mark: float) -> float:
-            if is_debit:
-                return mark - entry_val
             return mark - entry_val
 
         hold_end = min(exp_near, end)
@@ -464,6 +456,10 @@ def run_strategy(
             if mark is None:
                 continue
             pnl_now = _pnl(mark)
+            # Stop first on same bar (conservative)
+            if sl_dollars is not None and pnl_now <= -sl_dollars:
+                exit_d, exit_val, exit_reason, pnl = d, mark, f"SL_{int(sl_pct)}PCT", pnl_now
+                break
             if tp_dollars is not None and pnl_now >= tp_dollars:
                 exit_d, exit_val, exit_reason, pnl = d, mark, f"TP_{tp_pct}PCT", pnl_now
                 break
@@ -482,6 +478,7 @@ def run_strategy(
         trades.append({
             "strategy": name,
             "tp_pct": tp_pct,
+            "sl_pct": sl_pct,
             "entry_date": d0.isoformat(),
             "exit_date": exit_d.isoformat(),
             "spot": round(spot, 2),
@@ -499,7 +496,10 @@ def run_strategy(
 
 def summarize(trades: list) -> dict:
     if not trades:
-        return {"trades": 0, "total_pnl": 0.0, "win_rate": None, "avg_pnl": None}
+        return {
+            "trades": 0, "total_pnl": 0.0, "win_rate": None, "avg_pnl": None,
+            "tp_hits": 0, "sl_hits": 0, "expiry_exits": 0,
+        }
     df = pd.DataFrame(trades)
     wins = (df["pnl"] > 0).sum()
     return {
@@ -507,7 +507,8 @@ def summarize(trades: list) -> dict:
         "total_pnl": round(float(df["pnl"].sum()), 2),
         "win_rate": round(float(wins / len(df)), 4),
         "avg_pnl": round(float(df["pnl"].mean()), 2),
-        "tp_hits": int((df["exit_reason"].str.startswith("TP_")).sum()),
+        "tp_hits": int(df["exit_reason"].astype(str).str.startswith("TP_").sum()),
+        "sl_hits": int(df["exit_reason"].astype(str).str.startswith("SL_").sum()),
         "expiry_exits": int((df["exit_reason"] == "EXPIRY_FLATTEN").sum()),
     }
 
@@ -517,18 +518,29 @@ def main():
     ap.add_argument("--years", type=float, default=2.0)
     ap.add_argument("--strategies", default="all", help="comma names or 'all'")
     ap.add_argument("--tp", default=",".join(str(x) for x in TP_PCTS), help="profit exit percents")
+    ap.add_argument(
+        "--sl",
+        default="0",
+        help="stop-loss percents of premium (comma). 0 = no stop. e.g. 20,25,30",
+    )
     ap.add_argument("--max-entries", type=int, default=0, help="cap Mondays (0=all) for smoke tests")
     args = ap.parse_args()
 
-    tp_list = []
     if args.tp.strip().lower() in ("none", "0", "ride", "expiry"):
-        tp_list = [0]  # 0 = no take-profit; ride to expiry flatten only
+        tp_list = [0]
     else:
         tp_list = [int(x) for x in args.tp.split(",") if x.strip()]
+    sl_list = [float(x) for x in args.sl.split(",") if x.strip()]
+    if not sl_list:
+        sl_list = [0.0]
+
     end = date.today()
     start = end - timedelta(days=int(args.years * 365.25))
 
-    print(f"[asym] SPY asymmetric BT {start}→{end} risk=${RISK_USD} NO_STOP TPs={tp_list}")
+    print(
+        f"[asym] SPY asymmetric BT {start}→{end} risk=${RISK_USD} "
+        f"TPs={tp_list} SLs={sl_list}"
+    )
     spy = fetch_spy_daily(start, end)
     entries = mondays_between(start, end)
     entries = [d for d in entries if d in spy.index or any(x >= d for x in spy.index)]
@@ -543,58 +555,76 @@ def main():
         strat_items = [(k, v) for k, v in STRATEGIES.items() if k in want]
 
     ranking = []
-    all_trades_by_key = {}
 
     for sname, builder in strat_items:
         for tp in tp_list:
-            label = f"{sname}__tp{tp}" if tp > 0 else f"{sname}__RIDE"
-            print(f"\n=== {label} ===")
-            trades = run_strategy(sname, builder, spy, entries, tp, end)
-            summary = summarize(trades)
-            print(f"  trades={summary['trades']} pnl=${summary['total_pnl']} wr={summary['win_rate']}")
-            payload = {
-                "strategy": sname,
-                "tp_pct": tp,
-                "ride_to_expiry": tp <= 0,
-                "no_stop_loss": True,
-                "risk_usd": RISK_USD,
-                "window": {"start": start.isoformat(), "end": end.isoformat()},
-                "summary": summary,
-                "trades": trades,
-            }
-            out = archive_root() / f"{label}.json"
-            out.write_text(json.dumps(payload, indent=2, default=str))
-            ranking.append({
-                "label": label,
-                "strategy": sname,
-                "tp_pct": tp,
-                "ride_to_expiry": tp <= 0,
-                **summary,
-                "path": str(out),
-            })
-            all_trades_by_key[label] = summary
+            for sl in sl_list:
+                if tp > 0 and sl > 0:
+                    label = f"{sname}__tp{tp}__sl{int(sl)}"
+                elif tp > 0:
+                    label = f"{sname}__tp{tp}"
+                elif sl > 0:
+                    label = f"{sname}__RIDE__sl{int(sl)}"
+                else:
+                    label = f"{sname}__RIDE"
+                print(f"\n=== {label} ===")
+                trades = run_strategy(sname, builder, spy, entries, tp, end, sl_pct=sl)
+                summary = summarize(trades)
+                print(
+                    f"  trades={summary['trades']} pnl=${summary['total_pnl']} "
+                    f"wr={summary['win_rate']} sl_hits={summary.get('sl_hits')}"
+                )
+                payload = {
+                    "strategy": sname,
+                    "tp_pct": tp,
+                    "sl_pct": sl,
+                    "ride_to_expiry": tp <= 0,
+                    "no_stop_loss": sl <= 0,
+                    "risk_usd": RISK_USD,
+                    "window": {"start": start.isoformat(), "end": end.isoformat()},
+                    "summary": summary,
+                    "trades": trades,
+                }
+                out = archive_root() / f"{label}.json"
+                out.write_text(json.dumps(payload, indent=2, default=str))
+                ranking.append({
+                    "label": label,
+                    "strategy": sname,
+                    "tp_pct": tp,
+                    "sl_pct": sl,
+                    "ride_to_expiry": tp <= 0,
+                    **summary,
+                    "path": str(out),
+                })
 
-    ranking_sorted = sorted(ranking, key=lambda r: (r.get("total_pnl") is None, -(r.get("total_pnl") or 0)))
-    rank_path = archive_root() / (
-        f"RANKING_RIDE_{end.isoformat()}.json"
-        if tp_list == [0]
-        else f"RANKING_NOSTOP_TPGRID_{end.isoformat()}.json"
+    ranking_sorted = sorted(
+        ranking, key=lambda r: (r.get("total_pnl") is None, -(r.get("total_pnl") or 0))
     )
+    if tp_list == [0] and any(s > 0 for s in sl_list):
+        rank_name = f"RANKING_RIDE_SLGRID_{end.isoformat()}.json"
+        exit_rule = f"NO take-profit; stop-loss grid {sl_list}% of premium; else expiry flatten"
+    elif tp_list == [0]:
+        rank_name = f"RANKING_RIDE_{end.isoformat()}.json"
+        exit_rule = "NO take-profit — ride to near-expiry flatten only; NO STOP LOSS"
+    else:
+        rank_name = f"RANKING_NOSTOP_TPGRID_{end.isoformat()}.json"
+        exit_rule = f"TP grid {tp_list}% — stops={sl_list}; else flatten near expiry"
+
+    rank_path = archive_root() / rank_name
     rank_payload = {
         "rules": {
             "underlying": "SPY",
             "risk_usd": RISK_USD,
             "entry": "weekly Monday",
-            "exit": (
-                "NO take-profit — ride to near-expiry flatten only; NO STOP LOSS"
-                if tp_list == [0]
-                else f"TP grid {tp_list}% of entry premium/credit — NO STOP LOSS; else flatten near expiry"
-            ),
+            "exit": exit_rule,
             "pricing": "Polygon daily option aggregates",
             "strategies_n": len(strat_items),
+            "tp_list": tp_list,
+            "sl_list": sl_list,
         },
         "ranked_best_first": ranking_sorted,
         "winner": ranking_sorted[0] if ranking_sorted else None,
+        "top10": ranking_sorted[:10],
         "best_tp_per_strategy": {},
     }
     best = {}
@@ -605,14 +635,20 @@ def main():
     rank_payload["best_tp_per_strategy"] = best
     rank_path.write_text(json.dumps(rank_payload, indent=2, default=str))
 
-    # also append index
     idx = archive_root() / "RUN_INDEX.jsonl"
     with idx.open("a") as f:
-        f.write(json.dumps({"saved_utc": datetime.utcnow().isoformat() + "Z", "ranking": str(rank_path), "winner": rank_payload.get("winner")}, default=str) + "\n")
+        f.write(json.dumps({
+            "saved_utc": datetime.utcnow().isoformat() + "Z",
+            "ranking": str(rank_path),
+            "winner": rank_payload.get("winner"),
+        }, default=str) + "\n")
 
-    print("\n========== RANKING (best total P&L first) ==========")
-    for i, r in enumerate(ranking_sorted[:25], 1):
-        print(f"{i}. {r['label']}: trades={r['trades']} WR={r['win_rate']} PnL=${r['total_pnl']}")
+    print("\n========== TOP 10 (best total P&L) ==========")
+    for i, r in enumerate(ranking_sorted[:10], 1):
+        print(
+            f"{i}. {r['label']}: trades={r['trades']} WR={r['win_rate']} "
+            f"PnL=${r['total_pnl']} SL_hits={r.get('sl_hits')}"
+        )
     print(f"[asym] wrote {rank_path}")
     return 0
 

@@ -1,0 +1,80 @@
+{
+  "strategy": "14_call_calendar",
+  "tp_pct": 0,
+  "sl_pct": 30.0,
+  "ride_to_expiry": true,
+  "no_stop_loss": false,
+  "risk_usd": 500.0,
+  "window": {
+    "start": "2024-08-07",
+    "end": "2026-08-07"
+  },
+  "summary": {
+    "trades": 3,
+    "total_pnl": 617.0,
+    "win_rate": 1.0,
+    "avg_pnl": 205.67,
+    "tp_hits": 0,
+    "sl_hits": 0,
+    "expiry_exits": 3
+  },
+  "trades": [
+    {
+      "strategy": "14_call_calendar",
+      "tp_pct": 0,
+      "sl_pct": 30.0,
+      "entry_date": "2024-08-26",
+      "exit_date": "2024-09-20",
+      "spot": 560.79,
+      "exp_near": "2024-09-20",
+      "mult": 1,
+      "entry_val": 383.0,
+      "exit_val": 699.0,
+      "premium_basis": 383.0,
+      "pnl": 316.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY240920C00561000",
+        "1xO:SPY241018C00561000"
+      ]
+    },
+    {
+      "strategy": "14_call_calendar",
+      "tp_pct": 0,
+      "sl_pct": 30.0,
+      "entry_date": "2024-10-28",
+      "exit_date": "2024-11-22",
+      "spot": 580.83,
+      "exp_near": "2024-11-22",
+      "mult": 1,
+      "entry_val": 455.0,
+      "exit_val": 555.0,
+      "premium_basis": 455.0,
+      "pnl": 100.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241122C00581000",
+        "1xO:SPY241220C00581000"
+      ]
+    },
+    {
+      "strategy": "14_call_calendar",
+      "tp_pct": 0,
+      "sl_pct": 30.0,
+      "entry_date": "2024-11-25",
+      "exit_date": "2024-12-20",
+      "spot": 597.53,
+      "exp_near": "2024-12-20",
+      "mult": 1,
+      "entry_val": 444.0,
+      "exit_val": 645.0,
+      "premium_basis": 444.0,
+      "pnl": 201.0,
+      "exit_reason": "EXPIRY_FLATTEN",
+      "legs": [
+        "-1xO:SPY241220C00598000",
+        "1xO:SPY250117C00598000"
+      ]
+    }
+  ]
+}
