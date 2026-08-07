@@ -1,0 +1,138 @@
+{
+  "strategy": "GAMMA_BLAST",
+  "pricing_mode": "real",
+  "disclaimer": "real = Polygon option aggregates",
+  "risk_per_trade_usd": 100.0,
+  "window": {
+    "start": "2026-05-13",
+    "end": "2026-08-07",
+    "n_days": 63
+  },
+  "profit_multiplier_map": {
+    "1.5": "sell at +50% profit (1.5x premium)",
+    "2.0": "sell at +100% profit (2x premium)",
+    "3.0": "sell at +200% profit (3x premium)"
+  },
+  "ranked_best_first": [
+    {
+      "label": "sweep-tp2.0-profit100pct-sl60pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp2.0-profit100pct-sl60pct-real-2026-08-07-20260807T015712Z.json",
+      "take_profit_multiplier": 2.0,
+      "profit_pct_target": 100,
+      "stop_loss_pct": 0.6,
+      "trades": 31,
+      "win_rate": 0.2258,
+      "total_pnl": -550.0,
+      "avg_pnl": -17.74,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp2.0-profit100pct-sl65pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp2.0-profit100pct-sl65pct-real-2026-08-07-20260807T015715Z.json",
+      "take_profit_multiplier": 2.0,
+      "profit_pct_target": 100,
+      "stop_loss_pct": 0.65,
+      "trades": 31,
+      "win_rate": 0.2258,
+      "total_pnl": -550.0,
+      "avg_pnl": -17.74,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp2.0-profit100pct-sl75pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp2.0-profit100pct-sl75pct-real-2026-08-07-20260807T015719Z.json",
+      "take_profit_multiplier": 2.0,
+      "profit_pct_target": 100,
+      "stop_loss_pct": 0.75,
+      "trades": 31,
+      "win_rate": 0.2258,
+      "total_pnl": -550.0,
+      "avg_pnl": -17.74,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp3.0-profit200pct-sl60pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp3.0-profit200pct-sl60pct-real-2026-08-07-20260807T015722Z.json",
+      "take_profit_multiplier": 3.0,
+      "profit_pct_target": 200,
+      "stop_loss_pct": 0.6,
+      "trades": 31,
+      "win_rate": 0.2258,
+      "total_pnl": -550.0,
+      "avg_pnl": -17.74,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp3.0-profit200pct-sl65pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp3.0-profit200pct-sl65pct-real-2026-08-07-20260807T015726Z.json",
+      "take_profit_multiplier": 3.0,
+      "profit_pct_target": 200,
+      "stop_loss_pct": 0.65,
+      "trades": 31,
+      "win_rate": 0.2258,
+      "total_pnl": -550.0,
+      "avg_pnl": -17.74,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp3.0-profit200pct-sl75pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp3.0-profit200pct-sl75pct-real-2026-08-07-20260807T015729Z.json",
+      "take_profit_multiplier": 3.0,
+      "profit_pct_target": 200,
+      "stop_loss_pct": 0.75,
+      "trades": 31,
+      "win_rate": 0.2258,
+      "total_pnl": -550.0,
+      "avg_pnl": -17.74,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp1.5-profit50pct-sl60pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp1.5-profit50pct-sl60pct-real-2026-08-07-20260807T015702Z.json",
+      "take_profit_multiplier": 1.5,
+      "profit_pct_target": 50,
+      "stop_loss_pct": 0.6,
+      "trades": 33,
+      "win_rate": 0.2424,
+      "total_pnl": -565.0,
+      "avg_pnl": -17.12,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp1.5-profit50pct-sl65pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp1.5-profit50pct-sl65pct-real-2026-08-07-20260807T015705Z.json",
+      "take_profit_multiplier": 1.5,
+      "profit_pct_target": 50,
+      "stop_loss_pct": 0.65,
+      "trades": 33,
+      "win_rate": 0.2424,
+      "total_pnl": -565.0,
+      "avg_pnl": -17.12,
+      "days_with_bars": 58
+    },
+    {
+      "label": "sweep-tp1.5-profit50pct-sl75pct",
+      "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp1.5-profit50pct-sl75pct-real-2026-08-07-20260807T015709Z.json",
+      "take_profit_multiplier": 1.5,
+      "profit_pct_target": 50,
+      "stop_loss_pct": 0.75,
+      "trades": 33,
+      "win_rate": 0.2424,
+      "total_pnl": -565.0,
+      "avg_pnl": -17.12,
+      "days_with_bars": 58
+    }
+  ],
+  "winner": {
+    "label": "sweep-tp2.0-profit100pct-sl60pct",
+    "path": "/workspace/docs/verification/gamma-blast/gamma-blast-sweep-tp2.0-profit100pct-sl60pct-real-2026-08-07-20260807T015712Z.json",
+    "take_profit_multiplier": 2.0,
+    "profit_pct_target": 100,
+    "stop_loss_pct": 0.6,
+    "trades": 31,
+    "win_rate": 0.2258,
+    "total_pnl": -550.0,
+    "avg_pnl": -17.74,
+    "days_with_bars": 58
+  }
+}

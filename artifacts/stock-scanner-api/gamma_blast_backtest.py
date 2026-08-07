@@ -237,8 +237,19 @@ def _occ_symbol(day: date, strike: float, option_type: str) -> str:
 
 
 def fetch_option_1m(day: date, strike: float, option_type: str) -> pd.Series:
+    """Polygon 1-min option marks; disk-cached so TP/SL sweeps reuse the same bars."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    occ = _occ_symbol(day, strike, option_type)
+    safe = occ.replace(":", "_")
+    cache_path = CACHE_DIR / f"opt_{safe}.pkl"
+    if cache_path.exists():
+        try:
+            return pd.read_pickle(cache_path)
+        except Exception:
+            pass
+
     d = day.isoformat()
-    sym = urllib.parse.quote(_occ_symbol(day, strike, option_type))
+    sym = urllib.parse.quote(occ)
     data = _poly_get(
         f"/v2/aggs/ticker/{sym}/range/1/minute/{d}/{d}",
         {"adjusted": "false", "sort": "asc", "limit": 50000},
@@ -246,10 +257,18 @@ def fetch_option_1m(day: date, strike: float, option_type: str) -> pd.Series:
     time.sleep(RATE_SLEEP)
     rows = data.get("results") or []
     if not rows:
-        return pd.Series(dtype=float)
+        # Cache empty series too — avoid re-hitting 404/empty contracts.
+        empty = pd.Series(dtype=float)
+        empty.to_pickle(cache_path)
+        err = data.get("error") or data.get("status")
+        if err and err not in ("OK", "DELAYED"):
+            print(f"  [opt] {occ}: {err}")
+        return empty
     df = pd.DataFrame(rows)
     ts = pd.to_datetime(df["t"], unit="ms", utc=True).dt.tz_convert("America/New_York")
-    return pd.Series(df["c"].astype(float).values, index=ts)
+    s = pd.Series(df["c"].astype(float).values, index=ts)
+    s.to_pickle(cache_path)
+    return s
 
 
 def black_scholes_price(S, K, T_years, r, sigma, option_type: str) -> float:
