@@ -2,15 +2,15 @@
 """
 Asymmetric SPY paper strategies — Pattern Lab / OE Strategies.
 
-From 2y Polygon BTs (no stop, TP grid; weekdays mode):
-  Asym packages (spy_asymmetric_bt):
-    1. Long put butterfly   — TP +200% of |entry|
-    2. Long call butterfly  — TP +100% of |entry|
-    3. Put ladder (defined) — TP +150% of |entry|
-    4. Long call condor     — TP +300% of |entry|
-    5. Long put condor      — TP +300% of |entry|
-  Catalog winners (spy_catalog_untested_bt):
-    6. Narrow-wing call butterfly — TP +200% of |entry|
+From 2y Polygon BTs (no stop, TP grid; weekdays mode) — paper TPs =
+weekdays best TP per strategy (COMPARE_SL_80_85_90_2026-08-08 / narrow-wing grid):
+    1. Narrow-wing call butterfly — TP +300% of |entry|
+    2. Long put butterfly         — TP +275% of |entry|
+    3. Long call butterfly        — TP +275% of |entry|
+    4. Put ladder (defined)       — TP +300% of |entry|
+    5. Long call condor           — TP +300% of |entry|
+    6. Long put condor            — TP +300% of |entry|
+  Also on books (not in that top-6 weekdays set):
     7. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
 
 Parity with BT engines (weekdays mode — spy_asymmetric_bt --entry weekdays):
@@ -70,7 +70,9 @@ RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
 # Static TP% is unreachable when debit is rich; set TP from priced debit at entry.
 MAX_PLATEAU_PAYOFF_USD = 500.00
 SAFETY_MARGIN = 0.80
-DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset({"call_condor", "put_condor"})
+# Empty: weekdays-best alignment uses fixed TP% (incl. condors at +300%).
+# dynamic_tp_pct() kept for research / optional re-enable.
+DYNAMIC_PLATEAU_TP_STRATEGIES: frozenset[str] = frozenset()
 
 
 def dynamic_tp_pct(entry_debit_usd: float) -> float:
@@ -269,7 +271,7 @@ def build_put_ladder_defined(spot: float) -> list[tuple[int, str, float]]:
 
 
 def build_long_call_condor(spot: float) -> list[tuple[int, str, float]]:
-    """ATM ±5 / ±10 long call condor — plateau $500; TP set dynamically at entry."""
+    """ATM ±5 / ±10 long call condor — plateau $500; paper TP fixed +300% (weekdays best)."""
     k = float(round(spot))
     return [
         (1, "call", k - 10),
@@ -280,7 +282,7 @@ def build_long_call_condor(spot: float) -> list[tuple[int, str, float]]:
 
 
 def build_long_put_condor(spot: float) -> list[tuple[int, str, float]]:
-    """ATM ±5 / ±10 long put condor — plateau $500; TP set dynamically at entry."""
+    """ATM ±5 / ±10 long put condor — plateau $500; paper TP fixed +300% (weekdays best)."""
     k = float(round(spot))
     return [
         (1, "put", k + 10),
@@ -291,7 +293,7 @@ def build_long_put_condor(spot: float) -> list[tuple[int, str, float]]:
 
 
 def build_narrow_wing_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
-    """ATM ±2 call butterfly — catalog Narrow-Wing Butterfly (+200% TP winner)."""
+    """ATM ±2 call butterfly — weekdays #1 (+300% TP, no-stop)."""
     k = float(round(spot))
     return [(1, "call", k - 2), (-2, "call", k), (1, "call", k + 2)]
 
@@ -866,30 +868,30 @@ class AsymOptionsLedger:
 
 
 def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0) -> dict:
+    # TPs = weekdays 2y no-stop best per strategy (AIM Pattern Lab + OE Strategies).
     return {
         "put_butterfly": AsymOptionsLedger(
-            "LONG_PUT_BUTTERFLY", build_long_put_butterfly, 200.0,
+            "LONG_PUT_BUTTERFLY", build_long_put_butterfly, 275.0,
             "put_butterfly", underlying, capital,
         ),
         "call_butterfly": AsymOptionsLedger(
-            "LONG_CALL_BUTTERFLY", build_long_call_butterfly, 100.0,
+            "LONG_CALL_BUTTERFLY", build_long_call_butterfly, 275.0,
             "call_butterfly", underlying, capital,
         ),
         "put_ladder": AsymOptionsLedger(
-            "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
+            "PUT_LADDER_DEFINED", build_put_ladder_defined, 300.0,
             "put_ladder", underlying, capital,
         ),
-        # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
         "call_condor": AsymOptionsLedger(
-            "LONG_CALL_CONDOR", build_long_call_condor, 0.0,
+            "LONG_CALL_CONDOR", build_long_call_condor, 300.0,
             "call_condor", underlying, capital,
         ),
         "put_condor": AsymOptionsLedger(
-            "LONG_PUT_CONDOR", build_long_put_condor, 0.0,
+            "LONG_PUT_CONDOR", build_long_put_condor, 300.0,
             "put_condor", underlying, capital,
         ),
         "narrow_wing_butterfly": AsymOptionsLedger(
-            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 200.0,
+            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 300.0,
             "narrow_wing_butterfly", underlying, capital,
         ),
         "bullish_risk_reversal": AsymOptionsLedger(

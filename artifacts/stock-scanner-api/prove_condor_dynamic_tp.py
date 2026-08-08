@@ -297,6 +297,21 @@ def proof_3_paper_fills_real_polygon() -> bool:
 
 
 def main() -> int:
+    import aim_asym_paper_strategies as m
+
+    # Weekdays-best alignment emptied DYNAMIC_PLATEAU_TP_STRATEGIES (fixed +300%).
+    # Helper math still validated; entry-path / fill proofs apply only when re-enabled.
+    if not m.DYNAMIC_PLATEAU_TP_STRATEGIES:
+        p1 = proof_1_math()
+        print("===== SUMMARY =====")
+        print("SUPERSEDED_BY=prove_weekdays_best_tps.py (condors fixed TP +300%)")
+        print(f"DYNAMIC_PLATEAU_TP_STRATEGIES={sorted(m.DYNAMIC_PLATEAU_TP_STRATEGIES)!r}")
+        print(f"PROOF_1_OK={p1}")
+        print("PROOF_2_OK=SKIPPED_DYNAMIC_DISABLED")
+        print("PROOF_3_OK=SKIPPED_DYNAMIC_DISABLED")
+        print(f"ALL_OK={p1}")
+        return 0 if p1 else 1
+
     p1 = proof_1_math()
     p2 = proof_2_entry_path()
     p3 = proof_3_paper_fills_real_polygon()
