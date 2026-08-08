@@ -38,6 +38,9 @@ That path was considered and discarded because options strategies are complex by
 4. Fail-closed risk: daily loss, kill switch flatten, position reconcile  
 5. Arm live locks deliberately — engine still fires orders **without** per-trade human approval  
 
+Owner strategy scope for Tradier go-live (incl. multi-leg catalog; **not** F3-centric):
+see `Directive_Tradier_Autonomous_GoLive_OwnerStrategies_2026-08-08.md`.
+
 ## Commercial honesty
 
 Until step 3–5 are done, sell/use as **autonomous research & paper**.  

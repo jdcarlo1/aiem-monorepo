@@ -48,6 +48,14 @@ There is no plan to insert Approve/Reject for each live order.
 
 Human role after unlock: monitor kill switch / caps — **not** pick daily trades.
 
+## Owner go-live track (2026-08-08)
+See `Directive_Tradier_Autonomous_GoLive_OwnerStrategies_2026-08-08.md`.
+
+- Product target = **all owner-enabled strategies** on Tradier (multi-leg included), autonomous.
+- **F3 is not** the owner’s go-live proving pattern (did not hold up in their backtests).
+- Do not conflate “Tradier can run the catalog” with “every optimistic backtest survives ask/bid costs.”
+- Tradeability skips (wide spreads) keep multi-leg strategies enabled without forcing bad fills.
+
 ## Commercial rule
 Do not pitch as a live autonomous brokerage desk until the chosen adapter is
 implemented and reviewed. Research buyers stay on autonomous paper by default.
