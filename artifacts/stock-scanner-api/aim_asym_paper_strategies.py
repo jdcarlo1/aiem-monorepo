@@ -2,26 +2,29 @@
 """
 Asymmetric SPY paper strategies — Pattern Lab / OE Strategies.
 
-From 2y Polygon BTs (no stop, TP grid):
-  Asym top-3 (spy_asymmetric_bt):
+From 2y Polygon BTs (no stop, TP grid; weekdays mode):
+  Asym packages (spy_asymmetric_bt):
     1. Long put butterfly   — TP +200% of |entry|
     2. Long call butterfly  — TP +100% of |entry|
     3. Put ladder (defined) — TP +150% of |entry|
+    4. Long call condor     — TP +300% of |entry|
+    5. Long put condor      — TP +300% of |entry|
   Catalog winners (spy_catalog_untested_bt):
-    4. Narrow-wing call butterfly — TP +200% of |entry|
-    5. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
+    6. Narrow-wing call butterfly — TP +200% of |entry|
+    7. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
 
-Parity with BT engines:
+Parity with BT engines (weekdays mode — spy_asymmetric_bt --entry weekdays):
   - Underlying SPY
   - Risk budget $500 debit max per package (credits: 1 package)
-  - Entry day: weekly Monday (eligible from 09:30 ET when flat)
-  - Entry fill: Polygon daily option close dated EXACTLY that Monday
-    (catalog BT Monday asof — NOT prior-day lookback at 09:30)
+  - Entry day: any Mon–Fri (eligible from 09:30 ET when flat)
+  - Entry fill: Polygon daily option close dated EXACTLY that session day
+    (BT asof entry date — NOT prior-day lookback at 09:30)
   - Expiry: next_friday(d0, weeks_ahead=3)
   - NO stop loss
   - Flatten 15:30 ET on expiry Friday using that day's daily mark
   - Pricing: Polygon daily option aggregates (O:SPY…) — NOT Tradier
   - TP dollars = abs(entry_usd) * (tp_pct / 100); pnl = mark - entry
+  - Live paper: one position at a time (re-enter next weekday when flat)
 """
 from __future__ import annotations
 
@@ -42,7 +45,7 @@ log = logging.getLogger("aim_asym")
 
 ET = ZoneInfo("America/New_York")
 RISK_USD = 500.0
-# First RTH bar — matches spy_asymmetric_bt.py docstring L9 ("Monday ~ open")
+# First RTH bar — matches spy_asymmetric_bt weekday entry (~ open)
 ENTRY_AFTER = "09:30"
 # Matches spy_asymmetric_bt.py docstring L12
 FLATTEN_TIME = "15:30"
@@ -54,12 +57,34 @@ STRATEGY_KEYS = (
     "put_butterfly",
     "call_butterfly",
     "put_ladder",
+    "call_condor",
+    "put_condor",
     "narrow_wing_butterfly",
     "bullish_risk_reversal",
 )
 
 # Cash-secured SPY short put needs ~strike×100; keep a dedicated paper book.
 RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
+
+# Long call/put condor: wing width $5 → max plateau payoff $500 / package.
+# Static TP% is unreachable when debit is rich; set TP from priced debit at entry.
+MAX_PLATEAU_PAYOFF_USD = 500.00
+SAFETY_MARGIN = 0.80
+DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset({"call_condor", "put_condor"})
+
+
+def dynamic_tp_pct(entry_debit_usd: float) -> float:
+    """TP% of |entry| = SAFETY_MARGIN × max reachable % given $500 plateau."""
+    d = float(entry_debit_usd)
+    if d <= 0:
+        raise ValueError(f"dynamic_tp_pct requires debit > 0, got {d}")
+    if d >= MAX_PLATEAU_PAYOFF_USD:
+        raise ValueError(
+            f"dynamic_tp_pct: debit ${d:.2f} ≥ plateau ${MAX_PLATEAU_PAYOFF_USD:.2f}"
+        )
+    max_reachable_pct = (MAX_PLATEAU_PAYOFF_USD - d) / d * 100.0
+    return SAFETY_MARGIN * max_reachable_pct
+
 
 
 def _api_key() -> str:
@@ -129,8 +154,8 @@ def fetch_option_daily_close(
     Uses /v2/aggs/ticker/{O:…}/range/1/day — lookback 10 calendar days for asof.
 
     require_exact=True: only accept a bar dated exactly `asof` (no prior-day
-    lookback). Used for Monday entry so live fills match catalog BT Monday
-    daily closes instead of Friday premiums at 09:30 before Monday settles.
+    lookback). Used on entry so live fills match BT asof that session day
+    instead of prior-session premiums at 09:30 before today's daily settles.
     """
     cache_key = (occ_symbol, asof.isoformat(), bool(require_exact))
     now = time.time()
@@ -241,6 +266,28 @@ def build_long_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
 def build_put_ladder_defined(spot: float) -> list[tuple[int, str, float]]:
     k = float(round(spot))
     return [(1, "put", k), (-1, "put", k - 5), (-1, "put", k - 10), (1, "put", k - 15)]
+
+
+def build_long_call_condor(spot: float) -> list[tuple[int, str, float]]:
+    """ATM ±5 / ±10 long call condor — plateau $500; TP set dynamically at entry."""
+    k = float(round(spot))
+    return [
+        (1, "call", k - 10),
+        (-1, "call", k - 5),
+        (-1, "call", k + 5),
+        (1, "call", k + 10),
+    ]
+
+
+def build_long_put_condor(spot: float) -> list[tuple[int, str, float]]:
+    """ATM ±5 / ±10 long put condor — plateau $500; TP set dynamically at entry."""
+    k = float(round(spot))
+    return [
+        (1, "put", k + 10),
+        (-1, "put", k + 5),
+        (-1, "put", k - 5),
+        (1, "put", k - 10),
+    ]
 
 
 def build_narrow_wing_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
@@ -440,7 +487,7 @@ def persist_asym_paper_close(
 
 
 class AsymOptionsLedger:
-    """Multi-leg debit package paper ledger — Monday RTH open, TP%, no stop, Polygon daily."""
+    """Multi-leg package paper ledger — Mon–Fri RTH open, TP%, no stop, Polygon daily."""
 
     def __init__(
         self,
@@ -471,7 +518,7 @@ class AsymOptionsLedger:
         self.wins = 0
         self.losses = 0
         self._day_key: Optional[str] = None
-        self._entered_week: Optional[str] = None
+        self._entered_day: Optional[str] = None
         self._reserved_collateral_usd = 0.0
 
     @property
@@ -495,21 +542,36 @@ class AsymOptionsLedger:
             "strategy": self.strategy_key,
             "rules": {
                 "entry": (
-                    "Monday from 09:30 ET when flat; fill = Polygon daily "
-                    "option close dated exactly that Monday (BT asof Monday — "
-                    "no prior-day lookback fill)"
+                    "Mon–Fri from 09:30 ET when flat; fill = Polygon daily "
+                    "option close dated exactly that session day (BT asof "
+                    "entry date — no prior-day lookback fill)"
                 ),
                 "structure": self.pattern_name,
                 "risk_usd": self.risk_usd,
                 "take_profit_pct": self.take_profit_pct,
+                "take_profit_mode": (
+                    "dynamic_plateau_80pct"
+                    if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                    else "fixed_pct"
+                ),
+                "max_plateau_payoff_usd": (
+                    MAX_PLATEAU_PAYOFF_USD
+                    if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                    else None
+                ),
                 "stop_loss": None,
                 "pricing": "Polygon daily option aggregates",
                 "allow_credit": self.allow_credit,
                 "cash_secured": self.cash_secured,
                 "exit": (
-                    f"+{self.take_profit_pct:.0f}% of |entry| premium or "
-                    f"flatten 15:30 on expiry Friday (daily mark asof that day)"
-                ),
+                    (
+                        f"dynamic TP = {SAFETY_MARGIN:.0%} of max reachable "
+                        f"vs ${MAX_PLATEAU_PAYOFF_USD:.0f} plateau (set at entry) or "
+                    )
+                    if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                    else f"+{self.take_profit_pct:.0f}% of |entry| premium or "
+                )
+                + "flatten 15:30 on expiry Friday (daily mark asof that day)",
             },
             "reserved_collateral_usd": round(self._reserved_collateral_usd, 2),
             "account_balance_usd": round(self.account_balance_usd, 2),
@@ -523,10 +585,6 @@ class AsymOptionsLedger:
             "signal_state": self.signal_state,
             "recent_trades": self.trade_log[-10:],
         }
-
-    def _week_key(self, d: date) -> str:
-        iso = d.isocalendar()
-        return f"{iso[0]}-W{iso[1]:02d}"
 
     def _mark_package(self, expiration: date, legs: list, asof: date) -> Optional[float]:
         spec = [(int(L["qty"]), str(L["right"]), float(L["strike"])) for L in legs]
@@ -596,7 +654,6 @@ class AsymOptionsLedger:
         day = ts.date() if hasattr(ts, "date") else datetime.now(ET).date()
         bar_time = ts.strftime("%H:%M") if hasattr(ts, "strftime") else "12:00"
         day_key = day.isoformat()
-        week_key = self._week_key(day)
 
         if self._day_key != day_key:
             self._day_key = day_key
@@ -617,10 +674,13 @@ class AsymOptionsLedger:
                 )
                 self.active_position["unrealized_pnl"] = round(pnl, 2)
                 self.net_liquidation_usd = self.account_balance_usd + mark_usd
-                # Catalog/asym BT: TP dollars = abs(entry) * (tp_pct / 100)
-                tp_dollars = abs(entry_usd) * (self.take_profit_pct / 100.0)
+                # TP dollars = abs(entry) * (tp_pct / 100); condors use entry-time dynamic %
+                tp_pct = float(
+                    self.active_position.get("take_profit_pct", self.take_profit_pct)
+                )
+                tp_dollars = abs(entry_usd) * (tp_pct / 100.0)
                 if pnl >= tp_dollars:
-                    self._close(mark_usd, f"TP_{int(self.take_profit_pct)}PCT")
+                    self._close(mark_usd, f"TP_{int(round(tp_pct))}PCT")
                     return
                 if day >= exp and bar_time >= FLATTEN_TIME:
                     self._close(mark_usd, "EXPIRY_FLATTEN")
@@ -628,18 +688,24 @@ class AsymOptionsLedger:
                 if day > exp:
                     self._close(mark_usd, "EXPIRY_FLATTEN")
                     return
+            tp_pct_note = float(
+                self.active_position.get("take_profit_pct", self.take_profit_pct)
+            )
             self.signal_state = {
                 "status": "IN_POSITION",
                 "note": (
-                    f"TP +{int(self.take_profit_pct)}% of |entry| · no stop · "
+                    f"TP +{tp_pct_note:.1f}% of |entry| · no stop · "
                     f"Polygon daily · exp {self.active_position['expiration']}"
                 ),
             }
             return
 
-        # Entry: Monday at/after first RTH bar (09:30), one per week
-        if day.weekday() != 0:
-            self.signal_state = {"status": "WAIT_MONDAY", "note": "weekly Monday entry only"}
+        # Entry: any Mon–Fri at/after first RTH bar (09:30), when flat
+        if day.weekday() >= 5:
+            self.signal_state = {
+                "status": "WAIT_WEEKDAY",
+                "note": "Mon–Fri entry only (weekends skipped)",
+            }
             return
         if bar_time < ENTRY_AFTER:
             self.signal_state = {
@@ -647,22 +713,25 @@ class AsymOptionsLedger:
                 "note": f"entry at first RTH bar ({ENTRY_AFTER} ET)",
             }
             return
-        if self._entered_week == week_key:
-            self.signal_state = {"status": "WEEK_DONE", "note": "already entered this week"}
+        if self._entered_day == day_key:
+            self.signal_state = {
+                "status": "DAY_DONE",
+                "note": "already entered this session",
+            }
             return
 
         exp = next_friday(day, weeks_ahead=3)
         legs_spec = self.builder(spot)
-        # Entry fill must match catalog BT Monday daily close — require exact
-        # Monday bars (do NOT look back to Friday at 09:30 before Monday settles).
+        # Entry fill must match BT daily close asof entry date — require exact
+        # session bars (do NOT look back to prior day at 09:30 before today settles).
         priced = price_legs_polygon(
             self.underlying, exp, legs_spec, day, require_exact=True
         )
         if not priced:
             self.signal_state = {
-                "status": "WAITING_MONDAY_DAILY",
+                "status": "WAITING_ENTRY_DAILY",
                 "note": (
-                    "Polygon exact Monday daily option aggregates unavailable "
+                    "Polygon exact session daily option aggregates unavailable "
                     f"for {day.isoformat()} — waiting for BT-parity fill "
                     "(no prior-day lookback / no Tradier synthetic)"
                 ),
@@ -714,6 +783,24 @@ class AsymOptionsLedger:
             }
             return
 
+        # Condors: replace static config TP with entry-time dynamic % from priced debit
+        if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES:
+            if entry_usd <= 0:
+                self.signal_state = {
+                    "status": "SKIP_DYNAMIC_TP",
+                    "note": "condor dynamic TP requires debit package",
+                }
+                return
+            per_pkg_debit = float(entry_usd) / float(packages)
+            try:
+                self.take_profit_pct = float(dynamic_tp_pct(per_pkg_debit))
+            except ValueError as _dtp_err:
+                self.signal_state = {
+                    "status": "SKIP_DYNAMIC_TP",
+                    "note": str(_dtp_err),
+                }
+                return
+
         # Debit: pay premium. Credit: receive premium (subtract negative).
         self.account_balance_usd -= entry_usd
         paper_id = persist_asym_paper_open(
@@ -742,8 +829,14 @@ class AsymOptionsLedger:
             "entry_debit_usd": round(entry_usd, 2),
             "collateral_usd": round(collateral, 2),
             "stop": 0.0,
+            "take_profit_pct": float(self.take_profit_pct),
             "target": round(
                 abs(debit_ps) * (self.take_profit_pct / 100.0), 4
+            ),
+            "max_plateau_payoff_usd": (
+                MAX_PLATEAU_PAYOFF_USD * packages
+                if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                else None
             ),
             "strike": float(round(spot)),
             "legs": priced["legs"],
@@ -754,19 +847,19 @@ class AsymOptionsLedger:
             "paper_trade_id": paper_id,
             "strategy": self.strategy_key,
         }
-        self._entered_week = week_key
+        self._entered_day = day_key
         kind = "credit" if entry_usd < 0 else "debit"
         self.signal_state = {
             "status": "IN_POSITION",
             "note": (
                 f"entered {packages} pkg {kind} ${entry_usd:.2f} "
-                f"TP +{int(self.take_profit_pct)}% of |entry| Polygon daily"
+                f"TP +{self.take_profit_pct:.1f}% of |entry| Polygon daily"
                 + (f" · CSP ${collateral:.0f}" if collateral else "")
             ),
         }
         self.net_liquidation_usd = self.account_balance_usd + entry_usd
         log.info(
-            "[%s] ENTRY: %d pkg @ $%.2f %s | TP +%.0f%% | exp %s | paper_id=%s",
+            "[%s] ENTRY: %d pkg @ $%.2f %s | TP +%.1f%% | exp %s | paper_id=%s",
             self.pattern_name, packages, entry_usd, kind, self.take_profit_pct,
             priced["expiration"], paper_id,
         )
@@ -785,6 +878,15 @@ def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0
         "put_ladder": AsymOptionsLedger(
             "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
             "put_ladder", underlying, capital,
+        ),
+        # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
+        "call_condor": AsymOptionsLedger(
+            "LONG_CALL_CONDOR", build_long_call_condor, 0.0,
+            "call_condor", underlying, capital,
+        ),
+        "put_condor": AsymOptionsLedger(
+            "LONG_PUT_CONDOR", build_long_put_condor, 0.0,
+            "put_condor", underlying, capital,
         ),
         "narrow_wing_butterfly": AsymOptionsLedger(
             "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 200.0,

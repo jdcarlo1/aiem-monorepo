@@ -770,6 +770,32 @@ _liveness_watchdog_thr = _early_bind_thr.Thread(
 _liveness_watchdog_thr.start()
 print("[startup] liveness watchdog started (self health-check every 30s, force-restart after 3 consecutive failures)", flush=True)
 
+# ── Morning deploy blackout boot alert ──────────────────────────────────────
+# Aug 7 2026: PR #46 Publish mid-morning brought stock-api up at 9:57 ET and
+# missed Loop B (9:07) + paper 9:42 → 0 autonomous paper picks.  Alert owner
+# immediately when a process boots inside the autonomous morning window.
+# Logic lives in morning_deploy_blackout.py so proofs can freeze "now".
+def _boot_morning_window_alert():
+    try:
+        import time as _bmw_t
+        from morning_deploy_blackout import fire_boot_alert_if_in_window as _bmw_fire
+        # Wait briefly so _tg_send / TELEGRAM secrets are ready post-import.
+        _tg_fn = None
+        for _ in range(30):
+            _cand = globals().get("_tg_send")
+            if callable(_cand):
+                _tg_fn = _cand
+                break
+            _bmw_t.sleep(2)
+        _bmw_fire(tg_send=_tg_fn)
+    except Exception as _bmw_e:
+        print(f"[startup] morning-window boot alert error: {_bmw_e}", flush=True)
+
+import threading as _bmw_thr
+_bmw_thr.Thread(
+    target=_boot_morning_window_alert, daemon=True, name="boot-morning-window-alert"
+).start()
+
 @app.route("/stock-api/process-info", methods=["GET"])
 def process_info():
     return jsonify(_get_process_info())
@@ -9627,16 +9653,39 @@ try:
             try:
                 import aiem_paper_recovery as _psr_pr
                 _psr_status = _psr_pr.get_today_status(_psr_now.date())
-                if _psr_status.get("status") in ("COMPLETED", "SKIPPED"):
+                _psr_st = _psr_status.get("status")
+                _psr_pc = _psr_status.get("picks_count")
+                # Real trades already booked — do not re-run.
+                if _psr_st in ("COMPLETED", "SKIPPED") and _psr_pc is not None and int(_psr_pc) > 0:
                     print(f"[paper_startup_reconciler] already "
-                          f"{_psr_status['status']} — no action needed")
+                          f"{_psr_st} with picks={_psr_pc} — no action needed")
                     return
                 if _psr_status.get("status") == "EXECUTING":
                     print("[paper_startup_reconciler] EXECUTING in progress — no action")
                     return
+                # Late boot (after 9:42): give Loop B / scanner catchup time before
+                # the first paper attempt so we don't burn a NO_CANDIDATES SKIPPED.
+                if (_psr_now.hour > 9) or (_psr_now.hour == 9 and _psr_now.minute >= 42):
+                    print("[paper_startup_reconciler] late boot — waiting up to 6 min "
+                          "for Loop B / scanner warm before paper execute")
+                    for _ in range(36):
+                        try:
+                            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_w, \
+                                    _c_w.cursor() as _cu_w:
+                                _cu_w.execute(
+                                    "SELECT COUNT(*) FROM aiem_predictions "
+                                    "WHERE prediction_date = %s",
+                                    (_psr_now.date(),),
+                                )
+                                if int((_cu_w.fetchone() or [0])[0] or 0) > 0:
+                                    print("[paper_startup_reconciler] Loop B predictions ready")
+                                    break
+                        except Exception:
+                            pass
+                        _psr_t.sleep(10)
             except Exception as _psr_le:
                 print(f"[paper_startup_reconciler] ledger check error: {_psr_le}")
-            print(f"[paper_startup_reconciler] no terminal run for {_psr_now.date()} "
+            print(f"[paper_startup_reconciler] no terminal run with picks for {_psr_now.date()} "
                   f"— triggering startup_recovery")
             _aiem_paper_execute_today(trigger_source="startup_recovery")
             print("[paper_startup_reconciler] startup_recovery complete")
@@ -9785,16 +9834,21 @@ try:
                     continue
                 _cached = _load_scan_cache(_tab_key, days_back=7)
                 if _cached:
+                    if _tab_key == "insider-radar":
+                        _cached = _ir_filter_live_payload(_cached)
                     setattr(app, _cache_attr, {**_cached, "stale": True, "source": "boot_preload"})
                     setattr(app, _ts_attr, _dt_pl.datetime.now())
                     _hits_count = (len(_cached.get("hits", _cached.get("results",
                                        _cached.get("runners", _cached.get("candidates",
-                                       _cached.get("picks", [])))))))
+                                       _cached.get("picks",
+                                       _cached.get("signals", []))))))))
                     _pl_loaded.append(f"{_tab_key}({_hits_count})")
             except Exception as _e_tab:
                 print(f"[startup_preload] {_tab_key} error: {_e_tab}")
 
         # ── AI Short Calls (own table, not scan_result_cache) ────────────────
+        # Boot preload is a short-lived bridge only: prefer today's scanner
+        # picks and never seed the UI with expired contracts from prior weeks.
         try:
             if not getattr(app, "_aisc_cache", None):
                 with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c_aisc, _c_aisc.cursor() as _cur_aisc:
@@ -9803,7 +9857,9 @@ try:
                                stock_price, otm_pct, breakeven, conviction, urgency,
                                thesis, why_it_stands_out, created_at
                         FROM ai_short_calls_log
-                        WHERE created_at >= NOW() - INTERVAL '7 days'
+                        WHERE created_at >= NOW() - INTERVAL '36 hours'
+                          AND (expiry IS NULL OR expiry::date >=
+                               (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date)
                         ORDER BY rank ASC NULLS LAST, created_at DESC
                         LIMIT 25
                     """)
@@ -9819,7 +9875,9 @@ try:
                         _p_aisc["smp_score"] = 0.0; _p_aisc["smp_label"] = ""; _p_aisc["smp_layers"] = []
                         _picks_aisc.append(_p_aisc)
                     app._aisc_cache    = {"picks": _picks_aisc, "count": len(_picks_aisc),
-                                          "stale": True, "source": "boot_preload"}
+                                          "stale": True, "source": "boot_preload",
+                                          "ranking_mode": "scanner_signals",
+                                          "openai_ranked": False}
                     app._aisc_cache_ts = _dt_pl.datetime.now()
                     _pl_loaded.append(f"ai-short-calls({len(_picks_aisc)})")
         except Exception as _e_aisc:
@@ -18719,6 +18777,15 @@ try:
         lambda: _aiem_paper_execute_today(trigger_source="scheduled_942"),
         CronTrigger(day_of_week="mon-fri", hour=9, minute=42, timezone=_ET),
         id="aiem_paper_execute",
+        replace_existing=True,
+    )
+    # Safety net when a mid-morning Publish/restart misses 9:42 (Aug 7 2026:
+    # PR #46 publish brought stock-api up at 9:57 ET → 0 paper picks).
+    # Same zero-pick override privilege as scheduled_942 via try_claim Step 2c.
+    _scheduler.add_job(
+        lambda: _aiem_paper_execute_today(trigger_source="scheduled_1015"),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=15, timezone=_ET),
+        id="aiem_paper_execute_retry",
         replace_existing=True,
     )
 
@@ -68495,6 +68562,43 @@ def standout_track():
         return jsonify({"picks": [], "summary": {}, "as_of": "", "error": str(_e_st)})
 
 
+def _ir_live_signal_ok(sig: dict, today_iso: str, min_last_seen_iso: str | None = None) -> bool:
+    """Live Radar must not show expired contracts or ancient last_seen rows."""
+    exp = str(sig.get("expiry") or "")[:10]
+    if exp and exp < today_iso:
+        return False
+    if min_last_seen_iso:
+        last = str(sig.get("last_seen") or "")[:10]
+        if last and last < min_last_seen_iso:
+            return False
+    return True
+
+
+def _ir_filter_live_payload(payload: dict) -> dict:
+    """Drop expired / stale rows from a cached Insider Radar payload."""
+    import datetime as _dt_f
+    try:
+        from zoneinfo import ZoneInfo as _ZI_f
+        _today = _dt_f.datetime.now(_ZI_f("America/New_York")).date()
+    except Exception:
+        _today = _dt_f.date.today()
+    _min_last = (_today - _dt_f.timedelta(days=14)).isoformat()
+    _today_iso = _today.isoformat()
+    _sigs = [
+        s for s in (payload.get("signals") or [])
+        if isinstance(s, dict) and _ir_live_signal_ok(s, _today_iso, _min_last)
+    ]
+    out = dict(payload)
+    out["signals"] = _sigs
+    out["shown"] = len(_sigs)
+    out["high_suspicion"] = sum(1 for r in _sigs if (r.get("suspicion_score") or 0) >= 65)
+    out["rare_tickers"] = sum(1 for r in _sigs if (r.get("ticker_appearances") or 99) <= 3)
+    out["earnings_linked"] = sum(1 for r in _sigs if r.get("days_to_earnings") is not None)
+    out["live_window_days"] = 14
+    out["expired_filtered"] = True
+    return out
+
+
 @app.route("/stock-api/insider-radar", methods=["GET"])
 def insider_radar():
     """
@@ -68502,6 +68606,7 @@ def insider_radar():
     Cross-references unusual call bets ($10K+, 90-day history) with
     upcoming earnings (up to 90 days out) and ticker rarity scores.
     Signals: rarity of ticker + premium size + vol/oi aggression + earnings proximity.
+    Live Radar only returns unexpired contracts with last_seen in the last 14 days.
     """
     import datetime as _dt_ir
     from concurrent.futures import ThreadPoolExecutor as _TPE
@@ -68510,7 +68615,7 @@ def insider_radar():
     _cache    = getattr(app, "_insider_radar_cache", None)
     _cache_ts = getattr(app, "_insider_radar_cache_ts", None)
     if not bust and _cache and _cache_ts and (_dt_ir.datetime.now() - _cache_ts).total_seconds() < 2700:
-        return jsonify(_cache)
+        return jsonify(_ir_filter_live_payload(_cache))
 
     # NOTE: we do NOT gate on _yf_breaker_open() here.  The main data source is
     # unusual_calls_log (pure DB — no Yahoo).  Yahoo is only used for earnings
@@ -68529,7 +68634,8 @@ def insider_radar():
             if not getattr(app, "_insider_radar_cache", None):
                 _ir_db_bg = _load_scan_cache("insider-radar")
                 if _ir_db_bg:
-                    app._insider_radar_cache    = _ir_db_bg
+                    # Never rehydrate a graveyard payload of expired contracts.
+                    app._insider_radar_cache    = _ir_filter_live_payload(_ir_db_bg)
                     app._insider_radar_cache_ts = _dt_ir.datetime.now()
             # Phase 2: full live scan — wait 30s after boot to avoid startup burst
             import time as _time_ir
@@ -68537,7 +68643,10 @@ def insider_radar():
             if _delay_ir > 0:
                 _time_ir.sleep(_delay_ir)
             with _psycopg2.connect(_DB_URL, connect_timeout=10, options="-c statement_timeout=4000") as conn, conn.cursor() as cur:
-                # All signals $10K+ from last 90 days, newest first
+                # Live Radar: $10K+ calls still active (unexpired) and seen in
+                # the last 14 days. Rarity/earnings scoring still uses 90d stats
+                # below — but the card list itself must not be a graveyard of
+                # expired June/July contracts ranked by old suspicion scores.
                 cur.execute(
                     "SELECT ticker, price::float, strike::float, expiry,"
                     " days_out, volume, oi, vol_oi::float, prem::bigint,"
@@ -68546,8 +68655,11 @@ def insider_radar():
                     " last_seen  AT TIME ZONE 'UTC' AS last_seen"
                     " FROM unusual_calls_log"
                     " WHERE prem >= 10000"
+                    "   AND last_seen >= NOW() - INTERVAL '14 days'"
                     "   AND first_seen >= NOW() - INTERVAL '90 days'"
-                    " ORDER BY prem DESC"
+                    "   AND (expiry IS NULL OR expiry::date >="
+                    "        (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date)"
+                    " ORDER BY last_seen DESC, prem DESC"
                 )
                 cols    = [d[0] for d in cur.description]
                 signals = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -68716,7 +68828,7 @@ def insider_radar():
             _full_n = len(results)
             _shown = results[:_IR_MAX_SIGNALS]
     
-            out = {
+            out = _ir_filter_live_payload({
                 "signals":         _shown,
                 "total":           _full_n,
                 "shown":           len(_shown),
@@ -68725,7 +68837,10 @@ def insider_radar():
                 "high_suspicion":  sum(1 for r in results if r["suspicion_score"] >= 65),
                 "rare_tickers":    sum(1 for r in results if r["ticker_appearances"] <= 3),
                 "as_of":           _dt_ir.datetime.now().isoformat(),
-            }
+            })
+            # Keep total aligned with the live filtered window (not the old 90d dump).
+            out["total"] = len(out.get("signals") or [])
+            out["truncated"] = _full_n > _IR_MAX_SIGNALS
             app._insider_radar_cache    = out
             app._insider_radar_cache_ts = _dt_ir.datetime.now()
             _save_scan_cache("insider-radar", out)
@@ -68764,20 +68879,22 @@ def insider_radar():
     if _cache:
         # Harden stale/oversized cache responses so a bloated historical
         # scan_result_cache cannot black out clients while a refresh runs.
-        _sigs = list((_cache or {}).get("signals") or [])
+        _live = _ir_filter_live_payload(_cache)
+        _sigs = list((_live or {}).get("signals") or [])
         _IR_MAX_SIGNALS = 150
         if len(_sigs) > _IR_MAX_SIGNALS:
-            _cache = {
-                **_cache,
+            _live = {
+                **_live,
                 "signals": _sigs[:_IR_MAX_SIGNALS],
-                "total": _cache.get("total") or len(_sigs),
+                "total": _live.get("total") or len(_sigs),
                 "shown": _IR_MAX_SIGNALS,
                 "truncated": True,
             }
-        return jsonify({**_cache, "stale": True, "generating": True})
+        return jsonify({**_live, "stale": True, "generating": True})
     return jsonify({"signals": [], "total": 0, "shown": 0, "truncated": False,
                     "generating": True,
-                    "earnings_linked": 0, "high_suspicion": 0, "rare_tickers": 0})
+                    "earnings_linked": 0, "high_suspicion": 0, "rare_tickers": 0,
+                    "live_window_days": 14, "expired_filtered": True})
 
 
 @app.route("/stock-api/insider-alerts", methods=["GET"])
@@ -75754,7 +75871,7 @@ def _build_bear_tech_signals(close_str, rvol, vpin, hurst, iv):
 @app.route("/stock-api/pattern-lab/snapshot", methods=["GET"])
 @app.route("/pattern-lab/snapshot", methods=["GET"])
 def pattern_lab_snapshot():
-    """Pattern Lab — Gap Fill, ORB, F3, + asym packages (flies, ladder, narrow-wing, bullish RR)."""
+    """Pattern Lab — Gap Fill, ORB, F3, + asym packages (flies, ladder, condors, narrow-wing, bullish RR)."""
     try:
         eng = _get_pattern_lab_engine()
         return jsonify(eng.dashboard_snapshot())

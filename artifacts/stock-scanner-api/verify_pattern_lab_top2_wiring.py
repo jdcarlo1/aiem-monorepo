@@ -36,16 +36,20 @@ def _ok(name: str, cond: bool, detail: str = "") -> None:
         print(f"FAIL {name}" + (f" | {detail}" if detail else ""))
 
 
-def _monday_df(spot: float = 500.0) -> pd.DataFrame:
-    # 2026-08-03 was a Monday
+def _session_df(year: int, month: int, day: int, spot: float = 500.0) -> pd.DataFrame:
     idx = pd.DatetimeIndex(
-        [datetime(2026, 8, 3, 9, 30, tzinfo=ET)],
+        [datetime(year, month, day, 9, 30, tzinfo=ET)],
         name="ts",
     )
     return pd.DataFrame(
         {"open": [spot], "high": [spot], "low": [spot], "close": [spot], "volume": [1]},
         index=idx,
     )
+
+
+def _monday_df(spot: float = 500.0) -> pd.DataFrame:
+    # 2026-08-03 was a Monday
+    return _session_df(2026, 8, 3, spot)
 
 
 def _priced(debit_ps: float, legs: list) -> dict:
@@ -70,14 +74,39 @@ def section_spec_constants():
 
     nw = m.build_narrow_wing_call_butterfly(500.0)
     rr = m.build_bullish_risk_reversal(500.0)
+    cc = m.build_long_call_condor(500.0)
+    pc = m.build_long_put_condor(500.0)
     print(f"narrow_wing_legs_spot500={nw!r}")
     print(f"bullish_rr_legs_spot500={rr!r}")
+    print(f"call_condor_legs_spot500={cc!r}")
+    print(f"put_condor_legs_spot500={pc!r}")
     _ok("narrow_atm_pm2", nw == [(1, "call", 498.0), (-2, "call", 500.0), (1, "call", 502.0)])
     _ok("rr_call_kp5_put_km5", rr == [(1, "call", 505.0), (-1, "put", 495.0)])
+    _ok(
+        "call_condor_atm_pm5_pm10",
+        cc
+        == [
+            (1, "call", 490.0),
+            (-1, "call", 495.0),
+            (-1, "call", 505.0),
+            (1, "call", 510.0),
+        ],
+    )
+    _ok(
+        "put_condor_atm_pm5_pm10",
+        pc
+        == [
+            (1, "put", 510.0),
+            (-1, "put", 505.0),
+            (-1, "put", 495.0),
+            (1, "put", 490.0),
+        ],
+    )
 
     ledgers = m.build_default_asym_ledgers()
     nw_l = ledgers["narrow_wing_butterfly"]
     rr_l = ledgers["bullish_risk_reversal"]
+    print("LEDGER_KEYS", sorted(ledgers.keys()))
     print(
         "narrow_ledger",
         {
@@ -107,6 +136,25 @@ def section_spec_constants():
     _ok("rr_allow_credit", rr_l.allow_credit is True)
     _ok("rr_cash_secured_flag", rr_l.cash_secured is True)
     _ok("rr_capital_100k", rr_l._starting_capital == 100000.0)
+    _ok("has_call_condor_ledger", "call_condor" in ledgers)
+    _ok("has_put_condor_ledger", "put_condor" in ledgers)
+    # Condor TP is placeholder 0 until entry-time dynamic_tp_pct(D)
+    _ok("call_condor_tp_placeholder_0", ledgers["call_condor"].take_profit_pct == 0.0)
+    _ok("put_condor_tp_placeholder_0", ledgers["put_condor"].take_profit_pct == 0.0)
+    _ok(
+        "condor_in_dynamic_plateau_set",
+        "call_condor" in m.DYNAMIC_PLATEAU_TP_STRATEGIES
+        and "put_condor" in m.DYNAMIC_PLATEAU_TP_STRATEGIES,
+    )
+    d_call, d_put = 167.0, 141.0
+    tp_call = m.dynamic_tp_pct(d_call)
+    tp_put = m.dynamic_tp_pct(d_put)
+    print(f"dynamic_tp_call_D167={tp_call:.4f}")
+    print(f"dynamic_tp_put_D141={tp_put:.4f}")
+    _ok("dynamic_tp_call_below_max", tp_call < (500.0 - d_call) / d_call * 100.0)
+    _ok("dynamic_tp_put_below_max", tp_put < (500.0 - d_put) / d_put * 100.0)
+    _ok("asym_ledger_count_7", len(ledgers) == 7)
+    _ok("strategy_keys_count_7", len(m.STRATEGY_KEYS) == 7)
 
 
 def section_reject_budget():
@@ -229,7 +277,8 @@ def section_entry_flatten_gates():
 
     src = inspect.getsource(m.AsymOptionsLedger.evaluate)
     _ok("entry_uses_ENTRY_AFTER", "bar_time < ENTRY_AFTER" in src)
-    _ok("entry_monday_only", "day.weekday() != 0" in src)
+    _ok("entry_weekdays_mon_fri", "day.weekday() >= 5" in src)
+    _ok("entry_not_monday_only", "day.weekday() != 0" not in src)
     _ok("expiry_uses_FLATTEN_TIME", "bar_time >= FLATTEN_TIME" in src)
     _ok("weeks_ahead_3", "next_friday(day, weeks_ahead=3)" in src)
     _ok("pricing_fn_polygon", "price_legs_polygon(" in src)
@@ -241,8 +290,48 @@ def section_entry_flatten_gates():
     _ok("no_tradier_pricing_call", not tradier_call)
     print(f"ENTRY_AFTER_const={m.ENTRY_AFTER}")
     print(f"FLATTEN_TIME_const={m.FLATTEN_TIME}")
-    print(f"WAITING_MONDAY_DAILY_in_src={'WAITING_MONDAY_DAILY' in src}")
-    _ok("waiting_monday_daily_status", "WAITING_MONDAY_DAILY" in src)
+    print(f"WAITING_ENTRY_DAILY_in_src={'WAITING_ENTRY_DAILY' in src}")
+    _ok("waiting_entry_daily_status", "WAITING_ENTRY_DAILY" in src)
+    _ok("no_wait_monday_status", "WAIT_MONDAY" not in src)
+
+    # Behavioral: Tuesday can enter; Saturday waits for weekday
+    print("===== 5b_WEEKDAY_ENTRY_BEHAVIOR =====")
+    fake = _priced(
+        2.0,
+        [
+            {"qty": 1, "right": "put", "strike": 495.0, "premium": 4.0, "symbol": "P1"},
+            {"qty": -2, "right": "put", "strike": 500.0, "premium": 2.5, "symbol": "P2"},
+            {"qty": 1, "right": "put", "strike": 505.0, "premium": 1.5, "symbol": "P3"},
+        ],
+    )
+    tue = m.AsymOptionsLedger(
+        "LONG_PUT_BUTTERFLY",
+        m.build_long_put_butterfly,
+        200.0,
+        "put_butterfly",
+        starting_capital_usd=10000.0,
+    )
+    with patch.object(m, "price_legs_polygon", return_value=fake):
+        with patch.object(m, "persist_asym_paper_open", return_value=None):
+            tue.evaluate(_session_df(2026, 8, 4, 500.0))  # Tuesday
+    print(f"tuesday_signal={tue.signal_state!r}")
+    _ok("tuesday_enters", tue.active_position is not None, str(tue.signal_state))
+
+    sat = m.AsymOptionsLedger(
+        "LONG_PUT_BUTTERFLY",
+        m.build_long_put_butterfly,
+        200.0,
+        "put_butterfly",
+        starting_capital_usd=10000.0,
+    )
+    with patch.object(m, "price_legs_polygon", return_value=fake):
+        sat.evaluate(_session_df(2026, 8, 8, 500.0))  # Saturday
+    print(f"saturday_signal={sat.signal_state!r}")
+    _ok(
+        "saturday_waits",
+        sat.signal_state.get("status") == "WAIT_WEEKDAY" and sat.active_position is None,
+        str(sat.signal_state),
+    )
 
 
 def section_bt_parity_table():
@@ -252,7 +341,7 @@ def section_bt_parity_table():
     catalog_path = ROOT / "spy_catalog_untested_bt.py"
     paper = {
         "risk_usd": 500.0,
-        "entry": "Monday >= 09:30 ET (ENTRY_AFTER)",
+        "entry": "Mon–Fri >= 09:30 ET (ENTRY_AFTER) when flat",
         "expiry": "next_friday(d0, weeks_ahead=3)",
         "flatten": "15:30 ET on expiry Friday (FLATTEN_TIME)",
         "stop": None,
@@ -265,7 +354,7 @@ def section_bt_parity_table():
     }
     bt = {
         "risk_usd": 500.0,
-        "entry": "weekly Monday (daily bar asof entry date)",
+        "entry": "every Mon–Fri weekday (daily bar asof entry date)",
         "expiry": "bt.next_friday(d0, weeks_ahead=3)",
         "flatten": "EXPIRY_FLATTEN on last available daily bar <= hold_end",
         "stop": None,
@@ -284,9 +373,10 @@ def section_bt_parity_table():
     print("PARITY_MATCH pricing_polygon", "polygon" in paper["pricing"].lower() and "Polygon" in bt["pricing"])
     print("PARITY_MATCH narrow_tp", paper["narrow_tp"] == bt["narrow_tp"])
     print("PARITY_MATCH rr_tp", paper["rr_tp"] == bt["rr_tp"])
-    print("PARITY_NOTE entry_bar: paper=09:30 first RTH; catalog BT=Monday daily close/asof")
+    print("PARITY_NOTE entry_bar: paper=09:30 first RTH; weekdays BT=session daily close/asof")
     print("PARITY_NOTE flatten: paper=15:30 clock; catalog BT=last daily bar (no intraday clock)")
     print("PARITY_NOTE cash_secured: paper ENFORCES SKIP_COLLATERAL; catalog BT does NOT model CSP")
+    print("PARITY_NOTE concurrency: paper=1 position; BT weekdays=independent overlapping entries")
     _ok("parity_risk_500", paper["risk_usd"] == bt["risk_usd"])
     _ok("parity_tps", paper["narrow_tp"] == bt["narrow_tp"] and paper["rr_tp"] == bt["rr_tp"])
 
@@ -432,6 +522,8 @@ def section_live_snapshot():
             "put_butterfly",
             "call_butterfly",
             "put_ladder",
+            "call_condor",
+            "put_condor",
             "f3",
             "gap_fill",
             "orb",

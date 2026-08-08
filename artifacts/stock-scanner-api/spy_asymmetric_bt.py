@@ -6,7 +6,8 @@ Directive_SPY_Asymmetric_Strategies_BT_2026-08-07
 Compares 23 defined-risk-leaning SPY option structures under IDENTICAL rules:
   - Underlying: SPY
   - Risk budget: $100 max debit / defined risk per trade (1+ contracts floored)
-  - Entry: each Monday ~ open (first RTH bar day), ~21–45 DTE when available
+  - Entry (default): each Monday ~ open (first RTH bar day), ~21–45 DTE when available
+    Alternate: --entry weekdays = every Mon–Fri (A/B vs Monday-only)
   - Exit grid (NO STOP LOSS): take-profit when P&L >= entry_debit * pct
         50%, 75%, 100%, 125%, 150%, 200%
   - Else flatten at 15:30 ET on expiry Friday (or last available bar before expiry)
@@ -14,6 +15,7 @@ Compares 23 defined-risk-leaning SPY option structures under IDENTICAL rules:
 Pricing: real Polygon daily option aggregates (O:SPY…). Synthetic BS is NOT used.
 
 Archives full ledgers + ranking under docs/verification/spy-asymmetric-bt/
+(weekdays mode → docs/verification/spy-asymmetric-bt-weekdays/)
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ RATE_SLEEP = float(os.environ.get("ASYM_BT_RATE_SLEEP", "0.25"))
 CACHE_DIR = Path(os.environ.get("ASYM_BT_CACHE", "/tmp/spy_asym_bt_cache"))
 ARCHIVE_DIR_NAME = "spy-asymmetric-bt"
 RISK_USD = float(os.environ.get("ASYM_BT_RISK_USD", "500"))
-TP_PCTS = [50, 75, 100, 125, 150, 200]
+TP_PCTS = [50, 75, 100, 125, 150, 200, 225, 250, 275, 300]
 
 
 def _api_key() -> str:
@@ -84,9 +86,12 @@ def _poly_get(path: str, params: Optional[dict] = None) -> dict:
     return {"status": "ERROR", "error": "rate_limited", "results": []}
 
 
-def archive_root() -> Path:
+def archive_root(subdir: str | None = None) -> Path:
     root = Path(__file__).resolve().parents[2]
-    p = root / "docs" / "verification" / ARCHIVE_DIR_NAME
+    name = (subdir or ARCHIVE_DIR_NAME).strip() or ARCHIVE_DIR_NAME
+    # Prevent path escape — archive lives only under docs/verification/
+    name = Path(name).name
+    p = root / "docs" / "verification" / name
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -170,6 +175,26 @@ def mondays_between(start: date, end: date) -> list:
         out.append(d)
         d += timedelta(days=7)
     return out
+
+
+def weekdays_between(start: date, end: date) -> list:
+    """Mon–Fri session dates (inclusive). Used by --entry weekdays A/B test."""
+    d = start
+    out = []
+    while d <= end:
+        if d.weekday() < 5:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def entry_dates_for_mode(mode: str, start: date, end: date) -> list:
+    m = (mode or "monday").strip().lower()
+    if m in ("monday", "mondays", "weekly"):
+        return mondays_between(start, end)
+    if m in ("weekday", "weekdays", "any", "daily", "all"):
+        return weekdays_between(start, end)
+    raise SystemExit(f"Unknown --entry mode {mode!r} (use monday|weekdays)")
 
 
 # ── strategy leg builders ─────────────────────────────────────────────────────
@@ -324,6 +349,12 @@ def build_put_ladder_defined(spot, d0, exp_near, exp_far) -> list:
     return [(1, "P", k, exp_near), (-1, "P", k - 5, exp_near), (-1, "P", k - 10, exp_near), (1, "P", k - 15, exp_near)]
 
 
+def build_narrow_wing_call_fly(spot, d0, exp_near, exp_far) -> list:
+    """ATM ±2 long call butterfly — catalog Narrow-Wing Butterfly (paper parity)."""
+    k = _round_strike(spot)
+    return [(1, "C", k - 2, exp_near), (-2, "C", k, exp_near), (1, "C", k + 2, exp_near)]
+
+
 STRATEGIES: dict[str, Callable] = {
     "01_long_call": build_long_call,
     "02_long_put": build_long_put,
@@ -348,6 +379,7 @@ STRATEGIES: dict[str, Callable] = {
     "21_christmas_tree_butterfly": build_christmas_tree_call,
     "22_call_ladder_defined_risk": build_call_ladder_defined,
     "23_put_ladder_defined_risk": build_put_ladder_defined,
+    "24_narrow_wing_call_butterfly": build_narrow_wing_call_fly,
 }
 
 
@@ -523,7 +555,19 @@ def main():
         default="0",
         help="stop-loss percents of premium (comma). 0 = no stop. e.g. 20,25,30",
     )
-    ap.add_argument("--max-entries", type=int, default=0, help="cap Mondays (0=all) for smoke tests")
+    ap.add_argument(
+        "--entry",
+        default="monday",
+        choices=["monday", "weekdays"],
+        help="monday = weekly Monday only (baseline); weekdays = every Mon–Fri",
+    )
+    ap.add_argument("--max-entries", type=int, default=0, help="cap entry dates (0=all) for smoke tests")
+    ap.add_argument(
+        "--archive-subdir",
+        default="",
+        help="optional archive folder name under docs/verification/ "
+        "(default: spy-asymmetric-bt or spy-asymmetric-bt-weekdays)",
+    )
     args = ap.parse_args()
 
     if args.tp.strip().lower() in ("none", "0", "ride", "expiry"):
@@ -539,14 +583,20 @@ def main():
 
     print(
         f"[asym] SPY asymmetric BT {start}→{end} risk=${RISK_USD} "
-        f"TPs={tp_list} SLs={sl_list}"
+        f"entry={args.entry} TPs={tp_list} SLs={sl_list}"
     )
     spy = fetch_spy_daily(start, end)
-    entries = mondays_between(start, end)
+    entries = entry_dates_for_mode(args.entry, start, end)
     entries = [d for d in entries if d in spy.index or any(x >= d for x in spy.index)]
     if args.max_entries:
         entries = entries[: args.max_entries]
-    print(f"[asym] entry Mondays: {len(entries)}")
+    print(f"[asym] entry dates ({args.entry}): {len(entries)}")
+
+    archive_name = (args.archive_subdir or "").strip() or (
+        "spy-asymmetric-bt-weekdays" if args.entry == "weekdays" else ARCHIVE_DIR_NAME
+    )
+    arch = archive_root(archive_name)
+    print(f"[asym] archive → {arch}")
 
     if args.strategies == "all":
         strat_items = list(STRATEGIES.items())
@@ -581,11 +631,12 @@ def main():
                     "ride_to_expiry": tp <= 0,
                     "no_stop_loss": sl <= 0,
                     "risk_usd": RISK_USD,
+                    "entry_mode": args.entry,
                     "window": {"start": start.isoformat(), "end": end.isoformat()},
                     "summary": summary,
                     "trades": trades,
                 }
-                out = archive_root() / f"{label}.json"
+                out = arch / f"{label}.json"
                 out.write_text(json.dumps(payload, indent=2, default=str))
                 ranking.append({
                     "label": label,
@@ -610,17 +661,22 @@ def main():
         rank_name = f"RANKING_NOSTOP_TPGRID_{end.isoformat()}.json"
         exit_rule = f"TP grid {tp_list}% — stops={sl_list}; else flatten near expiry"
 
-    rank_path = archive_root() / rank_name
+    rank_path = arch / rank_name
+    entry_label = (
+        "every Mon–Fri weekday" if args.entry == "weekdays" else "weekly Monday"
+    )
     rank_payload = {
         "rules": {
             "underlying": "SPY",
             "risk_usd": RISK_USD,
-            "entry": "weekly Monday",
+            "entry": entry_label,
+            "entry_mode": args.entry,
             "exit": exit_rule,
             "pricing": "Polygon daily option aggregates",
             "strategies_n": len(strat_items),
             "tp_list": tp_list,
             "sl_list": sl_list,
+            "entry_dates_n": len(entries),
         },
         "ranked_best_first": ranking_sorted,
         "winner": ranking_sorted[0] if ranking_sorted else None,
@@ -635,10 +691,11 @@ def main():
     rank_payload["best_tp_per_strategy"] = best
     rank_path.write_text(json.dumps(rank_payload, indent=2, default=str))
 
-    idx = archive_root() / "RUN_INDEX.jsonl"
+    idx = arch / "RUN_INDEX.jsonl"
     with idx.open("a") as f:
         f.write(json.dumps({
             "saved_utc": datetime.utcnow().isoformat() + "Z",
+            "entry_mode": args.entry,
             "ranking": str(rank_path),
             "winner": rank_payload.get("winner"),
         }, default=str) + "\n")

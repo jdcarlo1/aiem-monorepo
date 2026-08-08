@@ -1,0 +1,126 @@
+===== PROOF_1_TP_MATH_DYNAMIC =====
+MAX_PLATEAU_PAYOFF_USD=500.0
+SAFETY_MARGIN=0.8
+--- call_condor ---
+entry_debit_usd=167.0
+MAX_REACHABLE_TP_PCT_OF_ENTRY=199.401198
+dynamic_tp_pct=159.520958
+computed_target_payoff_usd=433.400000
+four_x_D_static300_mark=668.000000
+four_x_D_le_plateau_500=False
+computed_target_le_plateau_500=True
+ASSERT_computed_target_payoff_le_500=True
+tp_below_MAX_REACHABLE=True
+PASS call_condor
+--- put_condor ---
+entry_debit_usd=141.0
+MAX_REACHABLE_TP_PCT_OF_ENTRY=254.609929
+dynamic_tp_pct=203.687943
+computed_target_payoff_usd=428.200000
+four_x_D_static300_mark=564.000000
+four_x_D_le_plateau_500=False
+computed_target_le_plateau_500=True
+ASSERT_computed_target_payoff_le_500=True
+tp_below_MAX_REACHABLE=True
+PASS put_condor
+PROOF_1_OK=True
+===== PROOF_2_ENTRY_PATH_INVOKES_DYNAMIC_TP =====
+dynamic_set_gate=True
+calls_dynamic_tp_pct=True
+per_pkg_from_entry_usd=True
+assigns_self_take_profit_pct=True
+no_hardcoded_300_assign=True
+priced_via_polygon=True
+entry_usd_from_priced_debit=True
+----- ENTRY_DYNAMIC_TP_BLOCK -----
+        if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES:
+            if entry_usd <= 0:
+                self.signal_state = {
+                    "status": "SKIP_DYNAMIC_TP",
+                    "note": "condor dynamic TP requires debit package",
+                }
+                return
+            per_pkg_debit = float(entry_usd) / float(packages)
+            try:
+                self.take_profit_pct = float(dynamic_tp_pct(per_pkg_debit))
+            except ValueError as _dtp_err:
+                self.signal_state = {
+                    "status": "SKIP_DYNAMIC_TP",
+                    "note": str(_dtp_err),
+                }
+                return
+
+        # Debit: pay premium. Credit: receive premium (subtract negative).
+----- END_BLOCK -----
+call_condor_config_tp=0.0
+put_condor_config_tp=0.0
+config_placeholder_0=True
+--- runtime_call_condor ---
+priced_unit_debit_usd=167.0
+packages=2.0
+entry_debit_usd=334.0
+per_pkg_debit_usd=167.0
+ledger_take_profit_pct_after_entry=159.52095808383234
+position_take_profit_pct=159.52095808383234
+persist_take_profit_pct=159.52095808383234
+expected_dynamic_tp=159.52095808383234
+persist_called=True
+runtime_path_ok=True
+--- runtime_put_condor ---
+priced_unit_debit_usd=141.0
+packages=3.0
+entry_debit_usd=423.0
+per_pkg_debit_usd=141.0
+ledger_take_profit_pct_after_entry=203.68794326241135
+position_take_profit_pct=203.68794326241135
+persist_take_profit_pct=203.68794326241135
+expected_dynamic_tp=203.68794326241135
+persist_called=True
+runtime_path_ok=True
+PROOF_2_OK=True
+===== PROOF_3_PAPER_FILLS =====
+entry_day=2026-08-05 spot=769.79 exp=2026-08-28
+--- price_call_condor ---
+legs_spec=[(1, 'call', 760.0), (-1, 'call', 765.0), (-1, 'call', 775.0), (1, 'call', 780.0)]
+polygon_debit_usd=167.0000
+priced_legs=[(1, 'call', 760.0, 17.85), (-1, 'call', 765.0, 14.3), (-1, 'call', 775.0, 8.37), (1, 'call', 780.0, 6.49)]
+pricing_mode=polygon_live_fetch
+signal_state={'status': 'IN_POSITION', 'note': 'entered 2 pkg debit $334.00 TP +159.5% of |entry| Polygon daily'}
+FILL strategy=call_condor
+packages=2.0
+entry_debit_usd=334.0
+per_pkg_debit_usd=167.0
+take_profit_pct_set=159.52095808383186
+MAX_REACHABLE_TP_PCT_OF_ENTRY=199.401198
+tp_below_MAX_REACHABLE=True
+target_payoff_usd=433.400000
+target_payoff_le_plateau=True
+persist_kwargs_tp=159.52095808383186
+paper_trade_id=9143
+fill_ok=True
+--- price_put_condor ---
+legs_spec=[(1, 'put', 780.0), (-1, 'put', 775.0), (-1, 'put', 765.0), (1, 'put', 760.0)]
+polygon_debit_usd=141.0000
+priced_legs=[(1, 'put', 780.0, 14.43), (-1, 'put', 775.0, 11.63), (-1, 'put', 765.0, 7.14), (1, 'put', 760.0, 5.75)]
+pricing_mode=polygon_live_fetch
+signal_state={'status': 'IN_POSITION', 'note': 'entered 3 pkg debit $423.00 TP +203.7% of |entry| Polygon daily'}
+FILL strategy=put_condor
+packages=3.0
+entry_debit_usd=423.0
+per_pkg_debit_usd=141.0
+take_profit_pct_set=203.68794326241135
+MAX_REACHABLE_TP_PCT_OF_ENTRY=254.609929
+tp_below_MAX_REACHABLE=True
+target_payoff_usd=428.200000
+target_payoff_le_plateau=True
+persist_kwargs_tp=203.68794326241135
+paper_trade_id=9153
+fill_ok=True
+PROOF_3_OK=True
+FILLS={'call_condor': {'per_pkg_D': 167.0, 'packages': 2.0, 'tp': 159.52095808383186, 'max_reachable': 199.40119760478981, 'ok': True, 'pricing_mode': 'polygon_live_fetch'}, 'put_condor': {'per_pkg_D': 141.0, 'packages': 3.0, 'tp': 203.68794326241135, 'max_reachable': 254.60992907801418, 'ok': True, 'pricing_mode': 'polygon_live_fetch'}}
+===== SUMMARY =====
+PROOF_1_OK=True
+PROOF_2_OK=True
+PROOF_3_OK=True
+ALL_OK=True
+BROKERAGE_GATE=do_not_proceed_until_deployed_live_fills_also_observed

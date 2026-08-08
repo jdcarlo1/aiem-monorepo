@@ -1,0 +1,97 @@
+Directive_PR48_MorningBlackout_ProofAndGuard
+cwd=/workspace/artifacts/stock-scanner-api
+branch=cursor/morning-deploy-miss-guard-1f8b
+
+===== PROOF_1_BEFORE_AFTER_AND_LATE_BOOT =====
+--- BEFORE (origin/main) trigger gate ---
+Step 2c — scheduled_942 overrides a COMPLETED/SKIPPED zero-picks row.
+        # Root cause (2026-07-20): startup_recovery at 9:00 AM finds NO_CANDIDATES,
+        # calls mark_skipped() → ledger status=SKIPPED, picks_count=NULL.  At 9:42
+        # the scheduled run hits try_claim(), INSERT fails (UNIQUE conflict), all
+        # UPDATE paths fail (row is not PENDING/CLAIMED/EXECUTING) → returns False →
+        # the real scheduled run is silently skipped.
+        # Fix: if the caller is "scheduled_942" AND the existing row is terminal
+        # (COMPLETED or SKIPPED) with picks_count IS NULL or 0 (no real trades
+        # were ever placed), steal the row so the scheduled run can proceed.
+        # Guard: picks_count > 0 means actual trades were executed — do NOT override.
+        if trigger_source == "scheduled_942":
+            cur.execute("""
+                UPDATE paper_trade_job_ledger
+     
+--- AFTER (PR48 branch) override triggers ---
+_ZERO_PICK_OVERRIDE_TRIGGERS = {
+            "scheduled_942",
+            "scheduled_1015",
+            "startup_catchup",
+            "startup_recovery",
+            "internal_watchdog",
+            "external_watchdog",
+            "admin",
+        }
+if trigger_source in _ZERO_PICK_OVERRIDE_TRIGGERS:
+PASS trigger_present=startup_catchup
+PASS trigger_present=scheduled_942
+PASS trigger_present=scheduled_1015
+PASS trigger_present=admin
+PASS trigger_present=internal_watchdog
+PASS trigger_present=external_watchdog
+PASS trigger_present=startup_recovery
+LATE_BOOT_SKIPPED_ZERO before_needs_retry=False
+LATE_BOOT_SKIPPED_ZERO after_needs_retry=True
+PASS watchdog_retries_zero_pick_skipped
+[paper_recovery] CLAIMED (override zero-picks, internal_watchdog) 2026-08-07 execution_id=late-boot-957
+SIM_LATE_BOOT_957 try_claim(internal_watchdog) claimed=True
+SIM_LATE_BOOT_957 store={'status': 'CLAIMED', 'picks_count': None, 'recovery_attempts': 1, 'trigger_source': 'internal_watchdog', 'execution_id': 'late-boot-957', 'id': 1}
+SIM_LATE_BOOT_957 evidence=['OVERRIDE_ZERO_PICKS']
+PASS late_boot_watchdog_retries_instead_of_terminal
+[paper_recovery] CLAIMED (override zero-picks, scheduled_1015) 2026-08-07 execution_id=cron-1015
+SIM_1015 try_claim(scheduled_1015) claimed=True store={'status': 'CLAIMED', 'picks_count': 0, 'recovery_attempts': 2, 'trigger_source': 'scheduled_1015', 'execution_id': 'cron-1015', 'id': 2}
+PASS scheduled_1015_overrides_zero_pick_skipped
+OLD_GATE_internal_watchdog_would_claim=False
+NEW_GATE_internal_watchdog_claimed=True
+PROOF_1_OK=True
+
+===== PROOF_2_CRON_1015_TIMEZONE =====
+_ET_DEFINITION=_ET = pytz.timezone("US/Eastern")
+PASS _ET_is_eastern zone=US/Eastern
+scheduled_1015_job_block_found=True
+PASS scheduled_1015_uses_timezone=_ET
+NEXT_FIRE_ET=2026-08-10T10:15:00-04:00
+NEXT_FIRE_UTC=2026-08-10T14:15:00+00:00
+PASS next_fire_is_1015_eastern
+UTC_TZ_CRON_NEXT_AS_ET=2026-08-11T06:15:00-04:00
+PASS utc_cron_is_not_1015_et (contrast)
+US_EASTERN_ZONE=US/Eastern
+PROOF_2_OK=True
+
+===== PROOF_3_STRUCTURAL_GUARD =====
+--- PLATFORM_LIMIT (from deploy-on-merge.yml) ---
+# Replit does NOT expose a public API for triggering a programmatic republish.
+          # ── Morning blackout guard (next-best; Replit cannot block Publish) ─
+PASS replit_cannot_block_publish_documented
+morning_deploy_blackout_module_exists=True
+in_morning_blackout(2026-08-07 09:57 ET)=True
+deploy_reminder_mode(09:57)=blackout
+deploy_reminder_mode(11:00)=safe
+CI_WOULD_BLOCK_WITHOUT_OVERRIDE=True
+CI_BLOCKED_WITH_OVERRIDE_FLAG=False
+PASS override_flag_ALLOW_MORNING_PUBLISH
+PROOF_3_OK=True
+
+===== PROOF_4_TELEGRAM_BOOT_ALERT =====
+SIM_BOOT_0957_ET fired=True
+SIM_BOOT_0957_ET telegram_calls=1
+SIM_BOOT_0957_ET message=⚠️ stock-api BOOT during morning autonomous window (09:57 ET 2026-08-07). Publish/redeploy in 08:50–10:20 ET risks missing Loop B (9:07) and paper execute (9:42). Prefer Publish before 08:45 ET or after 10:30 ET. Catchup + 10:15 retry will attempt recovery.
+SIM_BOOT_0957_ET logs=['[startup] ⚠️ stock-api BOOT during morning autonomous window (09:57 ET 2026-08-07). Publish/redeploy in 08:50–10:20 ET risks missing Loop B (9:07) and paper execute (9:42). Prefer Publish before 08:45 ET or after 10:30 ET. Catchup + 10:15 retry will attempt recovery.', '[startup] morning-window telegram sent']
+PASS telegram_fired_on_0957_boot
+SIM_BOOT_1100_ET fired=False telegram_calls=0
+PASS telegram_silent_outside_window
+main_py_wires_fire_boot_alert=True
+PROOF_4_OK=True
+
+===== SUMMARY =====
+PROOF_1_OK=True
+PROOF_2_OK=True
+PROOF_3_OK=True
+PROOF_4_OK=True
+ALL_OK=True
