@@ -323,7 +323,7 @@ export default function PatternLab() {
             Pattern Lab
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            Gap Fill &amp; ORB equity · F3 0DTE · asym flies + ladder + condors + narrow-wing + bullish RR (paper)
+            AIEM paper book (SKU-isolated) · Gap Fill &amp; ORB · F3 0DTE · same asym patterns as OE (flies, ladder, condors, narrow-wing, bullish RR)
           </p>
         </div>
         <div className="font-mono text-xs text-muted-foreground text-right">
