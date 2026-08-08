@@ -5,6 +5,9 @@ T+3, T+5, T+10 trading-day price outcomes using yfinance.
 Outcomes are stored in the DB once daily (not recomputed on every page load).
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
@@ -205,7 +208,7 @@ def update_signal_outcome_prices():
                 _days_back = (today - sig_date).days + 2
                 _hist_end  = today + timedelta(days=1)
                 _r = _so_req.get(
-                    "https://api.tradier.com/v1/markets/history",
+                    f"{TRADIER_API_BASE}/v1/markets/history",
                     params={"symbol": ticker, "interval": "daily",
                             "start": sig_date.isoformat(),
                             "end": _hist_end.isoformat()},

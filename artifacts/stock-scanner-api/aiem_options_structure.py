@@ -6,6 +6,9 @@ Computes institutional dealer-positioning signals from Tradier options chains.
 • Skew (Put/Call Skew) : OTM 25-delta put IV minus call IV in pp; FEAR_PREMIUM | NORMAL | CALL_SKEW
 • Term (Term Structure) : front-month ATM IV / next-month ATM IV ratio; INVERTED | NORMAL | CONTANGO
 """
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os, math, time, threading, requests as _req_os
 
 _HEADERS_CACHE: dict = {}
@@ -45,7 +48,7 @@ def _fetch_chain_with_greeks(ticker: str, expiry: str) -> list:
         return []
     try:
         r = _req_os.get(
-            "https://api.tradier.com/v1/markets/options/chains",
+            f"{TRADIER_API_BASE}/v1/markets/options/chains",
             params={"symbol": ticker.upper(), "expiration": expiry, "greeks": "true"},
             headers=hdrs, timeout=6,
         )
@@ -68,7 +71,7 @@ def _fetch_expiries(ticker: str) -> list:
         return []
     try:
         r = _req_os.get(
-            "https://api.tradier.com/v1/markets/options/expirations",
+            f"{TRADIER_API_BASE}/v1/markets/options/expirations",
             params={"symbol": ticker.upper(), "includeAllRoots": "true"},
             headers=hdrs, timeout=4,
         )
@@ -89,7 +92,7 @@ def _spot_from_tradier(ticker: str) -> float | None:
         return None
     try:
         r = _req_os.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": ticker.upper(), "greeks": "false"},
             headers=hdrs, timeout=4,
         )

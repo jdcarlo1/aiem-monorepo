@@ -34,6 +34,9 @@ API EFFICIENCY:
     response. This halves API calls vs two-call-per-trade design.
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os, time, json, requests, subprocess
 from datetime import datetime, timedelta, date
 from collections import defaultdict
@@ -115,7 +118,7 @@ def fetch_daily_data(start_date, end_date):
     params  = {"symbol": "SPY", "interval": "daily",
                "start": start_date.strftime("%Y-%m-%d"),
                "end":   end_date.strftime("%Y-%m-%d")}
-    r    = requests.get("https://api.tradier.com/v1/markets/history",
+    r    = requests.get(f"{TRADIER_API_BASE}/v1/markets/history",
                         headers=headers, params=params, timeout=20)
     days = r.json().get("history", {}).get("day", [])
     if not isinstance(days, list): days = [days]
@@ -493,7 +496,7 @@ def print_full_report(trades, skipped_trades, raw_evidence_log,
         h = {"Authorization": f"Bearer {TRADIER_API_TOKEN}",
              "Accept": "application/json"}
         occ_sym = ctrl_trade["opt_ticker"].replace("O:", "")
-        r = requests.get("https://api.tradier.com/v1/markets/history",
+        r = requests.get(f"{TRADIER_API_BASE}/v1/markets/history",
                          headers=h, timeout=15,
                          params={"symbol": occ_sym, "interval": "daily",
                                  "start": ctrl_trade["date"],

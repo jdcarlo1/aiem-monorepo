@@ -14,6 +14,9 @@ Public API (called from aiem_process.py):
   run_optprob_daily_digest(db_url, tg_send)
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import math
 import os
 import threading
@@ -55,7 +58,7 @@ def _td_quotes(symbols: list) -> dict:
         return {}
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": ",".join(str(s) for s in symbols[:200])},
             headers=hdrs, timeout=6,
         )
@@ -92,7 +95,7 @@ def _td_expiries(ticker: str, max_days: int = 10) -> list:
             return cached[0]
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/options/expirations",
+            f"{TRADIER_API_BASE}/v1/markets/options/expirations",
             params={"symbol": ticker, "includeAllRoots": "false"},
             headers=hdrs, timeout=5,
         )
@@ -128,7 +131,7 @@ def _td_chain(ticker: str, expiry: str):
             return SimpleNamespace(calls=cached[0], puts=cached[1])
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/options/chains",
+            f"{TRADIER_API_BASE}/v1/markets/options/chains",
             params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
             headers=hdrs, timeout=7,
         )
@@ -181,7 +184,7 @@ def _td_history(ticker: str, days: int = 45) -> "pd.DataFrame":
     end   = datetime.now().strftime("%Y-%m-%d")
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/history",
+            f"{TRADIER_API_BASE}/v1/markets/history",
             params={"symbol": ticker.upper(), "interval": "daily",
                     "start": start, "end": end},
             headers=hdrs, timeout=8,

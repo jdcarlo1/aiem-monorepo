@@ -27,6 +27,9 @@ Schedule (ET, Mon-Fri)
   00:05 — clean up jobs older than 30 days
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import sys
 import json
@@ -2077,7 +2080,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             exp_dates = []
             try:
                 exp_url = (
-                    f"https://api.tradier.com/v1/markets/options/expirations"
+                    f"{TRADIER_API_BASE}/v1/markets/options/expirations"
                     f"?symbol={sym}&includeAllRoots=true"
                 )
                 req = urllib.request.Request(exp_url, headers=headers)
@@ -2120,7 +2123,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             out = []
             for dte, exp in exp_dates:
                 url = (
-                    f"https://api.tradier.com/v1/markets/options/chains"
+                    f"{TRADIER_API_BASE}/v1/markets/options/chains"
                     f"?symbol={sym}&expiration={exp.strftime('%Y-%m-%d')}&greeks=true"
                 )
                 try:
@@ -2278,7 +2281,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             while _exp.weekday() != 4:          # walk forward to nearest Friday
                 _exp += timedelta(days=1)
             _url = (
-                f"https://api.tradier.com/v1/markets/options/chains"
+                f"{TRADIER_API_BASE}/v1/markets/options/chains"
                 f"?symbol={ticker}&expiration={_exp.strftime('%Y-%m-%d')}&greeks=true"
             )
             _req = urllib.request.Request(

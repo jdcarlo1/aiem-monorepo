@@ -14,7 +14,8 @@ import requests
 
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY") or os.environ.get("POLYGON_API_TOKEN")
 TRADIER_TOK = os.environ.get("TRADIER_API_TOKEN_2") or os.environ.get("TRADIER_API_TOKEN")
-TRADIER_BASE = "https://api.tradier.com/v1"
+from aiem_broker.tradier_config import TRADIER_API_BASE as _TAB
+TRADIER_BASE = f"{_TAB}/v1"
 
 END_DATE   = date.today()
 START_DATE = END_DATE - timedelta(days=365)

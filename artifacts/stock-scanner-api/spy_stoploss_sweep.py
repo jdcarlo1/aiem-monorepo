@@ -3,6 +3,9 @@ SPY 0DTE Stop Loss Sweep — 5% through 10%
 Tests all 4 filtered patterns across 6 stop loss levels.
 +50% profit target | $200/trade | 2-year window
 """
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os, time, requests
 from datetime import datetime, timedelta, date
 from collections import defaultdict
@@ -20,7 +23,7 @@ print(f"Stop levels: {STOP_LEVELS}")
 # ── fetch ─────────────────────────────────────────────────────────────────────
 def fetch_daily():
     h = {"Authorization": f"Bearer {TRADIER_TOK}", "Accept": "application/json"}
-    r = requests.get("https://api.tradier.com/v1/markets/history", headers=h, timeout=20,
+    r = requests.get(f"{TRADIER_API_BASE}/v1/markets/history", headers=h, timeout=20,
                      params={"symbol":"SPY","interval":"daily",
                              "start":START_DATE.strftime("%Y-%m-%d"),
                              "end":END_DATE.strftime("%Y-%m-%d")})

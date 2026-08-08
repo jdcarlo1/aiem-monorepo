@@ -15,6 +15,9 @@ Signals:
   9. VWAP Reclaim (8 pts)         — dipped below VWAP then reclaimed in 3 candles
  10. Minute RVOL (10 pts)         — any single minute 3x+ its session average
 """
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import pandas as pd
 import numpy as np
 import pytz
@@ -34,7 +37,7 @@ def _fetch_1m(ticker: str) -> pd.DataFrame:
     try:
         _today = str(_dt_mod.date.today())
         _r = _hg_req.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={"symbol": ticker, "interval": "1min",
                     "start": _today, "session_filter": "open"},
             headers=_TRADIER_HDR, timeout=12,
@@ -66,7 +69,7 @@ def _fetch_daily(ticker: str, period: str = "30d") -> pd.DataFrame:
         _end   = _dt_mod.date.today()
         _start = _end - _dt_mod.timedelta(days=_days)
         _r = _hg_req.get(
-            "https://api.tradier.com/v1/markets/history",
+            f"{TRADIER_API_BASE}/v1/markets/history",
             params={"symbol": ticker, "interval": "daily",
                     "start": str(_start), "end": str(_end)},
             headers=_TRADIER_HDR, timeout=10,
@@ -222,7 +225,7 @@ def _premarket_volume(ticker: str) -> tuple[bool, str]:
         _today_d = datetime.now(_ET).date()
         _start_d = _today_d - _dt_mod.timedelta(days=6)
         _r = _hg_req.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={"symbol": ticker, "interval": "1min",
                     "start": str(_start_d), "end": str(_today_d),
                     "session_filter": "all"},

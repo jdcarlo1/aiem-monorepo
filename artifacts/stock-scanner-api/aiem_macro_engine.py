@@ -44,7 +44,11 @@ Rules
     and the gate check at 9:35 AM will hit the cache.
 """
 
+
+
 from __future__ import annotations
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
 
 import os
 import math
@@ -395,7 +399,7 @@ def _tradier_history(symbol: str, days: int = 30) -> list[dict]:
         "end":       end_dt.isoformat(),
         "session_filter": "open",
     })
-    url = f"https://api.tradier.com/v1/markets/history?{params}"
+    url = f"{TRADIER_API_BASE}/v1/markets/history?{params}"
     req = urllib.request.Request(
         url,
         headers={

@@ -6,6 +6,9 @@ Compares three scenarios across 155 raw signals + 4 filtered sets:
   C) -20% stop loss
 All use +50% profit target. $200 per trade.
 """
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os, time, requests
 from datetime import datetime, timedelta, date
 from collections import defaultdict
@@ -18,7 +21,7 @@ TRADE_SIZE = 200
 
 def tradier_daily(start, end):
     h = {"Authorization": f"Bearer {TRADIER_TOK}", "Accept": "application/json"}
-    r = requests.get("https://api.tradier.com/v1/markets/history", headers=h, timeout=20,
+    r = requests.get(f"{TRADIER_API_BASE}/v1/markets/history", headers=h, timeout=20,
                      params={"symbol":"SPY","interval":"daily",
                              "start":start.strftime("%Y-%m-%d"),"end":end.strftime("%Y-%m-%d")})
     d = r.json().get("history",{}).get("day",[])

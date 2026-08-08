@@ -10,7 +10,26 @@ class OrderSide(str, Enum):
     BUY = "buy"
     SELL = "sell"
     BUY_TO_OPEN = "buy_to_open"
+    SELL_TO_OPEN = "sell_to_open"
+    BUY_TO_CLOSE = "buy_to_close"
     SELL_TO_CLOSE = "sell_to_close"
+
+
+@dataclass
+class OrderLeg:
+    """One option leg in a multi-leg paper package."""
+    side: OrderSide
+    quantity: float
+    strike: float
+    expiry: str  # YYYY-MM-DD
+    option_right: str  # call|put
+    metadata: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        if isinstance(d.get("side"), Enum):
+            d["side"] = d["side"].value
+        return d
 
 
 class AssetClass(str, Enum):
@@ -49,10 +68,12 @@ class OrderRequest:
     order_type: OrderType = OrderType.MARKET
     time_in_force: TimeInForce = TimeInForce.DAY
     limit_price: Optional[float] = None
-    # Option legs (optional)
+    # Option legs (optional single-leg fields)
     strike: Optional[float] = None
     expiry: Optional[str] = None  # YYYY-MM-DD
     option_right: Optional[str] = None  # call|put
+    # Multi-leg package (butterflies/condors/RR). When set, preferred over single-leg fields.
+    legs: Optional[list] = None  # list[OrderLeg] or list[dict]
     client_order_id: Optional[str] = None
     metadata: dict = field(default_factory=dict)
 
@@ -61,6 +82,16 @@ class OrderRequest:
         for k, v in list(d.items()):
             if isinstance(v, Enum):
                 d[k] = v.value
+        if isinstance(d.get("legs"), list):
+            out_legs = []
+            for leg in d["legs"]:
+                if hasattr(leg, "to_dict"):
+                    out_legs.append(leg.to_dict())
+                elif isinstance(leg, dict):
+                    out_legs.append(leg)
+                else:
+                    out_legs.append(asdict(leg) if hasattr(leg, "__dataclass_fields__") else leg)
+            d["legs"] = out_legs
         return d
 
 

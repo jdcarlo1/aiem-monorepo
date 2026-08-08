@@ -13,7 +13,11 @@ Rules (from Directive F3 real-options backtest):
 Live premiums: Tradier options chain mid/last when available; otherwise
 entry is deferred (WAITING_PREMIUM). No synthetic leverage formula.
 """
+
+
 from __future__ import annotations
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
 
 import logging
 import os
@@ -27,8 +31,8 @@ import requests
 log = logging.getLogger("aim_f3")
 
 ET = ZoneInfo("America/New_York")
-TRADE_NOTIONAL_USD = 200.0
-STOP_LOSS_PCT = 0.65  # sell when premium has lost 65% from entry
+TRADE_NOTIONAL_USD = float(os.environ.get("F3_TRADE_NOTIONAL_USD", "200") or 200)
+STOP_LOSS_PCT = float(os.environ.get("F3_STOP_LOSS_PCT", "0.65") or 0.65)  # sell when premium has lost 65% from entry
 ORB_END = "09:44"
 ENTRY_FROM = "09:45"
 SESSION_END = "16:00"
@@ -67,7 +71,7 @@ def fetch_premarket_direction(symbol: str = "SPY") -> Optional[int]:
         start = now.replace(hour=4, minute=0, second=0, microsecond=0)
         end = now.replace(hour=9, minute=29, second=0, microsecond=0)
         r = requests.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
             params={
                 "symbol": symbol,
@@ -105,7 +109,7 @@ def fetch_atm_premium(symbol: str, spot: float, is_call: bool,
     exp_s = expiration.strftime("%Y-%m-%d")
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/options/chains",
+            f"{TRADIER_API_BASE}/v1/markets/options/chains",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
             params={"symbol": symbol, "expiration": exp_s, "greeks": "false"},
             timeout=20,

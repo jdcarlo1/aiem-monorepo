@@ -58,58 +58,51 @@ type Snapshot = {
 };
 
 const ASYM_CARDS: Array<{
-  key:
-    | 'put_butterfly'
-    | 'call_butterfly'
-    | 'put_ladder'
-    | 'call_condor'
-    | 'put_condor'
-    | 'narrow_wing_butterfly'
-    | 'bullish_risk_reversal';
+  key: string;
   title: string;
   blurb: string;
 }> = [
   {
+    key: 'narrow_wing_butterfly',
+    title: 'Narrow-Wing Call Butterfly',
+    blurb:
+      'ATM ±2 call fly · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain, $200) · no stop · Tradier NBBO paper · Joel #1',
+  },
+  {
     key: 'put_butterfly',
     title: 'Long Put Butterfly',
     blurb:
-      'ATM ±5 put fly · Mon–Fri 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily',
+      'ATM ±5 put fly · Mon–Fri 09:30 ET · ≤$500 debit · TP +275% · no stop · Tradier NBBO paper · Joel #2',
   },
   {
     key: 'call_butterfly',
     title: 'Long Call Butterfly',
     blurb:
-      'ATM ±5 call fly · Mon–Fri 09:30 ET · ≤$500 debit · TP +100% · no stop · ~3wk Friday · Polygon daily',
+      'ATM ±5 call fly · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · Tradier NBBO paper · Joel #3',
   },
   {
     key: 'put_ladder',
     title: 'Put Ladder Defined',
     blurb:
-      'Long ATM / short −5/−10 / long −15 puts · Mon–Fri 09:30 ET · ≤$500 debit · TP +150% · no stop · Polygon daily',
+      'Long ATM / short −5/−10 / long −15 puts · Mon–Fri 09:30 ET · ≤$500 debit · TP +300% · Tradier NBBO paper · Joel #4',
   },
   {
     key: 'call_condor',
     title: 'Long Call Condor',
     blurb:
-      'ATM ±5 / ±10 call condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · ~3wk Friday · Polygon daily',
+      'ATM ±5 / ±10 call condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · Tradier NBBO paper · Joel #5',
   },
   {
     key: 'put_condor',
     title: 'Long Put Condor',
     blurb:
-      'ATM ±5 / ±10 put condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · ~3wk Friday · Polygon daily',
-  },
-  {
-    key: 'narrow_wing_butterfly',
-    title: 'Narrow-Wing Call Butterfly',
-    blurb:
-      'ATM ±2 call fly · Mon–Fri 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily · catalog #1',
+      'ATM ±5 / ±10 put condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · Tradier NBBO paper · Joel #6',
   },
   {
     key: 'bullish_risk_reversal',
     title: 'Bullish Risk Reversal',
     blurb:
-      'Long call k+5 / short put k−5 · Mon–Fri 09:30 ET · cash-secured credit · TP +75% of |entry| · no stop · Polygon daily · catalog #2',
+      'Long call k+5 / short put k−5 · Mon–Fri 09:30 ET · cash-secured credit · TP +75% · Tradier NBBO paper',
   },
 ];
 
