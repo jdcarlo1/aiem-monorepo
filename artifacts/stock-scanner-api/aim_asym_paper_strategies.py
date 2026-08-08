@@ -3,12 +3,12 @@
 Asymmetric SPY paper strategies — Pattern Lab / OE Strategies.
 
 Joel's top patterns (weekdays, 2y, no stop) — wired for live-Tradier NBBO paper practice:
-  1. Narrow-wing call butterfly — TP +300% of |entry|
+  1. Narrow-wing call butterfly — dynamic TP (80% of max reachable vs $200 plateau)
   2. Long put butterfly         — TP +275% of |entry|
-  3. Long call butterfly        — TP +275% of |entry|
+  3. Long call butterfly        — dynamic TP (80% of max reachable vs $500 plateau)
   4. Put ladder (defined)       — TP +300% of |entry|
-  5. Long call condor           — TP +300% of |entry|
-  6. Long put condor            — TP +300% of |entry|
+  5. Long call condor           — dynamic TP (80% of max reachable vs $500 plateau)
+  6. Long put condor            — dynamic TP (80% of max reachable vs $500 plateau)
 Extra (catalog):
   7. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
 
@@ -61,33 +61,55 @@ STRATEGY_KEYS = (
 # Cash-secured SPY short put needs ~strike×100; keep a dedicated paper book.
 RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
 
-# Condors use Joel's fixed BT TP (+300%). Dynamic plateau helper kept for tools/backtests.
+# Dynamic TP = SAFETY_MARGIN × (plateau − D) / D × 100, set at entry from live debit.
+# Default plateau $500 = $5 wing × 100 (condors / ±5 flies). Narrow-wing (±2) = $200.
 MAX_PLATEAU_PAYOFF_USD = 500.00
+NARROW_WING_PLATEAU_PAYOFF_USD = 200.00
 SAFETY_MARGIN = 0.80
-DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset()  # empty — Joel list uses fixed TP% for all six
+# Restored condors (PR #54/#55) + unreachable static flies (narrow-wing / call fly).
+DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset({
+    "call_condor",
+    "put_condor",
+    "narrow_wing_butterfly",
+    "call_butterfly",
+})
 
-# Joel signed TP targets (weekdays / 2y / no-stop ranking)
+PLATEAU_PAYOFF_USD_BY_STRATEGY = {
+    "call_condor": MAX_PLATEAU_PAYOFF_USD,
+    "put_condor": MAX_PLATEAU_PAYOFF_USD,
+    "call_butterfly": MAX_PLATEAU_PAYOFF_USD,
+    "narrow_wing_butterfly": NARROW_WING_PLATEAU_PAYOFF_USD,
+}
+
+# Fixed Joel TP targets only (reachable on live NBBO). Dynamic keys omitted — set at entry.
 JOEL_ASYM_TP_PCT = {
-    "narrow_wing_butterfly": 300.0,
     "put_butterfly": 275.0,
-    "call_butterfly": 275.0,
     "put_ladder": 300.0,
-    "call_condor": 300.0,
-    "put_condor": 300.0,
     "bullish_risk_reversal": 75.0,
 }
 
 
-def dynamic_tp_pct(entry_debit_usd: float) -> float:
-    """TP% of |entry| = SAFETY_MARGIN × max reachable % given $500 plateau."""
+def plateau_payoff_usd(strategy_key: str) -> float:
+    """Structural max expiry payoff (USD / package) for dynamic-TP strategies."""
+    return float(
+        PLATEAU_PAYOFF_USD_BY_STRATEGY.get(strategy_key, MAX_PLATEAU_PAYOFF_USD)
+    )
+
+
+def dynamic_tp_pct(
+    entry_debit_usd: float,
+    plateau_usd: float | None = None,
+) -> float:
+    """TP% of |entry| = SAFETY_MARGIN × max reachable % given structural plateau."""
     d = float(entry_debit_usd)
+    plateau = float(MAX_PLATEAU_PAYOFF_USD if plateau_usd is None else plateau_usd)
     if d <= 0:
         raise ValueError(f"dynamic_tp_pct requires debit > 0, got {d}")
-    if d >= MAX_PLATEAU_PAYOFF_USD:
+    if d >= plateau:
         raise ValueError(
-            f"dynamic_tp_pct: debit ${d:.2f} ≥ plateau ${MAX_PLATEAU_PAYOFF_USD:.2f}"
+            f"dynamic_tp_pct: debit ${d:.2f} ≥ plateau ${plateau:.2f}"
         )
-    max_reachable_pct = (MAX_PLATEAU_PAYOFF_USD - d) / d * 100.0
+    max_reachable_pct = (plateau - d) / d * 100.0
     return SAFETY_MARGIN * max_reachable_pct
 
 
@@ -355,6 +377,7 @@ def build_long_put_butterfly(spot: float) -> list[tuple[int, str, float]]:
 
 
 def build_long_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
+    """ATM ±5 call butterfly — plateau $500; TP set dynamically at entry."""
     k = float(round(spot))
     return [(1, "call", k - 5), (-2, "call", k), (1, "call", k + 5)]
 
@@ -387,7 +410,7 @@ def build_long_put_condor(spot: float) -> list[tuple[int, str, float]]:
 
 
 def build_narrow_wing_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
-    """ATM ±2 call butterfly — catalog Narrow-Wing Butterfly (+200% TP winner)."""
+    """ATM ±2 call butterfly — plateau $200; TP set dynamically at entry."""
     k = float(round(spot))
     return [(1, "call", k - 2), (-2, "call", k), (1, "call", k + 2)]
 
@@ -655,7 +678,7 @@ class AsymOptionsLedger:
                     else "fixed_pct"
                 ),
                 "max_plateau_payoff_usd": (
-                    MAX_PLATEAU_PAYOFF_USD
+                    plateau_payoff_usd(self.strategy_key)
                     if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
                     else None
                 ),
@@ -671,7 +694,8 @@ class AsymOptionsLedger:
                 "exit": (
                     (
                         f"dynamic TP = {SAFETY_MARGIN:.0%} of max reachable "
-                        f"vs ${MAX_PLATEAU_PAYOFF_USD:.0f} plateau (set at entry) or "
+                        f"vs ${plateau_payoff_usd(self.strategy_key):.0f} plateau "
+                        f"(set at entry) or "
                     )
                     if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
                     else f"+{self.take_profit_pct:.0f}% of |entry| premium or "
@@ -928,12 +952,15 @@ class AsymOptionsLedger:
             if premium_usd <= 0:
                 self.signal_state = {
                     "status": "SKIP_DYNAMIC_TP",
-                    "note": "condor dynamic TP requires debit package",
+                    "note": "dynamic plateau TP requires debit package",
                 }
                 return
             per_pkg_debit = float(premium_usd) / float(packages)
+            plateau = plateau_payoff_usd(self.strategy_key)
             try:
-                self.take_profit_pct = float(dynamic_tp_pct(per_pkg_debit))
+                self.take_profit_pct = float(
+                    dynamic_tp_pct(per_pkg_debit, plateau_usd=plateau)
+                )
             except ValueError as _dtp_err:
                 self.signal_state = {
                     "status": "SKIP_DYNAMIC_TP",
@@ -977,6 +1004,11 @@ class AsymOptionsLedger:
             "take_profit_pct": self.take_profit_pct,
             "stop": 0.0,
             "target": 0.0,
+            "max_plateau_payoff_usd": (
+                plateau_payoff_usd(self.strategy_key)
+                if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                else None
+            ),
             "legs": priced["legs"],
             "expiration": priced["expiration"],
             "entry_time": bar_time,
@@ -1008,11 +1040,15 @@ class AsymOptionsLedger:
 
 
 def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0) -> dict:
-    """Joel top-6 first (narrow-wing #1), then optional bullish risk reversal."""
+    """Joel top-6 first (narrow-wing #1), then optional bullish risk reversal.
+
+    Dynamic-plateau strategies use take_profit_pct=0 placeholder — overwritten at
+    entry via dynamic_tp_pct(D, plateau) (same path as PR #54/#55 condors).
+    """
     return {
+        # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
         "narrow_wing_butterfly": AsymOptionsLedger(
-            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly,
-            JOEL_ASYM_TP_PCT["narrow_wing_butterfly"],
+            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 0.0,
             "narrow_wing_butterfly", underlying, capital,
         ),
         "put_butterfly": AsymOptionsLedger(
@@ -1020,9 +1056,9 @@ def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0
             JOEL_ASYM_TP_PCT["put_butterfly"],
             "put_butterfly", underlying, capital,
         ),
+        # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
         "call_butterfly": AsymOptionsLedger(
-            "LONG_CALL_BUTTERFLY", build_long_call_butterfly,
-            JOEL_ASYM_TP_PCT["call_butterfly"],
+            "LONG_CALL_BUTTERFLY", build_long_call_butterfly, 0.0,
             "call_butterfly", underlying, capital,
         ),
         "put_ladder": AsymOptionsLedger(
@@ -1030,14 +1066,13 @@ def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0
             JOEL_ASYM_TP_PCT["put_ladder"],
             "put_ladder", underlying, capital,
         ),
+        # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
         "call_condor": AsymOptionsLedger(
-            "LONG_CALL_CONDOR", build_long_call_condor,
-            JOEL_ASYM_TP_PCT["call_condor"],
+            "LONG_CALL_CONDOR", build_long_call_condor, 0.0,
             "call_condor", underlying, capital,
         ),
         "put_condor": AsymOptionsLedger(
-            "LONG_PUT_CONDOR", build_long_put_condor,
-            JOEL_ASYM_TP_PCT["put_condor"],
+            "LONG_PUT_CONDOR", build_long_put_condor, 0.0,
             "put_condor", underlying, capital,
         ),
         "bullish_risk_reversal": AsymOptionsLedger(

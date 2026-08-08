@@ -136,33 +136,14 @@ def fetch_atm_premium(symbol: str, spot: float, is_call: bool,
         bid = float(best.get("bid") or 0)
         ask = float(best.get("ask") or 0)
         last = float(best.get("last") or 0)
-        mid = (bid + ask) / 2.0 if bid > 0 and ask > 0 else None
-        # Prefer shared Tradier NBBO paper helper (ask entry / bid exit)
-        try:
-            from aiem_broker.paper_fills import price_single_option_nbbo
-            side_fill = price_single_option_nbbo(
-                symbol,
-                float(best.get("strike")),
-                expiration,
-                "call" if is_call else "put",
-                quantity=1.0,
-                is_buy=True,
-                for_exit=False,
-            )
-            if side_fill and side_fill.get("premium"):
-                prem = float(side_fill["premium"])
-                src = "tradier_nbbo_paper"
-                bid = float(side_fill.get("bid") or bid or 0)
-                ask = float(side_fill.get("ask") or ask or 0)
-            else:
-                prem = ask or mid or last
-                src = "tradier_chain_ask_fallback"
-        except Exception:
-            prem = ask or mid or last
-            src = "tradier_chain_ask_fallback"
-        if prem is None or float(prem) <= 0:
+        if bid > 0 and ask > 0:
+            prem = (bid + ask) / 2.0
+        elif last > 0:
+            prem = last
+        elif ask > 0:
+            prem = ask
+        else:
             return None
-        prem = float(prem)
         # Sanity: ATM 0DTE premium should be a small fraction of spot (reject garbage/wrong exp).
         if prem <= 0 or prem > max(5.0, spot * 0.20):
             log.warning("[F3] rejecting implausible premium %.3f at spot %.2f for %s",
@@ -173,10 +154,9 @@ def fetch_atm_premium(symbol: str, spot: float, is_call: bool,
             "strike": float(best.get("strike")),
             "option_symbol": best.get("symbol") or _atm_option_symbol(
                 symbol, expiration, float(best.get("strike")), is_call),
-            "source": src,
+            "source": "tradier_chain",
             "bid": bid,
             "ask": ask,
-            "mid": mid,
             "n_tx": None,
         }
     except Exception as e:
@@ -264,29 +244,10 @@ class F3OptionsLedger:
         pos = self.active_position
         if not pos:
             return
-        exit_fees = 0.0
-        # Prefer live Tradier bid for long exit when available.
-        try:
-            from aiem_broker.paper_fills import fee_one_way, price_single_option_nbbo
-            right = "call" if pos.get("direction") == "CALL" else "put"
-            exp = pos.get("expiration")
-            if exp and pos.get("strike"):
-                q = price_single_option_nbbo(
-                    self.underlying, float(pos["strike"]), exp, right,
-                    quantity=float(pos["contracts"]), is_buy=True, for_exit=True,
-                )
-                if q and q.get("premium"):
-                    exit_premium = float(q["premium"])
-            exit_fees = fee_one_way(float(pos["contracts"]))
-        except Exception:
-            exit_fees = 0.0
-        exit_proceeds = float(exit_premium) * 100.0 * float(pos["contracts"]) - float(exit_fees)
-        entry_cost = (
-            float(pos["entry_premium"]) * 100.0 * float(pos["contracts"])
-            + float(pos.get("entry_fees_usd") or 0.0)
-        )
-        pnl = exit_proceeds - entry_cost
-        # Entry already removed premium(+fees) from cash; credit exit proceeds now.
+        # Entry already debited cash (premium paid). Credit exit proceeds now.
+        exit_proceeds = float(exit_premium) * 100.0 * float(pos["contracts"])
+        debit = float(pos["entry_premium"]) * 100.0 * float(pos["contracts"])
+        pnl = exit_proceeds - debit
         self.account_balance_usd += exit_proceeds
         result = "WIN" if pnl > 0 else "LOSS"
         if result == "WIN":
@@ -300,8 +261,6 @@ class F3OptionsLedger:
             "side": pos.get("direction"),
             "entry": pos["entry_premium"],
             "exit": exit_premium,
-            "entry_fees_usd": pos.get("entry_fees_usd"),
-            "exit_fees_usd": round(exit_fees, 4),
             "shares": pos["contracts"],  # PatternCard compatibility
             "contracts": pos["contracts"],
             "strike": pos.get("strike"),
@@ -310,17 +269,16 @@ class F3OptionsLedger:
             "reason": reason,
             "thin_exit": thin,
             "premium_source": pos.get("premium_source"),
-            "live_order_sent": False,
         }
         self.trade_log.append(row)
         log.info(
-            "[F3] %s (%s): %s %s @ %.3f -> %.3f fees_exit=$%.2f | P&L $%.2f | Bal $%.2f%s",
+            "[F3] %s (%s): %s %s @ %.3f -> %.3f | P&L $%.2f | Bal $%.2f%s",
             result, reason, pos.get("direction"), pos.get("option_symbol"),
-            pos["entry_premium"], exit_premium, exit_fees, pnl, self.account_balance_usd,
+            pos["entry_premium"], exit_premium, pnl, self.account_balance_usd,
             " [THIN_EXIT]" if thin else "",
         )
         self.active_position = None
-        self.signal_state = {"status": "FLAT", "last_exit": reason, "last_result": result, "last_pnl": round(pnl, 2)}
+        self.signal_state = {"status": "FLAT", "last_result": result, "last_pnl": round(pnl, 2)}
         self.net_liquidation_usd = self.account_balance_usd
 
     def evaluate(self, today_dataframe: pd.DataFrame,
@@ -465,11 +423,6 @@ class F3OptionsLedger:
             return
 
         stop_premium = quote["premium"] * (1.0 - STOP_LOSS_PCT)
-        try:
-            from aiem_broker.paper_fills import fee_one_way
-            entry_fees = fee_one_way(contracts)
-        except Exception:
-            entry_fees = 0.0
         self.active_position = {
             "symbol": quote["option_symbol"],
             "option_symbol": quote["option_symbol"],
@@ -479,26 +432,23 @@ class F3OptionsLedger:
             "direction": "CALL" if is_call else "PUT",
             "entry": quote["premium"],
             "entry_premium": quote["premium"],
-            "entry_fees_usd": round(entry_fees, 4),
             "stop": round(stop_premium, 4),  # 65% premium stop
             "target": 0.0,  # none — time exit 16:00
             "strike": quote["strike"],
-            "expiration": day_key,
             "spy_entry": spot,
             "premium_source": quote["source"],
-            "live_order_sent": False,
             "orb_high": self._orb_high,
             "orb_low": self._orb_low,
             "entry_time": bar_time,
         }
         self._entered_today = True
         self.signal_state = {"status": "IN_POSITION", "direction": self.active_position["direction"]}
-        # Debit notional from cash (premium paid + paper commission)
-        debit = quote["premium"] * 100.0 * contracts + entry_fees
+        # Debit notional from cash (premium paid)
+        debit = quote["premium"] * 100.0 * contracts
         self.account_balance_usd -= debit
-        self.net_liquidation_usd = self.account_balance_usd + (quote["premium"] * 100.0 * contracts)
+        self.net_liquidation_usd = self.account_balance_usd + debit  # long premium = asset
         log.info(
-            "[F3] ENTRY: LONG %s %s @ %.3f x %.3f ctr fees=$%.2f | SPY %.2f | debit $%.2f | src=%s",
+            "[F3] ENTRY: LONG %s %s @ %.3f x %.3f ctr | SPY %.2f | debit $%.2f",
             self.active_position["direction"], quote["option_symbol"],
-            quote["premium"], contracts, entry_fees, spot, debit, quote.get("source"),
+            quote["premium"], contracts, spot, debit,
         )
