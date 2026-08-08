@@ -672,7 +672,8 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
         with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT id, ticker, direction, strike, expiry,
-                       entry_premium_lo, audit_chain_sha256, stage_hashes
+                       entry_premium_lo, audit_chain_sha256, stage_hashes,
+                       alert_date
                 FROM aiem_options_alerts
                 WHERE outcome_status = 'OPEN'
                   AND direction IN ('LONG_CALL', 'LONG_PUT')
@@ -685,7 +686,8 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
             open_alerts = cur.fetchall()
 
             for row in open_alerts:
-                aid, ticker, direction, strike, expiry, ep_lo, prev_hash, sh_raw = row
+                (aid, ticker, direction, strike, expiry, ep_lo, prev_hash, sh_raw,
+                 alert_date) = row
                 if not all([ticker, strike, expiry, ep_lo]):
                     skipped.append({"id": aid, "reason": "missing strike/expiry/premium"})
                     continue
@@ -702,6 +704,8 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
 
                 final_price = float(close_row[0])
                 strike_f    = float(strike)
+                # entry_premium_lo is the autonomous paper fill (ask) after
+                # paper-reliability hardening; grade against that price.
                 entry_prem  = float(ep_lo)
 
                 if direction == "LONG_CALL":
@@ -836,7 +840,9 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                     _p3.record_root_cause(
                         alert_id=aid,
                         outcome_type=("EXPIRED_WIN" if outcome_str == "WIN" else
-                                      "EXPIRED_LOSS" if outcome_str == "LOSS" else
+                                      "EXPIRED_LOSS" if outcome_str in (
+                                          "LOSS", "EXPIRED_WORTHLESS"
+                                      ) else
                                       "EXPIRED_BREAKEVEN"),
                         ticker=ticker,
                         scan_date=alert_date,

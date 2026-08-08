@@ -76,7 +76,7 @@ _SCHEDULER_NAME      = "aiem_options_scheduler"
 # Bumped when liquidity path changes — appears in NO_LIQUID errors so Neon
 # proves which build Replit actually published (2026-08-05: live TB was still
 # on pre-walk code at line 1952; this tag must appear after Tradier publish).
-_OE_LIQ_BUILD        = "tradier-expiry-walk-v2"
+_OE_LIQ_BUILD        = "tradier-onesided-askfill-v3"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1196,7 +1196,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _p2.bootstrap_phase2(_DB_URL)
         _p2_ready = True
     except Exception as _p2_init_e:
-        log.debug(f"[exec] phase2 init skipped: {_p2_init_e}")
+        log.warning(f"[exec] phase2 init skipped (trade records will not capture): {_p2_init_e}")
         _p2_ready = False
         _p2       = None
     log.info(f"[exec] [{trace_id}] [P2_INIT] _p2_ready={_p2_ready}")
@@ -1590,7 +1590,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 raise RuntimeError(
                     f"options chain module unavailable: {_oc_imp_e}"
                 ) from _oc_imp_e
-            options_chain = _chain_mod.fetch_options_chain(ticker, min_dte=5, max_dte=21)
+            # Gate profile early so chain fetch respects OE_GATE min_dte
+            try:
+                from aiem_options_gate_profile import resolve_gate_profile as _rgp_early
+                _EARLY_GATE = _rgp_early()
+                _FETCH_MIN_DTE = int(_EARLY_GATE.get("min_dte", 5) or 5)
+            except Exception:
+                _FETCH_MIN_DTE = 5
+            options_chain = _chain_mod.fetch_options_chain(
+                ticker, min_dte=_FETCH_MIN_DTE, max_dte=21
+            )
             if not (options_chain.get("calls") or options_chain.get("puts")):
                 _NO_CAND("CHAIN_EMPTY", ticker, None)
                 raise RuntimeError(f"empty options chain for {ticker}")
@@ -1979,6 +1988,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             nonlocal call_delta_bs, call_probability_itm, call_iv, call_oi, call_vol, call_exp
             nonlocal put_strike, put_bid, put_ask, put_mid, put_spread
             nonlocal put_delta_bs, put_probability_itm, put_iv, put_oi, put_vol, put_exp
+            nonlocal call_one_sided, put_one_sided
             if side == "call":
                 call_strike       = float(picked["strike"])
                 call_delta_bs     = float(picked["delta"])
@@ -1988,9 +1998,13 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 call_mid          = round((call_bid + call_ask) / 2.0, 2)
                 call_spread       = round((call_ask - call_bid) / call_mid, 4) if call_mid else None
                 call_iv           = float(picked["implied_volatility"])
-                call_oi           = int(picked.get("open_interest") or 0)
-                call_vol          = int(picked.get("volume") or 0)
+                # Preserve None — do not coerce missing OI/vol to 0
+                _oi = picked.get("open_interest")
+                _vl = picked.get("volume")
+                call_oi           = int(_oi) if _oi is not None else None
+                call_vol          = int(_vl) if _vl is not None else None
                 call_exp          = picked["expiration_date"]
+                call_one_sided    = bool(picked.get("_quote_one_sided"))
             else:
                 put_strike        = float(picked["strike"])
                 put_delta_bs      = float(picked["delta"])
@@ -2000,27 +2014,33 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 put_mid           = round((put_bid + put_ask) / 2.0, 2)
                 put_spread        = round((put_ask - put_bid) / put_mid, 4) if put_mid else None
                 put_iv            = float(picked["implied_volatility"])
-                put_oi            = int(picked.get("open_interest") or 0)
-                put_vol           = int(picked.get("volume") or 0)
+                _oi = picked.get("open_interest")
+                _vl = picked.get("volume")
+                put_oi            = int(_oi) if _oi is not None else None
+                put_vol           = int(_vl) if _vl is not None else None
                 put_exp           = picked["expiration_date"]
+                put_one_sided     = bool(picked.get("_quote_one_sided"))
 
         def _clear_leg(side, expiry):
             nonlocal call_strike, call_bid, call_ask, call_mid, call_spread
             nonlocal call_delta_bs, call_probability_itm, call_oi, call_vol, call_exp
             nonlocal put_strike, put_bid, put_ask, put_mid, put_spread
             nonlocal put_delta_bs, put_probability_itm, put_oi, put_vol, put_exp
+            nonlocal call_one_sided, put_one_sided
             if side == "call":
                 call_strike = None
                 call_bid = call_ask = call_mid = call_spread = None
                 call_delta_bs = call_probability_itm = None
                 call_oi = call_vol = None
                 call_exp = expiry
+                call_one_sided = False
             else:
                 put_strike = None
                 put_bid = put_ask = put_mid = put_spread = None
                 put_delta_bs = put_probability_itm = None
                 put_oi = put_vol = None
                 put_exp = expiry
+                put_one_sided = False
 
         def _select_legs(contracts, expiries):
             """Try each expiry until at least one liquid call or put is found."""
@@ -2092,7 +2112,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     except ValueError:
                         continue
                     dte = (ed - scan_dt).days
-                    if 5 <= dte <= 21:
+                    if _MIN_DTE_CHAIN <= dte <= 21:
                         exp_dates.append((dte, ed))
                 exp_dates.sort()
                 if diag is not None:
@@ -2107,7 +2127,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
             if not exp_dates:
                 # Friday fallback if expirations endpoint fails/empty.
-                for dte in range(5, 22):
+                for dte in range(_MIN_DTE_CHAIN, 22):
                     ed = scan_dt + timedelta(days=dte)
                     if ed.weekday() == 4:
                         exp_dates.append((dte, ed))
@@ -2132,11 +2152,27 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         opts = [opts]
                     for o in opts:
                         grk = o.get("greeks") or {}
-                        bid = float(o.get("bid") or 0)
-                        ask = float(o.get("ask") or 0)
+                        bid_raw = o.get("bid")
+                        ask_raw = o.get("ask")
+                        try:
+                            ask = float(ask_raw) if ask_raw is not None else 0.0
+                        except (TypeError, ValueError):
+                            continue
+                        if ask <= 0:
+                            continue
+                        one_sided = False
+                        try:
+                            bid = float(bid_raw) if bid_raw is not None else 0.0
+                        except (TypeError, ValueError):
+                            bid = 0.0
+                        if bid <= 0:
+                            if not _ALLOW_ONE_SIDED:
+                                continue
+                            bid = round(ask * _ONE_SIDED_BID_FRAC, 4)
+                            one_sided = True
                         iv  = grk.get("mid_iv") or grk.get("smv_vol")
                         delta = grk.get("delta")
-                        if bid <= 0 or ask <= 0 or iv is None or delta is None:
+                        if iv is None or delta is None:
                             continue
                         try:
                             iv_f = float(iv)
@@ -2145,7 +2181,19 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                             continue
                         if iv_f <= 0 or iv_f > _LIQ_IV_MAX or abs(d_f) == 0.0:
                             continue
-                        out.append({
+                        # Preserve None for missing OI/vol — do not coerce to 0
+                        # (0 fail-closes volume gates; None skips them).
+                        _oi_raw = o.get("open_interest")
+                        _vol_raw = o.get("volume")
+                        try:
+                            _oi_v = int(_oi_raw) if _oi_raw is not None else None
+                        except (TypeError, ValueError):
+                            _oi_v = None
+                        try:
+                            _vol_v = int(_vol_raw) if _vol_raw is not None else None
+                        except (TypeError, ValueError):
+                            _vol_v = None
+                        row = {
                             "contract_type":   (o.get("option_type") or "").lower(),
                             "expiration_date": exp.strftime("%Y-%m-%d"),
                             "dte":             dte,
@@ -2154,9 +2202,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                             "ask":             ask,
                             "implied_volatility": iv_f,
                             "delta":           d_f,
-                            "open_interest":   int(o.get("open_interest") or 0),
-                            "volume":          int(o.get("volume") or 0),
-                        })
+                            "open_interest":   _oi_v,
+                            "volume":          _vol_v,
+                        }
+                        if one_sided:
+                            row["_quote_one_sided"] = True
+                        out.append(row)
                 except Exception as _td_e:
                     log.warning(
                         f"[exec] Tradier chain fallback {sym} {exp}: {_td_e}"
@@ -2186,9 +2237,11 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         call_bid = call_ask = call_mid = call_spread = None
         call_delta_bs = call_probability_itm = call_iv = call_oi = call_vol = None
         call_exp = None
+        call_one_sided = False
         put_bid = put_ask = put_mid = put_spread = None
         put_delta_bs = put_probability_itm = put_iv = put_oi = put_vol = None
         put_exp = None
+        put_one_sided = False
 
         if not _expiries:
             _NO_CAND("NO_EXPIRY_WITH_MIN_DTE", ticker, None)
@@ -2241,32 +2294,48 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 f"diag={json.dumps(_liq_diag, default=str)[:400]})"
             )
 
-        # Black-Scholes greeks — computed live from spot + front_iv (vary per ticker/date)
-        _cd1, _cd2 = _bs_d1d2(spot, call_strike, front_iv, _T)
-        _pd1, _pd2 = _bs_d1d2(spot, put_strike,  front_iv, _T)
-        _sv         = max(spot * front_iv * _math.sqrt(_T), 1e-9)
-        call_delta_bs        = round(_N(_cd1), 4)
-        call_probability_itm = round(_N(_cd2), 4)        # prob call expires ITM
-        call_gamma_bs        = round(_npdf(_cd1) / _sv, 6)
-        call_theta_bs        = round(-(spot * front_iv * _npdf(_cd1)) / (2.0 * _math.sqrt(_T) * 365), 4)
-        call_vega_bs         = round(spot * _math.sqrt(_T) * _npdf(_cd1) / 100.0, 4)
-        put_delta_bs         = round(_N(_pd1) - 1.0, 4)  # put delta (negative)
-        put_probability_itm  = round(1.0 - _N(_pd1), 4)  # prob put expires ITM
-        put_gamma_bs         = round(_npdf(_pd1) / _sv, 6)
-        put_theta_bs         = round(-(spot * front_iv * _npdf(_pd1)) / (2.0 * _math.sqrt(_T) * 365), 4)
-        put_vega_bs          = round(spot * _math.sqrt(_T) * _npdf(_pd1) / 100.0, 4)
+        # Align _dte/_T to the selected contract expiry (not hardcoded 9).
+        _sel_exp_for_dte = call_exp or put_exp or _poly_exp
+        if _sel_exp_for_dte:
+            try:
+                _exp_d = (
+                    date.fromisoformat(str(_sel_exp_for_dte)[:10])
+                    if not isinstance(_sel_exp_for_dte, date)
+                    else _sel_exp_for_dte
+                )
+                _dte = max(1, (_exp_d - scan_date).days)
+                _T = _dte / 252.0
+            except Exception:
+                pass
 
-        # Live Tradier options chain: volume + OI for target strikes
-        # Also refines delta and probability_itm when greeks are available.
-        # Fallback on any exception: volume=None, OI=None, BS greeks retained.
-        # IMPORTANT: None (not 0) so verify_options_decision_inputs skips the
-        # open_interest<500 and volume<100 gates when Tradier is unavailable.
-        # When Tradier succeeds and returns real data, gates apply correctly.
-        # Zero bid/ask (illiquid options) still correctly fail the gate via
-        # explicit int(_o.get("open_interest") or 0) in the Tradier block.
-        call_vol, call_oi = None, None
-        put_vol,  put_oi  = None, None
-        # D1: initialise before try so provenance dict is always buildable
+        # Black-Scholes greeks — only overwrite legs that were actually selected.
+        # Prefer live chain/Tradier delta already on the leg; BS fills gaps only.
+        call_gamma_bs = call_theta_bs = call_vega_bs = None
+        put_gamma_bs = put_theta_bs = put_vega_bs = None
+        if call_strike is not None and front_iv and _T > 0:
+            _cd1, _cd2 = _bs_d1d2(spot, call_strike, front_iv, _T)
+            _sv = max(spot * front_iv * _math.sqrt(_T), 1e-9)
+            if call_delta_bs is None:
+                call_delta_bs = round(_N(_cd1), 4)
+                call_probability_itm = round(_N(_cd2), 4)
+            call_gamma_bs = round(_npdf(_cd1) / _sv, 6)
+            call_theta_bs = round(-(spot * front_iv * _npdf(_cd1)) / (2.0 * _math.sqrt(_T) * 365), 4)
+            call_vega_bs = round(spot * _math.sqrt(_T) * _npdf(_cd1) / 100.0, 4)
+        if put_strike is not None and front_iv and _T > 0:
+            _pd1, _pd2 = _bs_d1d2(spot, put_strike, front_iv, _T)
+            _sv = max(spot * front_iv * _math.sqrt(_T), 1e-9)
+            if put_delta_bs is None:
+                put_delta_bs = round(_N(_pd1) - 1.0, 4)
+                put_probability_itm = round(1.0 - _N(_pd1), 4)
+            put_gamma_bs = round(_npdf(_pd1) / _sv, 6)
+            put_theta_bs = round(-(spot * front_iv * _npdf(_pd1)) / (2.0 * _math.sqrt(_T) * 365), 4)
+            put_vega_bs = round(spot * _math.sqrt(_T) * _npdf(_pd1) / 100.0, 4)
+
+        # Live Tradier options chain: volume + OI for *selected* expiries/strikes.
+        # Fetch call_exp and put_exp directly (not a guessed Friday from scan+13).
+        # Preserve None when volume/OI absent — do not coerce to 0.
+        call_vol, call_oi = call_vol, call_oi
+        put_vol,  put_oi  = put_vol, put_oi
         _call_matched = False
         _put_matched  = False
         try:
@@ -2274,66 +2343,112 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                            os.environ.get("TRADIER_API_TOKEN", "")).split())
             if not _tok:
                 raise ValueError("no Tradier token")
-            _exp = scan_date + timedelta(days=13)
-            while _exp.weekday() != 4:          # walk forward to nearest Friday
-                _exp += timedelta(days=1)
-            _url = (
-                f"https://api.tradier.com/v1/markets/options/chains"
-                f"?symbol={ticker}&expiration={_exp.strftime('%Y-%m-%d')}&greeks=true"
-            )
-            _req = urllib.request.Request(
-                _url,
-                headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},
-            )
-            with urllib.request.urlopen(_req, timeout=8) as _resp:
-                _raw = json.loads(_resp.read())
-            _opts = (_raw.get("options") or {}).get("option") or []
-            if isinstance(_opts, dict):
-                _opts = [_opts]
-            # D1: exact strike + expiry match; first match wins; no ±7.5 window.
-            for _o in _opts:
+
+            def _tradier_enrich_expiry(exp_str: str):
+                if not exp_str:
+                    return []
+                _url = (
+                    f"https://api.tradier.com/v1/markets/options/chains"
+                    f"?symbol={ticker}&expiration={exp_str}&greeks=true"
+                )
+                _req = urllib.request.Request(
+                    _url,
+                    headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},
+                )
+                with urllib.request.urlopen(_req, timeout=8) as _resp:
+                    _raw = json.loads(_resp.read())
+                _opts = (_raw.get("options") or {}).get("option") or []
+                if isinstance(_opts, dict):
+                    _opts = [_opts]
+                return _opts
+
+            _expiries_needed = []
+            for _e in (call_exp, put_exp):
+                if _e and _e not in _expiries_needed:
+                    _expiries_needed.append(_e)
+
+            _all_enrich = []
+            for _e in _expiries_needed:
+                try:
+                    _all_enrich.extend(_tradier_enrich_expiry(str(_e)[:10]))
+                except Exception as _te:
+                    log.warning(f"[exec] Tradier enrich {ticker} {_e}: {_te}")
+
+            for _o in _all_enrich:
                 _typ = _o.get("option_type")
                 _sk  = _o.get("strike")
+                _oexp = _o.get("expiration_date")
                 if (_typ == "call" and call_strike is not None
                         and float(_sk) == float(call_strike)
-                        and _o.get("expiration_date") == call_exp):
+                        and _oexp == call_exp):
                     _grk = _o.get("greeks") or {}
-                    call_vol = int(_o.get("volume") or 0)
-                    call_oi  = int(_o.get("open_interest") or 0)
+                    _vr, _oir = _o.get("volume"), _o.get("open_interest")
+                    try:
+                        call_vol = int(_vr) if _vr is not None else None
+                    except (TypeError, ValueError):
+                        call_vol = None
+                    try:
+                        call_oi = int(_oir) if _oir is not None else None
+                    except (TypeError, ValueError):
+                        call_oi = None
                     _cb, _ca = _o.get("bid"), _o.get("ask")
-                    if _cb is not None and _ca is not None and float(_cb) > 0 and float(_ca) > 0:
-                        call_bid    = round(float(_cb), 2)
-                        call_ask    = round(float(_ca), 2)
-                        call_mid    = round((call_bid + call_ask) / 2, 2)
+                    try:
+                        _ca_f = float(_ca) if _ca is not None else 0.0
+                        _cb_f = float(_cb) if _cb is not None else 0.0
+                    except (TypeError, ValueError):
+                        _ca_f, _cb_f = 0.0, 0.0
+                    if _ca_f > 0:
+                        call_ask = round(_ca_f, 2)
+                        if _cb_f > 0:
+                            call_bid = round(_cb_f, 2)
+                            call_one_sided = False
+                        elif _ALLOW_ONE_SIDED:
+                            call_bid = round(_ca_f * _ONE_SIDED_BID_FRAC, 4)
+                            call_one_sided = True
+                        call_mid = round((call_bid + call_ask) / 2, 2)
                         call_spread = (round((call_ask - call_bid) / call_mid, 4)
                                        if call_mid > 0 else call_spread)
                     if _grk.get("delta") is not None:
                         call_delta_bs        = round(abs(float(_grk["delta"])), 4)
                         call_probability_itm = call_delta_bs
                     _call_matched = True
-                    continue
                 if (_typ == "put" and put_strike is not None
                         and float(_sk) == float(put_strike)
-                        and _o.get("expiration_date") == put_exp):
+                        and _oexp == put_exp):
                     _grk = _o.get("greeks") or {}
-                    put_vol = int(_o.get("volume") or 0)
-                    put_oi  = int(_o.get("open_interest") or 0)
+                    _vr, _oir = _o.get("volume"), _o.get("open_interest")
+                    try:
+                        put_vol = int(_vr) if _vr is not None else None
+                    except (TypeError, ValueError):
+                        put_vol = None
+                    try:
+                        put_oi = int(_oir) if _oir is not None else None
+                    except (TypeError, ValueError):
+                        put_oi = None
                     _pb, _pa = _o.get("bid"), _o.get("ask")
-                    if _pb is not None and _pa is not None and float(_pb) > 0 and float(_pa) > 0:
-                        put_bid    = round(float(_pb), 2)
-                        put_ask    = round(float(_pa), 2)
-                        put_mid    = round((put_bid + put_ask) / 2, 2)
+                    try:
+                        _pa_f = float(_pa) if _pa is not None else 0.0
+                        _pb_f = float(_pb) if _pb is not None else 0.0
+                    except (TypeError, ValueError):
+                        _pa_f, _pb_f = 0.0, 0.0
+                    if _pa_f > 0:
+                        put_ask = round(_pa_f, 2)
+                        if _pb_f > 0:
+                            put_bid = round(_pb_f, 2)
+                            put_one_sided = False
+                        elif _ALLOW_ONE_SIDED:
+                            put_bid = round(_pa_f * _ONE_SIDED_BID_FRAC, 4)
+                            put_one_sided = True
+                        put_mid = round((put_bid + put_ask) / 2, 2)
                         put_spread = (round((put_ask - put_bid) / put_mid, 4)
                                       if put_mid > 0 else put_spread)
                     if _grk.get("delta") is not None:
                         put_delta_bs        = round(float(_grk["delta"]), 4)
                         put_probability_itm = round(abs(float(_grk["delta"])), 4)
                     _put_matched = True
-                    continue
-                if _call_matched and _put_matched:
-                    break
             log.info(
-                f"[exec] [{trace_id}] Tradier chain expiry={_exp} "
+                f"[exec] [{trace_id}] Tradier enrich call_exp={call_exp} put_exp={put_exp} "
+                f"call_matched={_call_matched} put_matched={_put_matched} "
                 f"call δ={call_delta_bs} vol={call_vol} oi={call_oi} call_mid={call_mid}  "
                 f"put δ={put_delta_bs} vol={put_vol} oi={put_oi} put_mid={put_mid}"
             )
@@ -2407,25 +2522,28 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "gamma":               call_gamma_bs,
             "theta":               call_theta_bs,
             "vega":                call_vega_bs,
-            "iv":                  front_iv,
+            "iv":                  (call_iv if call_iv is not None else front_iv),
             "volume":              call_vol,
             "open_interest":       call_oi,
             "bid":                 call_bid, "ask": call_ask,
             "bid_ask_spread_pct":  call_spread,
-            "breakeven":           ((call_strike + (call_bid + call_ask) / 2)
+            "dte":                 _dte,
+            "expiration_date":     call_exp,
+            "_quote_one_sided":    call_one_sided,
+            "breakeven":           ((call_strike + call_ask)
                                     if call_strike is not None
-                                    and call_bid is not None else None),
-            "premium_at_risk":     (round((call_bid + call_ask) / 2 * 100, 2)
-                                    if call_bid is not None
                                     and call_ask is not None else None),
+            "premium_at_risk":     (round(call_ask * 100, 2)
+                                    if call_ask is not None else None),
             "probability_estimate":call_probability_itm,
             "expected_return":     _call_expected_return,
             "slippage_pct":        (round(call_spread * 0.5, 4)
                                     if call_spread is not None else None),
-            "entry_premium_lo":    call_bid, "entry_premium_hi": call_ask,
-            "profit_target":       (round((call_bid + call_ask) * 0.8, 2)
-                                    if call_bid is not None
-                                    and call_ask is not None else None),
+            # Paper fill = ask (conservative). grading uses entry_premium_lo.
+            "entry_premium_lo":    call_ask,
+            "entry_premium_hi":    call_ask,
+            "profit_target":       (round(call_ask * 1.60, 2)
+                                    if call_ask is not None else None),
             "stop_level":          (f"Close above ${call_strike + 3:.0f}"
                                     if call_strike is not None else "n/a"),
         }
@@ -2435,26 +2553,28 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "gamma":               put_gamma_bs,
             "theta":               put_theta_bs,
             "vega":                put_vega_bs,
-            "iv":                  ((front_iv * 1.05)
+            "iv":                  ((put_iv if put_iv is not None else (front_iv * 1.05))
                                     if front_iv is not None else None),
             "volume":              put_vol,
             "open_interest":       put_oi,
             "bid":                 put_bid, "ask": put_ask,
             "bid_ask_spread_pct":  put_spread,
-            "breakeven":           ((put_strike - (put_bid + put_ask) / 2)
+            "dte":                 _dte,
+            "expiration_date":     put_exp,
+            "_quote_one_sided":    put_one_sided,
+            "breakeven":           ((put_strike - put_ask)
                                     if put_strike is not None
-                                    and put_bid is not None else None),
-            "premium_at_risk":     (round((put_bid + put_ask) / 2 * 100, 2)
-                                    if put_bid is not None
                                     and put_ask is not None else None),
+            "premium_at_risk":     (round(put_ask * 100, 2)
+                                    if put_ask is not None else None),
             "probability_estimate":put_probability_itm,
             "expected_return":     _put_expected_return,
             "slippage_pct":        (round(put_spread * 0.5, 4)
                                     if put_spread is not None else None),
-            "entry_premium_lo":    put_bid, "entry_premium_hi": put_ask,
-            "profit_target":       (round((put_bid + put_ask) * 0.8, 2)
-                                    if put_bid is not None
-                                    and put_ask is not None else None),
+            "entry_premium_lo":    put_ask,
+            "entry_premium_hi":    put_ask,
+            "profit_target":       (round(put_ask * 1.60, 2)
+                                    if put_ask is not None else None),
             "stop_level":          f"Close above ${spot + 5:.0f}",
         }
 
@@ -3008,16 +3128,35 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         sel_score = put_score  if direction == "LONG_PUT"  else call_score
         opp_score = call_score if direction == "LONG_PUT"  else put_score
         sel_strike = put_strike if direction == "LONG_PUT" else call_strike
-        expiry_str = (date.today() + timedelta(days=9)).isoformat()
+        # Real selected contract expiry (not hardcoded today+9)
+        expiry_str = (
+            (put_exp if direction == "LONG_PUT" else call_exp)
+            or _poly_exp
+            or (date.today() + timedelta(days=max(1, int(_dte)))).isoformat()
+        )
+        if hasattr(expiry_str, "isoformat"):
+            expiry_str = expiry_str.isoformat()
+        expiry_str = str(expiry_str)[:10]
+        try:
+            _alert_dte = max(1, (date.fromisoformat(expiry_str) - scan_date).days)
+        except Exception:
+            _alert_dte = int(_dte) if _dte else 9
+        _fill_q = (
+            "ONE_SIDED_ASK"
+            if (put_one_sided if direction == "LONG_PUT" else call_one_sided)
+            else "ASK"
+        )
 
         alert_fields = {
             "ticker":              ticker,
             "direction":           "BEARISH" if direction == "LONG_PUT" else "BULLISH",
             "strike":              sel_strike,
             "expiry":              expiry_str,
-            "dte":                 9,
-            "entry_premium_lo":    sel_data["bid"],
-            "entry_premium_hi":    sel_data["ask"],
+            "dte":                 _alert_dte,
+            # Autonomous paper fill = ask (also stored as entry_premium_lo for grading)
+            "entry_premium_lo":    sel_data.get("ask") or sel_data.get("entry_premium_lo"),
+            "entry_premium_hi":    sel_data.get("ask") or sel_data.get("entry_premium_hi"),
+            "fill_quality":        _fill_q,
             "spot_at_alert":       spot,
             "delta":               sel_data["delta"],
             "gamma":               sel_data["gamma"],
@@ -3047,7 +3186,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             ),
             "main_risks": (
                 f"IV crush (iv_rank={ivr_result['iv_rank']}); "
-                f"theta decay 9 DTE; gap risk."
+                f"theta decay {_alert_dte} DTE; gap risk; paper fill={_fill_q}."
             ),
         }
         scoring_data = {
@@ -3226,8 +3365,18 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     db_url=_DB_URL,
                 )
                 log.info(f"[exec] [{trace_id}] [P2_CAPTURE] capture_trade_record returned tr_id={_tr_result}")
+                if _tr_result is None:
+                    # Loud failure — alert already saved; do not soft-swallow.
+                    # Job continues so DPL/audit finish, but ops must see this.
+                    log.error(
+                        f"[exec] [{trace_id}] P2_CAPTURE MISSING trade_record "
+                        f"alert_id={alert_id} ticker={ticker} — "
+                        f"autonomous paper book incomplete; cannot grade exit"
+                    )
             except Exception as _tr_e:
-                log.debug(f"[phase2] trade_record capture skipped: {_tr_e}")
+                log.error(f"[phase2] trade_record capture FAILED alert_id={alert_id}: {_tr_e}")
+                # Re-raise only when phase2 was ready — silent skip caused empty books
+                raise
             try:
                 _p2.update_decision_alert_id(trace_id, alert_id, _DB_URL,
                                              chain_hash=chain_sha)
