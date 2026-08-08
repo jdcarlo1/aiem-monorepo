@@ -509,6 +509,8 @@ def section_live_snapshot():
             "put_butterfly",
             "call_butterfly",
             "put_ladder",
+            "call_condor",
+            "put_condor",
             "f3",
             "gap_fill",
             "orb",
