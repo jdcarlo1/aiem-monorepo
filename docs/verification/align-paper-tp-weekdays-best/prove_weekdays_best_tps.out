@@ -1,0 +1,12 @@
+Directive_AlignPaperTP_WeekdaysBest
+DYNAMIC_PLATEAU_TP_STRATEGIES=[]
+key                                tp mode                   match
+narrow_wing_butterfly           300.0 fixed_pct              PASS
+put_butterfly                   275.0 fixed_pct              PASS
+call_butterfly                  275.0 fixed_pct              PASS
+put_ladder                      300.0 fixed_pct              PASS
+call_condor                     300.0 fixed_pct              PASS
+put_condor                      300.0 fixed_pct              PASS
+PASS dynamic_plateau_disabled
+PASS shared_ledgers_aim_and_oe
+ALL_OK=True

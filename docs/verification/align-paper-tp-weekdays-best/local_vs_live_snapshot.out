@@ -1,0 +1,14 @@
+===== LOCAL_ENGINE_SNAPSHOT_WEEKDAYS_BEST =====
+narrow_wing_butterfly tp=300.0 mode=fixed_pct want=300.0 PASS
+put_butterfly tp=275.0 mode=fixed_pct want=275.0 PASS
+call_butterfly tp=275.0 mode=fixed_pct want=275.0 PASS
+put_ladder tp=300.0 mode=fixed_pct want=300.0 PASS
+call_condor tp=300.0 mode=fixed_pct want=300.0 PASS
+put_condor tp=300.0 mode=fixed_pct want=300.0 PASS
+===== LIVE_SNAPSHOT_PRE_DEPLOY =====
+narrow_wing_butterfly live_tp=200.0 mode=fixed_pct STALE_UNTIL_DEPLOY
+put_butterfly live_tp=200.0 mode=fixed_pct STALE_UNTIL_DEPLOY
+call_butterfly live_tp=100.0 mode=fixed_pct STALE_UNTIL_DEPLOY
+put_ladder live_tp=150.0 mode=fixed_pct STALE_UNTIL_DEPLOY
+call_condor live_tp=0.0 mode=dynamic_plateau_80pct STALE_UNTIL_DEPLOY
+put_condor live_tp=0.0 mode=dynamic_plateau_80pct STALE_UNTIL_DEPLOY

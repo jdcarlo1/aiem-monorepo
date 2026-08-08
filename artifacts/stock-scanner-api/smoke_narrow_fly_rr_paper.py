@@ -25,7 +25,7 @@ def main() -> int:
         assert snap["rules"]["stop_loss"] is None
 
     nw = ledgers["narrow_wing_butterfly"]
-    assert nw.take_profit_pct == 200.0
+    assert nw.take_profit_pct == 300.0
     assert nw.allow_credit is False
     assert build_narrow_wing_call_butterfly(500.0) == [
         (1, "call", 498.0), (-2, "call", 500.0), (1, "call", 502.0)

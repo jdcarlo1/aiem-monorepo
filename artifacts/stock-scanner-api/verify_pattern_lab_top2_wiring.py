@@ -129,7 +129,7 @@ def section_spec_constants():
             "stop_in_rules": rr_l.snapshot()["rules"]["stop_loss"],
         },
     )
-    _ok("narrow_tp_200", nw_l.take_profit_pct == 200.0)
+    _ok("narrow_tp_300", nw_l.take_profit_pct == 300.0)
     _ok("narrow_risk_500", nw_l.risk_usd == 500.0)
     _ok("narrow_no_stop", nw_l.snapshot()["rules"]["stop_loss"] is None)
     _ok("rr_tp_75", rr_l.take_profit_pct == 75.0)
@@ -138,21 +138,21 @@ def section_spec_constants():
     _ok("rr_capital_100k", rr_l._starting_capital == 100000.0)
     _ok("has_call_condor_ledger", "call_condor" in ledgers)
     _ok("has_put_condor_ledger", "put_condor" in ledgers)
-    # Condor TP is placeholder 0 until entry-time dynamic_tp_pct(D)
-    _ok("call_condor_tp_placeholder_0", ledgers["call_condor"].take_profit_pct == 0.0)
-    _ok("put_condor_tp_placeholder_0", ledgers["put_condor"].take_profit_pct == 0.0)
+    # Weekdays-best fixed TPs (identical AIM + OE via shared ledgers)
+    _ok("put_butterfly_tp_275", ledgers["put_butterfly"].take_profit_pct == 275.0)
+    _ok("call_butterfly_tp_275", ledgers["call_butterfly"].take_profit_pct == 275.0)
+    _ok("put_ladder_tp_300", ledgers["put_ladder"].take_profit_pct == 300.0)
+    _ok("call_condor_tp_300", ledgers["call_condor"].take_profit_pct == 300.0)
+    _ok("put_condor_tp_300", ledgers["put_condor"].take_profit_pct == 300.0)
     _ok(
-        "condor_in_dynamic_plateau_set",
-        "call_condor" in m.DYNAMIC_PLATEAU_TP_STRATEGIES
-        and "put_condor" in m.DYNAMIC_PLATEAU_TP_STRATEGIES,
+        "condors_not_dynamic_plateau",
+        "call_condor" not in m.DYNAMIC_PLATEAU_TP_STRATEGIES
+        and "put_condor" not in m.DYNAMIC_PLATEAU_TP_STRATEGIES,
     )
-    d_call, d_put = 167.0, 141.0
-    tp_call = m.dynamic_tp_pct(d_call)
-    tp_put = m.dynamic_tp_pct(d_put)
-    print(f"dynamic_tp_call_D167={tp_call:.4f}")
-    print(f"dynamic_tp_put_D141={tp_put:.4f}")
-    _ok("dynamic_tp_call_below_max", tp_call < (500.0 - d_call) / d_call * 100.0)
-    _ok("dynamic_tp_put_below_max", tp_put < (500.0 - d_put) / d_put * 100.0)
+    _ok(
+        "take_profit_mode_fixed",
+        ledgers["call_condor"].snapshot()["rules"]["take_profit_mode"] == "fixed_pct",
+    )
     _ok("asym_ledger_count_7", len(ledgers) == 7)
     _ok("strategy_keys_count_7", len(m.STRATEGY_KEYS) == 7)
 
@@ -348,7 +348,7 @@ def section_bt_parity_table():
         "pricing": "polygon_daily_option_aggs",
         "narrow_builder": "[(1,C,k-2),(-2,C,k),(1,C,k+2)]",
         "rr_builder": "[(1,C,k+5),(-1,P,k-5)]",
-        "narrow_tp": 200.0,
+        "narrow_tp": 300.0,  # weekdays 2y no-stop best
         "rr_tp": 75.0,
         "cash_secured_rr": True,
     }
@@ -361,7 +361,7 @@ def section_bt_parity_table():
         "pricing": "Polygon daily option aggregates via spy_asymmetric_bt",
         "narrow_builder": "b_narrow_wing_fly identical wings",
         "rr_builder": "b_bull_rr identical strikes",
-        "narrow_tp": 200.0,
+        "narrow_tp": 300.0,  # aligned to weekdays RANKING_NOSTOP best
         "rr_tp": 75.0,
         "cash_secured_rr": False,  # BT does NOT model CSP collateral
     }
