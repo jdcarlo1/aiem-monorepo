@@ -1,9 +1,10 @@
 """Shared live-Tradier → paper-fill helpers for all Joel strategies.
 
 NEVER places live brokerage orders. Uses Tradier NBBO (buy→ask, sell→bid)
-and Joel fee schedule: $0.65 per contract per leg per side.
+and Joel fee schedule: $0.65 per contract per leg per side (+ optional
+regulatory pass-throughs when TRADIER_PAPER_REG_FEES=1).
 
-Round-trip fees for a package:
+Round-trip fees for a package (commission-only legacy):
   fees_rt = 2 * sum(|leg_qty|) * packages * COMMISSION_PER_CONTRACT_LEG
 """
 from __future__ import annotations
@@ -18,17 +19,30 @@ from .tradier_market import fetch_option_quote, fetch_quote
 COMMISSION_PER_CONTRACT_LEG = float(
     os.environ.get("TRADIER_PAPER_COMMISSION_OPT", "0.65") or 0.65
 )
+# When true, fee_one_way includes OCC/ORF/TAF/exchange via fee_schedule.
+_USE_REG_FEES = (os.environ.get("TRADIER_PAPER_REG_FEES") or "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 LegSpec = Tuple[int, str, float]  # (qty_signed, 'call'|'put', strike)
 
 
-def fee_one_way(total_contracts: float) -> float:
-    """Commission for one side (entry OR exit) across all contracts."""
+def fee_one_way(total_contracts: float, *, side: str = "buy") -> float:
+    """One-way fees across contracts (commission ± regulatory)."""
+    if _USE_REG_FEES:
+        from .fee_schedule import fee_one_way_total
+        return fee_one_way_total(total_contracts, side=side)
     return abs(float(total_contracts)) * COMMISSION_PER_CONTRACT_LEG
 
 
 def fee_round_trip(total_contracts: float) -> float:
-    """Entry + exit commission for the same contract count."""
+    """Entry + exit fees for the same contract count."""
+    if _USE_REG_FEES:
+        from .fee_schedule import fee_round_trip_total
+        return fee_round_trip_total(total_contracts)
     return 2.0 * fee_one_way(total_contracts)
 
 
@@ -132,7 +146,8 @@ def price_package_nbbo(
     pkgs = max(int(packages), 1)
     net_usd = total_usd * pkgs
     contracts = package_contract_count(legs, pkgs)
-    fees = fee_one_way(contracts) if include_fees else 0.0
+    fee_side = "sell" if for_exit else ("buy" if net_usd >= 0 else "sell")
+    fees = fee_one_way(contracts, side=fee_side) if include_fees else 0.0
 
     # Debit entry pays fees on top; credit entry nets fees against credit received.
     # Exit long package: proceeds = net_usd (sell) - fees.
