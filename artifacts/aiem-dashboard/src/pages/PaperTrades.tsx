@@ -22,7 +22,7 @@ export default function PaperTrades() {
         <div>
           <h1 className="text-2xl font-mono font-bold text-white tracking-tight uppercase">Paper Trading</h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            AIEM equity book only · Options Engine is a separate product
+            AIEM equity book only · Pattern Lab packages (AIEM:SPY:*) and OE are separate
           </p>
         </div>
         <div className="text-right">

@@ -51,9 +51,43 @@ def test_tradier_stub_blocks_without_live_arm():
 def test_broker_readiness_report_lists_providers():
     from aiem_broker import broker_readiness_report
 
-    rep = broker_readiness_report()
+    rep = broker_readiness_report(sku="aiem")
+    assert rep["sku"] == "aiem"
     assert rep["active_provider"] in ("paper", "tradier", "alpaca", "ibkr")
     assert "paper" in rep["providers"]
     assert "tradier" in rep["providers"]
     assert rep["live_gate"]["live_orders_permitted"] is False
     assert len(rep["how_to_hookup_later"]) >= 5
+    assert "polygon" in rep["shared_market_data"]
+
+
+def test_sku_broker_adapters_are_isolated():
+    from aiem_broker import OrderRequest, OrderSide, get_broker_adapter
+
+    aiem = get_broker_adapter("paper", sku="aiem")
+    oe = get_broker_adapter("paper", sku="oe")
+    assert aiem is not oe
+    aiem.place_order(
+        OrderRequest(ticker="AAA", side=OrderSide.BUY, quantity=2, metadata={"ref_price": 50})
+    )
+    assert aiem.get_account().cash != oe.get_account().cash
+    assert aiem.get_account().account_id.startswith("AIEM")
+    assert oe.get_account().account_id.startswith("OE")
+
+
+def test_oe_live_flag_does_not_unlock_aiem():
+    import os
+    from aiem_broker.live_gate import assert_live_orders_allowed, LiveOrdersNotAllowed
+
+    os.environ["OE_ALLOW_LIVE_ORDERS"] = "1"
+    os.environ.pop("AIEM_ALLOW_LIVE_ORDERS", None)
+    os.environ.pop("LIVE_TRADING_ENABLED", None)
+    try:
+        try:
+            assert_live_orders_allowed(sku="aiem")
+            raised = False
+        except LiveOrdersNotAllowed:
+            raised = True
+        assert raised is True
+    finally:
+        os.environ.pop("OE_ALLOW_LIVE_ORDERS", None)

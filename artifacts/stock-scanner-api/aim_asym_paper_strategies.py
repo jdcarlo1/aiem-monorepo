@@ -351,11 +351,11 @@ def persist_asym_paper_open(
     if not dsn:
         log.warning("[asym] DATABASE_URL unset — skip aiem_paper_trades INSERT")
         return None
-    sku_norm = (sku or "aiem").strip().lower()
-    if sku_norm not in ("aiem", "oe"):
-        sku_norm = "aiem"
+    from sku_isolation import normalize_sku, sku_strategy_ticker
+
+    sku_norm = normalize_sku(sku)
     # Distinct ticker per SKU+strategy so ticker+trade_date unique allows parallel books
-    ticker = f"{sku_norm.upper()}:SPY:{strategy}"
+    ticker = sku_strategy_ticker(sku_norm, underlying or "SPY", strategy)
     detail = (
         f"asym paper sku={sku_norm} {strategy} TP+{take_profit_pct:.0f}% no-stop "
         f"exp={expiration} legs={legs!r}"
@@ -430,11 +430,17 @@ def persist_asym_paper_close(
     exit_value_usd: float,
     pnl_usd: float,
     reason: str,
+    sku: str = "aiem",
+    underlying: str = "SPY",
 ) -> None:
-    """Close OPEN aiem_paper_trades row for this asym package."""
+    """Close OPEN aiem_paper_trades row for this asym package (SKU-scoped)."""
     dsn = _db_url()
     if not dsn:
         return
+    from sku_isolation import normalize_sku, sku_strategy_ticker
+
+    sku_norm = normalize_sku(sku)
+    ticker = sku_strategy_ticker(sku_norm, underlying or "SPY", strategy)
     try:
         import psycopg2
         with psycopg2.connect(dsn, connect_timeout=8) as conn, conn.cursor() as cur:
@@ -452,7 +458,7 @@ def persist_asym_paper_close(
                         last_price=%s,
                         exit_reason=%s,
                         updated_at=NOW()
-                    WHERE id=%s AND status='OPEN'
+                    WHERE id=%s AND status='OPEN' AND ticker=%s
                     """,
                     (
                         float(exit_value_usd),
@@ -461,9 +467,11 @@ def persist_asym_paper_close(
                         float(exit_value_usd),
                         reason[:200],
                         int(paper_trade_id),
+                        ticker,
                     ),
                 )
             else:
+                # Fallback must stay SKU-scoped — never close the other product's OPEN row.
                 cur.execute(
                     """
                     UPDATE aiem_paper_trades
@@ -476,7 +484,7 @@ def persist_asym_paper_close(
                         updated_at=NOW()
                     WHERE id = (
                         SELECT id FROM aiem_paper_trades
-                        WHERE strategy=%s AND status='OPEN'
+                        WHERE strategy=%s AND status='OPEN' AND ticker=%s
                         ORDER BY id DESC LIMIT 1
                     )
                     """,
@@ -486,12 +494,13 @@ def persist_asym_paper_close(
                         float(exit_value_usd),
                         reason[:200],
                         strategy,
+                        ticker,
                     ),
                 )
             conn.commit()
             log.info(
-                "[asym] aiem_paper_trades CLOSED strategy=%s id=%s pnl=%.2f reason=%s",
-                strategy, paper_trade_id, pnl_usd, reason,
+                "[asym] aiem_paper_trades CLOSED sku=%s strategy=%s id=%s pnl=%.2f reason=%s",
+                sku_norm, strategy, paper_trade_id, pnl_usd, reason,
             )
     except Exception as e:
         log.warning("[asym] aiem_paper_trades CLOSE failed: %s", e)
@@ -649,6 +658,8 @@ class AsymOptionsLedger:
             exit_value_usd=float(exit_value_usd),
             pnl_usd=float(pnl),
             reason=reason,
+            sku=self.sku,
+            underlying=self.underlying,
         )
         log.info(
             "[%s] %s (%s): entry $%.2f -> mark $%.2f | P&L $%.2f | Bal $%.2f",

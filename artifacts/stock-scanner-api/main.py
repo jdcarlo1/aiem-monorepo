@@ -4228,17 +4228,7 @@ def _run_td_intraday_capture():
 
     print(f"[td_intraday_cache] {len(universe)} tickers → {total_bars} bars upserted")
 
-    # Pattern Lab — feed SPY 1-min bars into Gap Fill / ORB paper ledgers.
-    # Isolated from D1/D2/D3; failures here must not break intraday capture.
-    try:
-        _spy_df_pl = ticker_dfs.get("SPY")
-        if _spy_df_pl is not None and not getattr(_spy_df_pl, "empty", True):
-            _pattern_lab_feed_from_spy_df(_spy_df_pl)
-    except Exception as _pl_feed_e:
-        print(f"[pattern_lab] feed error (non-fatal): {_pl_feed_e}")
-
-
-    # Pattern Lab — feed SPY 1-min bars into Gap Fill / ORB paper ledgers.
+    # Pattern Lab + OE Strategies — one SPY feed → two SKU evaluate calls.
     # Isolated from D1/D2/D3; failures here must not break intraday capture.
     try:
         _spy_df_pl = ticker_dfs.get("SPY")
@@ -50064,29 +50054,45 @@ def _aiem_paper_compute_mark(trade_type, direction, entry_f, qty_f, not_f,
 
 
 def _aiem_paper_refresh_marks(persist: bool = True, max_option_lookups: int = 8):
-    """Lightweight intraday mark refresh for OPEN paper trades."""
+    """Lightweight intraday mark refresh for OPEN paper trades.
+
+    Skips SKU strategy package tickers (AIEM:SPY:* / OE:SPY:*) — those are marked
+    by the Pattern Lab / OE Strategies engines via Polygon daily option aggs.
+    """
     import datetime as _rmdt
     updated = 0
     skipped = 0
     try:
+        try:
+            from sku_isolation import equity_book_sql_exclusion, is_sku_strategy_ticker
+            _equity_excl = equity_book_sql_exclusion()
+        except Exception:
+            _equity_excl = " AND ticker NOT LIKE 'AIEM:%' AND ticker NOT LIKE 'OE:%' "
+            def is_sku_strategy_ticker(t):
+                u = (t or "").upper()
+                return u.startswith("AIEM:") or u.startswith("OE:")
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
-            _cu.execute("""
+            _cu.execute(f"""
                 SELECT id, ticker, trade_type, entry_price, quantity, notional,
                        COALESCE(direction, 'BULLISH'), strike, expiry,
                        option_entry_mid, mid_price
                 FROM aiem_paper_trades WHERE status = 'OPEN'
+                {_equity_excl}
             """)
             rows = _cu.fetchall()
         if not rows:
             return {"updated": 0, "skipped": 0, "open": 0}
 
-        tickers = list({r[1] for r in rows})
+        tickers = list({r[1] for r in rows if not is_sku_strategy_ticker(r[1])})
         quotes = _td_quotes(tickers) or {}
         option_lookups = 0
         writes = []
 
         for (_id, _t, _ttype, _entry, _qty, _notional, _dir, _strike, _expiry,
              _opt_entry, _mid) in rows:
+            if is_sku_strategy_ticker(_t):
+                skipped += 1
+                continue
             q = quotes.get(_t) or {}
             und = float(q.get("last") or q.get("bid") or 0)
             opt_mid = None
@@ -52944,20 +52950,27 @@ def _aiem_paper_mark_to_market():
 @app.route("/stock-api/paper-trades", methods=["GET"])
 @app.route("/stock-api/aiem-paper-portfolio", methods=["GET"])
 def aiem_paper_portfolio():
-    """AIEM autonomous paper trading — full portfolio state.
+    """AIEM equity autonomous paper book — excludes SKU strategy package rows.
 
+    Pattern Lab asym packages: /stock-api/sku-paper-portfolio?sku=aiem
+    OE Strategies packages: /stock-api/oe-strategies-portfolio
     Public READ endpoint — Paper Money / Portfolio tabs need this without an
     admin token. Force-execute / force-mtm remain admin-gated.
     """
     import datetime as _apvdt
     _days = int(request.args.get("days", 30))
     try:
+        from sku_isolation import equity_book_sql_exclusion as _sku_excl_fn
+        _excl = _sku_excl_fn()
+    except Exception:
+        _excl = " AND ticker NOT LIKE 'AIEM:%' AND ticker NOT LIKE 'OE:%' "
+    try:
         with _psycopg2.connect(_DB_URL, connect_timeout=5,
                                options="-c statement_timeout=6000") as _c, \
              _c.cursor() as _cu:
 
-            # Open positions with live P&L
-            _cu.execute("""
+            # Open positions with live P&L (equity book only — no AIEM:/OE: packages)
+            _cu.execute(f"""
                 SELECT id, trade_date::text, ticker, trade_type,
                        entry_price, quantity, notional,
                        signal_source, signal_detail, hold_days_max,
@@ -52965,6 +52978,7 @@ def aiem_paper_portfolio():
                        strike, expiry
                 FROM aiem_paper_trades
                 WHERE status = 'OPEN'
+                {_excl}
                 ORDER BY created_at DESC
             """)
             _cols = ["id","trade_date","ticker","trade_type","entry_price",
@@ -52977,7 +52991,7 @@ def aiem_paper_portfolio():
             if any(r[10] is None or r[11] is None for r in _open_raw):
                 try:
                     _aiem_paper_refresh_marks(persist=True, max_option_lookups=6)
-                    _cu.execute("""
+                    _cu.execute(f"""
                         SELECT id, trade_date::text, ticker, trade_type,
                                entry_price, quantity, notional,
                                signal_source, signal_detail, hold_days_max,
@@ -52985,6 +52999,7 @@ def aiem_paper_portfolio():
                                strike, expiry
                         FROM aiem_paper_trades
                         WHERE status = 'OPEN'
+                        {_excl}
                         ORDER BY created_at DESC
                     """)
                     _open_raw = _cu.fetchall()
@@ -53004,7 +53019,7 @@ def aiem_paper_portfolio():
                 _open_pos.append(_d)
 
             # Closed trades (last N days) — includes exit_reason so UI can show AIEM's judgment
-            _cu.execute("""
+            _cu.execute(f"""
                 SELECT id, trade_date::text, ticker, trade_type,
                        entry_price, quantity, notional,
                        signal_source, signal_detail,
@@ -53013,6 +53028,7 @@ def aiem_paper_portfolio():
                 FROM aiem_paper_trades
                 WHERE status != 'OPEN'
                   AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                  {_excl}
                 ORDER BY exit_date DESC, id DESC
                 LIMIT 200
             """, (_days,))
@@ -53055,6 +53071,7 @@ def aiem_paper_portfolio():
                     COALESCE(SUM(notional) FILTER (WHERE trade_type!='CALL_OPTION'),0) AS notional_real
                 FROM aiem_paper_trades
                 WHERE trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                {_excl}
             """, (_days,))
             _sr = _cu.fetchone()
             (_total_closed, _winners, _total_pnl, _avg_pnl_pct,
@@ -53067,12 +53084,13 @@ def aiem_paper_portfolio():
             _win_rate = round(_winners / _total_closed * 100, 1) if _total_closed else None
 
             # Daily P&L curve
-            _cu.execute("""
+            _cu.execute(f"""
                 SELECT exit_date::text, SUM(pnl) AS day_pnl, COUNT(*) AS trades
                 FROM aiem_paper_trades
                 WHERE status != 'OPEN'
                   AND exit_date IS NOT NULL
                   AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                  {_excl}
                 GROUP BY exit_date
                 ORDER BY exit_date
             """, (_days,))
@@ -53112,6 +53130,12 @@ def aiem_paper_portfolio():
         )
 
         return jsonify({
+            "sku": "aiem",
+            "book": "equity_autonomous",
+            "book_note": (
+                "AIEM equity autonomous book only. Excludes Pattern Lab "
+                "AIEM:SPY:* and OE OE:SPY:* strategy packages."
+            ),
             "account_start":     _account_start,
             "account_value":     round(_account_value, 2),
             "realized_pnl":      round(_realized_pnl, 2),
@@ -53235,37 +53259,205 @@ def aiem_sales_readiness_endpoint():
 
 @app.route("/stock-api/aiem-broker/status", methods=["GET"])
 def aiem_broker_status_endpoint():
-    """Broker adapter readiness — paper default; stubs hookup-ready, not live."""
+    """AIEM broker adapter readiness — paper default; stubs hookup-ready, not live."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     try:
         from aiem_broker import broker_readiness_report
-        return jsonify({"ok": True, **broker_readiness_report()})
+        return jsonify({"ok": True, **broker_readiness_report(sku="aiem")})
     except Exception as _e:
         return jsonify({"ok": False, "error": str(_e)}), 500
 
 
 @app.route("/stock-api/aiem-broker/paper-order", methods=["POST"])
 def aiem_broker_paper_order_endpoint():
-    """Smoke-test the paper adapter only. Never routes to a live broker."""
+    """Smoke-test the AIEM paper adapter only. Never routes to a live broker."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     try:
         from aiem_broker import OrderRequest, OrderSide, get_broker_adapter
         body = request.get_json(silent=True) or {}
-        adapter = get_broker_adapter("paper")
+        adapter = get_broker_adapter("paper", sku="aiem")
         order = OrderRequest(
             ticker=str(body.get("ticker") or "").upper(),
             side=OrderSide.BUY if str(body.get("side") or "buy").lower() in ("buy", "buy_to_open") else OrderSide.SELL,
             quantity=float(body.get("quantity") or 1),
-            metadata={"ref_price": body.get("ref_price")},
+            metadata={"ref_price": body.get("ref_price"), "sku": "aiem"},
         )
         result = adapter.place_order(order)
-        return jsonify({"ok": result.ok, "result": result.to_dict(), "account": adapter.get_account().to_dict()})
+        return jsonify({
+            "ok": result.ok,
+            "sku": "aiem",
+            "result": result.to_dict(),
+            "account": adapter.get_account().to_dict(),
+        })
     except Exception as _e:
         return jsonify({"ok": False, "error": str(_e)}), 500
+
+
+@app.route("/stock-api/oe-broker/status", methods=["GET"])
+def oe_broker_status_endpoint():
+    """OE broker adapter readiness — separate SKU book; same shared Polygon OK."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from aiem_broker import broker_readiness_report
+        return jsonify({"ok": True, **broker_readiness_report(sku="oe")})
+    except Exception as _e:
+        return jsonify({"ok": False, "error": str(_e)}), 500
+
+
+@app.route("/stock-api/oe-broker/paper-order", methods=["POST"])
+def oe_broker_paper_order_endpoint():
+    """Smoke-test the OE paper adapter only. Never routes to a live broker."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from aiem_broker import OrderRequest, OrderSide, get_broker_adapter
+        body = request.get_json(silent=True) or {}
+        adapter = get_broker_adapter("paper", sku="oe")
+        order = OrderRequest(
+            ticker=str(body.get("ticker") or "").upper(),
+            side=OrderSide.BUY if str(body.get("side") or "buy").lower() in ("buy", "buy_to_open") else OrderSide.SELL,
+            quantity=float(body.get("quantity") or 1),
+            metadata={"ref_price": body.get("ref_price"), "sku": "oe"},
+        )
+        result = adapter.place_order(order)
+        return jsonify({
+            "ok": result.ok,
+            "sku": "oe",
+            "result": result.to_dict(),
+            "account": adapter.get_account().to_dict(),
+        })
+    except Exception as _e:
+        return jsonify({"ok": False, "error": str(_e)}), 500
+
+
+@app.route("/stock-api/sku-paper-portfolio", methods=["GET"])
+@app.route("/stock-api/oe-strategies-portfolio", methods=["GET"])
+def sku_paper_portfolio():
+    """SKU strategy package paper book (AIEM:SPY:* or OE:SPY:*).
+
+    /stock-api/oe-strategies-portfolio always forces sku=oe.
+    /stock-api/sku-paper-portfolio?sku=aiem|oe selects the book.
+    """
+    import datetime as _spd
+    path = (request.path or "").rstrip("/")
+    if path.endswith("oe-strategies-portfolio"):
+        sku = "oe"
+    else:
+        try:
+            from sku_isolation import normalize_sku
+            sku = normalize_sku(request.args.get("sku", "aiem"))
+        except Exception:
+            sku = "oe" if str(request.args.get("sku", "")).lower() == "oe" else "aiem"
+    _days = int(request.args.get("days", 30))
+    try:
+        from sku_isolation import product_name, sku_book_sql_inclusion
+        _incl, _incl_params = sku_book_sql_inclusion(sku)
+        _product = product_name(sku)
+    except Exception:
+        _incl, _incl_params = (" AND ticker LIKE %s ", (f"{sku.upper()}:%",))
+        _product = "OE" if sku == "oe" else "AIEM"
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5,
+                               options="-c statement_timeout=6000") as _c, \
+             _c.cursor() as _cu:
+            # Detect optional columns
+            _cu.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name='aiem_paper_trades'
+                  AND column_name IN ('strategy','take_profit_pct')
+            """)
+            _have = {r[0] for r in _cu.fetchall()}
+            _strat_sel = "strategy" if "strategy" in _have else "NULL::text AS strategy"
+            _tp_sel = "take_profit_pct" if "take_profit_pct" in _have else "NULL::float AS take_profit_pct"
+            _cu.execute(f"""
+                SELECT id, trade_date::text, ticker, trade_type, {_strat_sel},
+                       entry_price, quantity, notional,
+                       signal_source, signal_detail, hold_days_max,
+                       last_price, pnl, pnl_pct, status, created_at,
+                       strike, expiry, {_tp_sel}
+                FROM aiem_paper_trades
+                WHERE status = 'OPEN'
+                {_incl}
+                ORDER BY created_at DESC
+            """, _incl_params)
+            _cols = ["id","trade_date","ticker","trade_type","strategy",
+                     "entry_price","quantity","notional","signal_source","signal_detail",
+                     "hold_days_max","last_price","pnl","pnl_pct","status","created_at",
+                     "strike","expiry","take_profit_pct"]
+            _open = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_cols, _r))
+                for _k in ["entry_price","quantity","notional","last_price","pnl","pnl_pct","strike","take_profit_pct"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                _d["created_at"] = _d["created_at"].isoformat() if _d["created_at"] else None
+                _d["sku"] = sku
+                _open.append(_d)
+
+            _cu.execute(f"""
+                SELECT id, trade_date::text, ticker, trade_type, {_strat_sel},
+                       entry_price, quantity, notional,
+                       signal_source, signal_detail,
+                       exit_price, exit_date::text, pnl, pnl_pct, status, exit_reason,
+                       strike, expiry
+                FROM aiem_paper_trades
+                WHERE status != 'OPEN'
+                  AND trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                  {_incl}
+                ORDER BY exit_date DESC NULLS LAST, id DESC
+                LIMIT 200
+            """, (_days,) + _incl_params)
+            _ccols = ["id","trade_date","ticker","trade_type","strategy",
+                      "entry_price","quantity","notional","signal_source","signal_detail",
+                      "exit_price","exit_date","pnl","pnl_pct","status","exit_reason",
+                      "strike","expiry"]
+            _closed = []
+            for _r in _cu.fetchall():
+                _d = dict(zip(_ccols, _r))
+                for _k in ["entry_price","quantity","notional","exit_price","pnl","pnl_pct","strike"]:
+                    _d[_k] = float(_d[_k]) if _d[_k] is not None else None
+                _d["sku"] = sku
+                _closed.append(_d)
+
+            _cu.execute(f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE status!='OPEN') AS total_closed,
+                    COUNT(*) FILTER (WHERE pnl>0 AND status!='OPEN') AS winners,
+                    COALESCE(SUM(pnl) FILTER (WHERE status!='OPEN'),0) AS total_pnl,
+                    COUNT(*) FILTER (WHERE status='OPEN') AS open_count,
+                    COALESCE(SUM(pnl) FILTER (WHERE status='OPEN'),0) AS open_unrealized
+                FROM aiem_paper_trades
+                WHERE trade_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                {_incl}
+            """, (_days,) + _incl_params)
+            _sr = _cu.fetchone()
+            _total_closed, _winners, _total_pnl, _open_count, _open_unreal = _sr
+            _win_rate = round(_winners / _total_closed * 100, 1) if _total_closed else None
+
+        return jsonify({
+            "sku": sku,
+            "product": _product,
+            "book": "sku_strategy_packages",
+            "ticker_prefix": f"{sku.upper()}:",
+            "shared_market_data": "Polygon/Tradier shared OK; books isolated",
+            "open_positions": _open,
+            "open_count": int(_open_count or 0),
+            "closed_trades": _closed,
+            "total_closed": int(_total_closed or 0),
+            "winners": int(_winners or 0),
+            "win_rate": _win_rate,
+            "realized_pnl": round(float(_total_pnl or 0), 2),
+            "unrealized_pnl": round(float(_open_unreal or 0), 2),
+            "as_of": _spd.datetime.now().strftime("%b %d %I:%M %p ET"),
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e), "sku": sku}), 500
 
 
 @app.route("/stock-api/admin/paper-fill-audit", methods=["GET", "POST"])

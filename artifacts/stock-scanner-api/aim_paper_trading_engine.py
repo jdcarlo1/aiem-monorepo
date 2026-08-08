@@ -183,7 +183,11 @@ class AIMPaperTradingEngine:
         )
         try:
             from aim_f3_spy_0dte import F3OptionsLedger as _F3
-            self.f3 = _F3(underlying=symbol, starting_capital_usd=initial_capital_usd)
+            self.f3 = _F3(
+                underlying=symbol,
+                starting_capital_usd=initial_capital_usd,
+                sku=self.sku,
+            )
         except Exception as _f3e:
             logging.warning("F3 ledger unavailable: %s", _f3e)
             self.f3 = None

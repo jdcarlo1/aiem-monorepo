@@ -29,7 +29,11 @@ RELIABILITY_JOBS = {
 
 API_SURFACE = [
     {"method": "GET", "path": "/stock-api/aiem-predictions", "sku": "AIEM", "auth": "public/read"},
-    {"method": "GET", "path": "/stock-api/aiem-paper-portfolio", "sku": "AIEM", "auth": "public/read"},
+    {"method": "GET", "path": "/stock-api/aiem-paper-portfolio", "sku": "AIEM", "auth": "public/read",
+     "note": "Equity autonomous book only — excludes AIEM:/OE: strategy packages"},
+    {"method": "GET", "path": "/stock-api/sku-paper-portfolio?sku=aiem", "sku": "AIEM", "auth": "public/read",
+     "note": "Pattern Lab strategy packages (AIEM:SPY:*)"},
+    {"method": "GET", "path": "/stock-api/pattern-lab/snapshot", "sku": "AIEM", "auth": "public/read"},
     {"method": "GET", "path": "/stock-api/paper-performance", "sku": "AIEM", "auth": "token"},
     {"method": "GET", "path": "/stock-api/morning-brief", "sku": "AIEM", "auth": "public/read"},
     {"method": "GET", "path": "/stock-api/aiem-sales-readiness", "sku": "AIEM", "auth": "token"},
@@ -37,8 +41,14 @@ API_SURFACE = [
     {"method": "POST", "path": "/stock-api/aiem-broker/paper-order", "sku": "AIEM", "auth": "admin",
      "note": "Paper adapter smoke test only"},
     {"method": "GET", "path": "/stock-api/admin/job-heartbeats", "sku": "AIEM", "auth": "admin"},
+    {"method": "GET", "path": "/stock-api/oe/strategies/snapshot", "sku": "OE", "auth": "public/read"},
+    {"method": "GET", "path": "/stock-api/oe-strategies-portfolio", "sku": "OE", "auth": "public/read",
+     "note": "OE Strategies packages (OE:SPY:*)"},
+    {"method": "GET", "path": "/stock-api/oe-broker/status", "sku": "OE", "auth": "token"},
+    {"method": "POST", "path": "/stock-api/oe-broker/paper-order", "sku": "OE", "auth": "admin",
+     "note": "OE paper adapter smoke test only — hard-blocked live"},
     {"method": "GET", "path": "/stock-api/admin/trade-records", "sku": "OE", "auth": "admin",
-     "note": "OE SKU — not bundled into AIEM-only sale"},
+     "note": "OE options pipeline records — separate from Strategies SKU book"},
 ]
 
 ROLES_MODEL = [

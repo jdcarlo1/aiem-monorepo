@@ -169,9 +169,15 @@ class F3OptionsLedger:
 
     def __init__(self, underlying: str = "SPY",
                  starting_capital_usd: float = 10000.0,
-                 trade_notional_usd: float = TRADE_NOTIONAL_USD):
+                 trade_notional_usd: float = TRADE_NOTIONAL_USD,
+                 sku: str = "aiem"):
         self.pattern_name = "F3_SPY_0DTE"
         self.underlying = underlying
+        try:
+            from sku_isolation import normalize_sku
+            self.sku = normalize_sku(sku)
+        except Exception:
+            self.sku = "aiem" if (sku or "aiem").strip().lower() != "oe" else "oe"
         self._starting_capital = starting_capital_usd
         self.account_balance_usd = starting_capital_usd
         self.net_liquidation_usd = starting_capital_usd
@@ -205,6 +211,7 @@ class F3OptionsLedger:
     def snapshot(self) -> dict:
         return {
             "pattern": self.pattern_name,
+            "sku": getattr(self, "sku", "aiem"),
             "rules": {
                 "premarket_filter": True,
                 "orb": "09:30-09:44 ET",

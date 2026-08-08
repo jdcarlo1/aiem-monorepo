@@ -131,7 +131,7 @@ export default function StrategiesPage() {
             Strategies
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1 break-words">
-            OE paper book (SKU-isolated) — F3 0DTE + same asym patterns as AIEM (flies, ladder, condors, narrow-wing, bullish RR)
+            OE paper book (SKU-isolated) — F3 0DTE + same asym patterns as AIEM · shared Polygon OK · broker hook hard-blocked until armed
           </p>
         </div>
         <div className="font-mono text-sm text-muted-foreground text-left sm:text-right shrink-0">

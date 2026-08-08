@@ -20,7 +20,10 @@ class PaperBrokerAdapter(BrokerAdapter):
     supports_live = False
     supports_options = True
 
-    def __init__(self, starting_cash: float = 100_000.0):
+    def __init__(self, starting_cash: float = 100_000.0, sku: str = "aiem"):
+        self.sku = (sku or "aiem").strip().lower()
+        if self.sku not in ("aiem", "oe"):
+            self.sku = "aiem"
         self._cash = float(starting_cash)
         self._positions: dict[str, BrokerPosition] = {}
         self._orders: list[dict] = []
@@ -28,22 +31,27 @@ class PaperBrokerAdapter(BrokerAdapter):
     def status(self) -> dict:
         return {
             "provider": self.provider_id,
+            "sku": self.sku,
             "connected": True,
             "ready_for_live_hookup": False,
             "supports_live": False,
             "supports_options": True,
             "mode": "paper",
-            "note": "Active paper simulator. Swap AIEM_BROKER_PROVIDER to a stub/live provider later.",
+            "note": (
+                f"Active paper simulator for sku={self.sku}. "
+                "Swap *_BROKER_PROVIDER to a stub/live provider later."
+            ),
         }
 
     def get_account(self) -> BrokerAccount:
         return BrokerAccount(
             provider=self.provider_id,
-            account_id="AIEM-PAPER",
+            account_id=f"{self.sku.upper()}-PAPER",
             cash=self._cash,
             buying_power=self._cash,
             mode="paper",
             connected=True,
+            details={"sku": self.sku},
         )
 
     def get_positions(self) -> List[BrokerPosition]:

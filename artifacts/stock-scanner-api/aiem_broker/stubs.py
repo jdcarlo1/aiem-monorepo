@@ -29,6 +29,11 @@ class _StubBroker(BrokerAdapter):
     env_keys: tuple = ()
     docs_hookup: str = ""
 
+    def __init__(self, sku: str = "aiem"):
+        self.sku = (sku or "aiem").strip().lower()
+        if self.sku not in ("aiem", "oe"):
+            self.sku = "aiem"
+
     def _creds_present(self) -> dict:
         return {k: bool(os.environ.get(k)) for k in self.env_keys}
 
@@ -36,6 +41,7 @@ class _StubBroker(BrokerAdapter):
         creds = self._creds_present()
         return {
             "provider": self.provider_id,
+            "sku": self.sku,
             "connected": False,
             "ready_for_live_hookup": all(creds.values()) if creds else False,
             "credentials_present": creds,
@@ -44,7 +50,7 @@ class _StubBroker(BrokerAdapter):
             "mode": "stub",
             "order_routing": "not_wired",
             "hookup_notes": self.docs_hookup,
-            "live_gate": live_gate_status(),
+            "live_gate": live_gate_status(self.sku),
         }
 
     def get_account(self) -> BrokerAccount:
@@ -70,7 +76,10 @@ class _StubBroker(BrokerAdapter):
     def place_order(self, order: OrderRequest) -> OrderResult:
         # Even if someone arms live locks, stubs refuse until a real impl replaces this.
         try:
-            assert_live_orders_allowed(caller=f"{self.provider_id}.place_order")
+            assert_live_orders_allowed(
+                caller=f"{self.provider_id}.place_order",
+                sku=getattr(self, "sku", "aiem"),
+            )
         except LiveOrdersNotAllowed as e:
             return OrderResult(
                 ok=False,
@@ -81,6 +90,7 @@ class _StubBroker(BrokerAdapter):
                 side=order.side.value,
                 quantity=float(order.quantity or 0),
                 message=str(e),
+                raw={"sku": getattr(self, "sku", "aiem")},
             )
         return OrderResult(
             ok=False,
@@ -91,10 +101,11 @@ class _StubBroker(BrokerAdapter):
             side=order.side.value,
             quantity=float(order.quantity or 0),
             message=(
-                f"{self.provider_id} adapter is a hookup stub — "
+                f"{self.provider_id} adapter is a hookup stub (sku={getattr(self, 'sku', 'aiem')}) — "
                 f"implement place_order() against the broker API when ready. "
                 f"No order was sent."
             ),
+            raw={"sku": getattr(self, "sku", "aiem")},
         )
 
 

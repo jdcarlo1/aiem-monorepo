@@ -18,6 +18,12 @@
 | OE auth copy notes shared password, separate product UI | `oe-dashboard/.../auth.tsx` |
 | OE Calibration notes shared PE platform analytics | `oe-dashboard/.../calibration.tsx` |
 
+## SKU engine / paper / broker (started)
+See `docs/aiem-sales/sku-separation.md` and `live-path-policy.md`.
+- Dual engines on one VM; strategy tickers `AIEM:SPY:*` vs `OE:SPY:*`
+- Equity portfolio excludes strategy packages
+- Per-SKU broker status/paper-order routes (live hard-blocked)
+
 ## Not in Phase 0
 - Separate secrets / RBAC per SKU  
 - Separate DB / deploy images  
