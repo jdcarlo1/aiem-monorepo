@@ -1,0 +1,183 @@
+===== PROOF_2_BROKER_HARD_BLOCK =====
+--- CODE: live_allow_env_key / assert_live_orders_allowed ---
+def live_allow_env_key(sku: str) -> str:
+    """Per-SKU third switch for live orders (in addition to simulation_lock)."""
+    return "AIEM_ALLOW_LIVE_ORDERS" if normalize_sku(sku) == "aiem" else "OE_ALLOW_LIVE_ORDERS"
+
+def assert_live_orders_allowed(caller: str = "broker.place_order", sku: str = "aiem") -> None:
+    """Hard stop unless dual live locks are armed AND the SKU allow flag is 1.
+
+    Per-SKU third switch:
+      AIEM → AIEM_ALLOW_LIVE_ORDERS=1
+      OE   → OE_ALLOW_LIVE_ORDERS=1
+    So arming one product cannot unlock the other.
+    """
+    sku_n = normalize_sku(sku)
+    mode = trading_mode()
+    flag = live_allow_env_key(sku_n)
+    allow = os.environ.get(flag, "") == "1"
+    if mode != "live" or not allow:
+        raise LiveOrdersNotAllowed(
+            f"[{caller}] Live brokerage orders blocked for sku={sku_n} "
+            f"(mode={mode}, {flag}={allow}). "
+            f"Paper/research mode is the default. Market data (Polygon) may be shared; "
+            f"order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks "
+            f"AND {flag}=1, then implement a real adapter place_order()."
+        )
+
+--- CODE: stub place_order gate ---
+    def place_order(self, order: OrderRequest) -> OrderResult:
+        # Even if someone arms live locks, stubs refuse until a real impl replaces this.
+        try:
+            assert_live_orders_allowed(
+                caller=f"{self.provider_id}.place_order",
+                sku=getattr(self, "sku", "aiem"),
+            )
+        except LiveOrdersNotAllowed as e:
+            return OrderResult(
+                ok=False,
+                status=OrderStatus.BLOCKED,
+                provider=self.provider_id,
+                mode="live_blocked",
+                ticker=(order.ticker or "").upper(),
+                side=order.side.value,
+                quantity=float(order.quantity or 0),
+                message=str(e),
+                raw={"sku": getattr(self, "sku", "aiem")},
+            )
+        return OrderResult(
+            ok=False,
+            status=OrderStatus.NOT_IMPLEMENTED,
+            provider=self.provider_id,
+            mode="stub",
+            ticker=(order.ticker or "").upper(),
+            side=order.side.value,
+            quantity=float(order.quantity or 0),
+            message=(
+                f"{self.provider_id} adapter is a hookup stub (sku={getattr(self, 'sku', 'aiem')}) — "
+                f"implement place_order() against the broker API when ready. "
+                f"No order was sent."
+            ),
+            raw={"sku": getattr(self, "sku", "aiem")},
+        )
+
+--- ENV (flags unset) ---
+AIEM_ALLOW_LIVE_ORDERS=None
+OE_ALLOW_LIVE_ORDERS=None
+live_gate_status_aiem={'sku': 'aiem', 'product': 'AIEM', 'trading_mode': 'paper', 'allow_live_orders_env': 'AIEM_ALLOW_LIVE_ORDERS', 'allow_live_orders': False, 'aiem_allow_live_orders': False, 'oe_allow_live_orders': False, 'live_orders_permitted': False, 'default': 'paper', 'shared_market_data_ok': True, 'order_routing_isolated': True}
+live_gate_status_oe={'sku': 'oe', 'product': 'OE', 'trading_mode': 'paper', 'allow_live_orders_env': 'OE_ALLOW_LIVE_ORDERS', 'allow_live_orders': False, 'aiem_allow_live_orders': False, 'oe_allow_live_orders': False, 'live_orders_permitted': False, 'default': 'paper', 'shared_market_data_ok': True, 'order_routing_isolated': True}
+PASS gate_blocked sku=aiem err=[proof.aiem] Live brokerage orders blocked for sku=aiem (mode=paper, AIEM_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND AIEM_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+PASS gate_blocked sku=oe err=[proof.oe] Live brokerage orders blocked for sku=oe (mode=paper, OE_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND OE_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+STUB_ORDER provider=tradier sku=aiem ok=False status=blocked mode=live_blocked
+STUB_ORDER_MESSAGE [tradier.place_order] Live brokerage orders blocked for sku=aiem (mode=paper, AIEM_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND AIEM_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+STUB_ORDER provider=alpaca sku=aiem ok=False status=blocked mode=live_blocked
+STUB_ORDER_MESSAGE [alpaca.place_order] Live brokerage orders blocked for sku=aiem (mode=paper, AIEM_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND AIEM_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+STUB_ORDER provider=ibkr sku=aiem ok=False status=blocked mode=live_blocked
+STUB_ORDER_MESSAGE [ibkr.place_order] Live brokerage orders blocked for sku=aiem (mode=paper, AIEM_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND AIEM_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+STUB_ORDER provider=tradier sku=oe ok=False status=blocked mode=live_blocked
+STUB_ORDER_MESSAGE [tradier.place_order] Live brokerage orders blocked for sku=oe (mode=paper, OE_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND OE_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+STUB_ORDER provider=alpaca sku=oe ok=False status=blocked mode=live_blocked
+STUB_ORDER_MESSAGE [alpaca.place_order] Live brokerage orders blocked for sku=oe (mode=paper, OE_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND OE_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+STUB_ORDER provider=ibkr sku=oe ok=False status=blocked mode=live_blocked
+STUB_ORDER_MESSAGE [ibkr.place_order] Live brokerage orders blocked for sku=oe (mode=paper, OE_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND OE_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+--- CODE: /aiem-broker/paper-order forces paper ---
+def aiem_broker_paper_order_endpoint():
+    """Smoke-test the AIEM paper adapter only. Never routes to a live broker."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from aiem_broker import OrderRequest, OrderSide, get_broker_adapter
+        body = request.get_json(silent=True) or {}
+        adapter = get_broker_adapter("paper", sku="aiem")
+        order = OrderRequest(
+            ticker=str(body.get("ticker") or "").upper(),
+            side=OrderSide.BUY if str(body.get("side") or "buy").lower() in ("buy", "buy_to_open") else OrderSide.SELL,
+            quantity=float(body.get("quantity") or 1),
+            metadata={"ref_price": body.get("ref_price"), "sku": "aiem"},
+        )
+        result = adapter.place_order(order)
+        return jsonify({
+            "ok": result.ok,
+            "sku": "aiem",
+            "result": result.to_dict(),
+            "account": adapter.get_account().to_dict(),
+        })
+    except Exception as _e:
+        return jsonify({"ok": False, "error": str(_e)}), 500
+
+
+--- CODE: /oe-broker/paper-order forces paper ---
+def oe_broker_paper_order_endpoint():
+    """Smoke-test the OE paper adapter only. Never routes to a live broker."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from aiem_broker import OrderRequest, OrderSide, get_broker_adapter
+        body = request.get_json(silent=True) or {}
+        adapter = get_broker_adapter("paper", sku="oe")
+        order = OrderRequest(
+            ticker=str(body.get("ticker") or "").upper(),
+            side=OrderSide.BUY if str(body.get("side") or "buy").lower() in ("buy", "buy_to_open") else OrderSide.SELL,
+            quantity=float(body.get("quantity") or 1),
+            metadata={"ref_price": body.get("ref_price"), "sku": "oe"},
+        )
+        result = adapter.place_order(order)
+        return jsonify({
+            "ok": result.ok,
+            "sku": "oe",
+            "result": result.to_dict(),
+            "account": adapter.get_account().to_dict(),
+        })
+    except Exception as _e:
+        return jsonify({"ok": False, "error": str(_e)}), 500
+
+
+aiem_paper_order_forces_paper=True
+oe_paper_order_forces_paper=True
+ROUTE_EQUIV_STATUS sku=aiem live_permitted=False active_provider=paper
+ROUTE_EQUIV_PAPER_ORDER sku=aiem ok=True provider=paper mode=paper status=simulated
+ROUTE_EQUIV_STATUS sku=oe live_permitted=False active_provider=paper
+ROUTE_EQUIV_PAPER_ORDER sku=oe ok=True provider=paper mode=paper status=simulated
+aiem_status_calls_sku_aiem=True
+oe_status_calls_sku_oe=True
+stub_place_order_calls_assert=True
+non_paper_place_order_without_gate=[]
+PASS paper_mode_blocks_even_with_oe_flag sku=aiem err=[broker.place_order] Live brokerage orders blocked for sku=aiem (mode=paper, AIEM_ALLOW_LIVE_ORDERS=False). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND AIEM_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+PASS paper_mode_blocks_even_with_oe_flag sku=oe err=[broker.place_order] Live brokerage orders blocked for sku=oe (mode=paper, OE_ALLOW_LIVE_ORDERS=True). Paper/research mode is the default. Market data (Polygon) may be shared; order routing is SKU-isolated. To enable later: set LIVE_TRADING_* dual locks AND OE_ALLOW_LIVE_ORDERS=1, then implement a real adapter place_order().
+ALLOW_PARSE val=None equals_1=False
+ALLOW_PARSE val='' equals_1=False
+ALLOW_PARSE val='0' equals_1=False
+ALLOW_PARSE val='true' equals_1=False
+ALLOW_PARSE val='TRUE' equals_1=False
+ALLOW_PARSE val='yes' equals_1=False
+PROOF_2_OK=True
+===== PROOF_3_CROSS_SKU_CLOSE =====
+OPEN_AIEM id=1 ticker=AIEM:SPY:call_condor
+STORE_AFTER_AIEM_OPEN={1: {'id': 1, 'ticker': 'AIEM:SPY:call_condor', 'status': 'OPEN', 'strategy': 'call_condor'}}
+AFTER_OE_CLOSE_ATTEMPT aiem_id=1 status=OPEN
+OE_CLOSE_SQL_LAST=[("UPDATE aiem_paper_trades SET status='CLOSED', exit_price=%s, exit_date=(NOW() AT TIME ZONE 'America/New_York')::date, pnl=%s, pnl_pct=CASE WHEN notional IS NOT NULL AND notional<>0 THEN (%s / ABS(notional)) * 100.0 ELSE NULL END, last_price=%s, exit_reason=%s, updated_at=NOW() WHERE id=%s AND status='OPEN' AND ticker=%s", (200.0, 33.0, 33.0, 200.0, 'CROSS_SKU_OE_CLOSE_ATTEMPT', 1, 'OE:SPY:call_condor'))]
+PASS aiem_still_open_after_oe_close_attempt
+AFTER_AIEM_CLOSE status=CLOSED
+PASS aiem_same_sku_close
+OPEN_OE id=2 ticker=OE:SPY:put_condor
+AFTER_AIEM_CLOSE_ATTEMPT oe_id=2 status=OPEN
+PASS oe_still_open_after_aiem_close_attempt
+OPEN_OE_FALLBACK_TARGET id=3
+AFTER_FALLBACK_AIEM_CLOSE oe_id2_status=OPEN
+PASS oe_still_open_after_aiem_fallback_close
+--- CLOSE_SQL_CAPTURE ---
+SQL=UPDATE aiem_paper_trades SET status='CLOSED', exit_price=%s, exit_date=(NOW() AT TIME ZONE 'America/New_York')::date, pnl=%s, pnl_pct=CASE WHEN notional IS NOT NULL AND notional<>0 THEN (%s / ABS(notional)) * 100.0 ELSE NULL END, last_price=%s, exit_reason=%s, updated_at=NOW() WHERE id=%s AND status='OPEN' AND ticker=%s
+PARAMS=(200.0, 33.0, 33.0, 200.0, 'CROSS_SKU_OE_CLOSE_ATTEMPT', 1, 'OE:SPY:call_condor')
+SQL=UPDATE aiem_paper_trades SET status='CLOSED', exit_price=%s, exit_date=(NOW() AT TIME ZONE 'America/New_York')::date, pnl=%s, pnl_pct=CASE WHEN notional IS NOT NULL AND notional<>0 THEN (%s / ABS(notional)) * 100.0 ELSE NULL END, last_price=%s, exit_reason=%s, updated_at=NOW() WHERE id=%s AND status='OPEN' AND ticker=%s
+PARAMS=(200.0, 33.0, 33.0, 200.0, 'SAME_SKU_AIEM_CLOSE', 1, 'AIEM:SPY:call_condor')
+SQL=UPDATE aiem_paper_trades SET status='CLOSED', exit_price=%s, exit_date=(NOW() AT TIME ZONE 'America/New_York')::date, pnl=%s, pnl_pct=CASE WHEN notional IS NOT NULL AND notional<>0 THEN (%s / ABS(notional)) * 100.0 ELSE NULL END, last_price=%s, exit_reason=%s, updated_at=NOW() WHERE id=%s AND status='OPEN' AND ticker=%s
+PARAMS=(180.0, 39.0, 39.0, 180.0, 'CROSS_SKU_AIEM_CLOSE_ATTEMPT', 2, 'AIEM:SPY:put_condor')
+SQL=UPDATE aiem_paper_trades SET status='CLOSED', exit_price=%s, exit_date=(NOW() AT TIME ZONE 'America/New_York')::date, pnl=%s, last_price=%s, exit_reason=%s, updated_at=NOW() WHERE id = ( SELECT id FROM aiem_paper_trades WHERE strategy=%s AND status='OPEN' AND ticker=%s ORDER BY id DESC LIMIT 1 )
+PARAMS=(180.0, 30.0, 180.0, 'FALLBACK_AIEM_CLOSE_NO_ID', 'call_condor', 'AIEM:SPY:call_condor')
+PROOF_3_OK=True
+===== SUMMARY =====
+PROOF_2_OK=True
+PROOF_3_OK=True
+ALL_OK=True
