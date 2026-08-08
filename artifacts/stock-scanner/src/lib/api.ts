@@ -1538,6 +1538,8 @@ export interface InsiderRadarResult {
   as_of:           string;
   stale?:          boolean;
   generating?:     boolean;
+  live_window_days?: number;
+  expired_filtered?: boolean;
 }
 
 export function fetchInsiderRadar(bust = false) {
