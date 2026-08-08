@@ -1174,15 +1174,40 @@ def capture_trade_record(
     """
     db_url = db_url or _DB_URL
     try:
-        entry_mid = (
-            (float(sel_data.get("bid", 0)) + float(sel_data.get("ask", 0))) / 2
-        )
+        # Prefer live Tradier ask for long entries (paper realism); fall back to mid.
+        try:
+            from aiem_broker.paper_fills import fee_round_trip, price_single_option_nbbo
+            _right = "put" if "PUT" in str(direction).upper() else "call"
+            _nbbo = price_single_option_nbbo(
+                ticker, float(sel_strike), str(scan_date), _right,
+                quantity=1.0, is_buy=True, for_exit=False,
+            ) if sel_strike else None
+        except Exception:
+            _nbbo = None
+        if _nbbo and _nbbo.get("premium"):
+            entry_mid = float(_nbbo["premium"])  # ask fill stored as entry
+            sel_data = dict(sel_data or {})
+            sel_data.setdefault("bid", _nbbo.get("bid"))
+            sel_data.setdefault("ask", _nbbo.get("ask"))
+            sel_data["fill_source"] = "tradier_nbbo_paper"
+        else:
+            entry_mid = (
+                (float(sel_data.get("bid", 0)) + float(sel_data.get("ask", 0))) / 2
+            )
         legs = []
         if best_chain_strategy and best_chain_strategy.get("legs"):
             legs = best_chain_strategy["legs"]
         else:
             legs = [{"action": "BUY", "type": direction.replace("LONG_", ""),
                      "strike": sel_strike, "mid": entry_mid}]
+        n_legs = max(1, len(legs) if isinstance(legs, list) else 1)
+        try:
+            from aiem_broker.paper_fills import fee_round_trip
+            _fees_est = fee_round_trip(n_legs)  # RT estimate at open
+        except Exception:
+            _fees_est = 0.65 * n_legs * 2
+        sel_data = dict(sel_data or {})
+        sel_data["fees_est"] = _fees_est
 
         greeks = {
             "delta": sel_data.get("delta"), "gamma": sel_data.get("gamma"),
@@ -1286,7 +1311,10 @@ def capture_trade_record(
                 alert_id, trace_id, ticker, scan_date,
                 strategy_fam, direction, json.dumps(legs),
                 datetime.utcnow(), round(entry_mid, 4),
-                1, 0.65, round(float(sel_data.get("slippage_pct", 0.05)), 4),
+                1, round(float(sel_data.get("fees_est") or (
+                    # Joel schedule: $0.65 × legs × qty × 2 (round-trip estimate at open)
+                    0.65 * max(1, len(legs) if isinstance(legs, list) else 1) * 2
+                )), 4), round(float(sel_data.get("slippage_pct", 0.05)), 4),
                 round(entry_mid * 100, 2),
                 round(float(sel_data.get("premium_at_risk", entry_mid * 100)), 2),
                 round(float(sel_data.get("premium_at_risk", entry_mid * 100)), 2),
@@ -1355,10 +1383,16 @@ def update_trade_record_exit(
                     return_on_risk = %s,
                     holding_days = %s,
                     exit_reason  = %s,
-                    fill_quality = 'MARKET_ON_EXPIRY'
+                    fill_quality = COALESCE(%s, fill_quality)
                 WHERE alert_id  = %s
             """, (round(exit_price, 4), pnl_abs, ror, ror, hold,
-                  outcome_str, alert_id))
+                  outcome_str,
+                  # Keep MARKET_ON_EXPIRY label only when caller says so; else NBBO_PAPER
+                  ("MARKET_ON_EXPIRY" if str(outcome_str).upper() in (
+                      "EXPIRED", "EXPIRY", "MARKET_ON_EXPIRY", "ASSIGNED"
+                   ) else "TRADIER_NBBO_PAPER"),
+                  alert_id))
+
             conn.commit()
         log.debug(f"[phase2] trade_record exit updated alert_id={alert_id} "
                   f"outcome={outcome_str} pnl_pct={pnl_pct:.4f}")

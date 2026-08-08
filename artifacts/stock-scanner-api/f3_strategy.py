@@ -22,6 +22,9 @@ API KEYS NEEDED:
 ============================================================
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import time
 import requests
@@ -63,7 +66,7 @@ def fetch_daily_data(start_date, end_date):
         "end":      end_date.strftime("%Y-%m-%d"),
     }
     response = requests.get(
-        "https://api.tradier.com/v1/markets/history",
+        f"{TRADIER_API_BASE}/v1/markets/history",
         headers=headers,
         params=params,
         timeout=20

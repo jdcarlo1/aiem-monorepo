@@ -31,6 +31,9 @@ DEPENDENCIES
 psycopg2, numpy, pandas, statsmodels (all already installed).
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import logging
 from datetime import datetime, timedelta
@@ -168,7 +171,7 @@ def _fetch_closes_tradier(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> Op
         if not token:
             return None
         start = (_dt.date.today() - _dt.timedelta(days=lookback_days + 30)).isoformat()
-        url = (f"https://api.tradier.com/v1/markets/history"
+        url = (f"{TRADIER_API_BASE}/v1/markets/history"
                f"?symbol={ticker}&interval=daily&start={start}&session_filter=open")
         req = _ur.Request(url, headers={
             "Authorization": f"Bearer {token}",

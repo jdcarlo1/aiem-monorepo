@@ -14,6 +14,9 @@ Public API (called from aiem_process.py):
   run_firstcandle_outcome_fill(db_url)  # 4:45 PM ET — day settled
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -53,7 +56,7 @@ def _td_premarket_hl(ticker: str, trade_date: date) -> dict:
     date_str = trade_date.strftime("%Y-%m-%d")
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={
                 "symbol":         ticker.upper(),
                 "interval":       "5min",
@@ -146,7 +149,7 @@ def _polygon_intraday_signals(ticker: str, trade_date: date) -> dict:
     date_str = trade_date.strftime("%Y-%m-%d")
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={
                 "symbol":         ticker.upper(),
                 "interval":       "1min",
@@ -272,7 +275,7 @@ def _polygon_nbbo_spread(ticker: str) -> dict:
         return {}
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": ticker.upper()},
             headers=hdrs, timeout=6,
         )
@@ -299,7 +302,7 @@ def _td_quotes_batch(symbols: list) -> dict:
         return {}
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": ",".join(symbols[:200])},
             headers=hdrs, timeout=8,
         )
@@ -337,7 +340,7 @@ def _td_first_candle(ticker: str, trade_date: date) -> dict | None:
 
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={
                 "symbol":         ticker.upper(),
                 "interval":       "5min",

@@ -31,10 +31,10 @@ log = logging.getLogger("aiem_options_phase4")
 
 _MIN_N_FOR_STATS     = 20    # minimum sample for statistical claims
 
-# Portfolio limits (paper trading engine)
-_MAX_OPEN_POSITIONS  = 10    # more than 10 concurrent open positions
-_MAX_SINGLE_TICKER   = 2     # same ticker in >2 open positions
-_MAX_TOTAL_RISK_USD  = 20_000  # total max_premium_risk across open book
+# Portfolio limits (paper trading engine) — env-overridable, defaults unchanged
+_MAX_OPEN_POSITIONS  = int(os.environ.get("OE_MAX_OPEN_POSITIONS", "10") or 10)
+_MAX_SINGLE_TICKER   = int(os.environ.get("OE_MAX_SINGLE_TICKER", "2") or 2)
+_MAX_TOTAL_RISK_USD  = float(os.environ.get("OE_MAX_TOTAL_RISK_USD", "20000") or 20000)
 
 # Incident taxonomy — deterministic, order matters (first match wins).
 # All incidents in this module are OPERATIONAL by design; MODEL errors are

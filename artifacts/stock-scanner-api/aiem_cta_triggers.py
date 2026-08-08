@@ -20,6 +20,9 @@ Data source priority:
   1. polygon_market_daily (primary — 8,626 tickers when backfill complete)
   2. Tradier daily history (fallback during backfill when polygon has < min_days rows)
 """
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 
 
@@ -49,7 +52,7 @@ def _fetch_tradier_closes(ticker: str, lookback_days: int = 365) -> list:
         if not token:
             return []
         start = (_dt.date.today() - _dt.timedelta(days=lookback_days)).isoformat()
-        url = (f"https://api.tradier.com/v1/markets/history"
+        url = (f"{TRADIER_API_BASE}/v1/markets/history"
                f"?symbol={ticker}&interval=daily&start={start}&session_filter=open")
         req = _ur.Request(url, headers={
             "Authorization": f"Bearer {token}",

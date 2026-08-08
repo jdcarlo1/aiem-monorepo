@@ -1,3 +1,6 @@
+from aiem_broker.tradier_config import TRADIER_API_BASE
+from aiem_broker.live_gate import live_order_sent
+
 from flask import Flask, request, jsonify, Response
 import sys as _sys; _sys.stdout.reconfigure(line_buffering=True)  # flush logs in real time (prod containers buffer by default)
 import hmac
@@ -1404,7 +1407,7 @@ def _td_quotes(symbols: list) -> dict:
     _hdr = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
     try:
         _r = _tq_req.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": ",".join(str(s) for s in symbols[:200])},
             headers=_hdr, timeout=5,
         )
@@ -1454,7 +1457,7 @@ def _td_history(ticker: str, days: int = 40, start_date: str = None) -> "pd.Data
               if start_date else _end - _th_dt.timedelta(days=days + 10))
     try:
         _r = _th_req.get(
-            "https://api.tradier.com/v1/markets/history",
+            f"{TRADIER_API_BASE}/v1/markets/history",
             params={"symbol": ticker, "interval": "daily",
                     "start": _start.isoformat(), "end": _end.isoformat()},
             headers=_hdr, timeout=6,
@@ -1499,7 +1502,7 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
     _td_iv = _iv_map.get(interval, "1min")
     try:
         _r = _ti_req.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={"symbol": ticker, "interval": _td_iv, "session_filter": "open"},
             headers=_hdr, timeout=6,
         )
@@ -1692,7 +1695,7 @@ def _td_expiries(ticker: str, max_days: int = 365) -> list:
         return []
     try:
         r = _tde_req.get(
-            "https://api.tradier.com/v1/markets/options/expirations",
+            f"{TRADIER_API_BASE}/v1/markets/options/expirations",
             params={"symbol": ticker, "includeAllRoots": "false"},
             headers=hdrs, timeout=5,
         )
@@ -1730,7 +1733,7 @@ def _td_chain(ticker: str, expiry: str):
         return _empty
     try:
         r = _tdc_req.get(
-            "https://api.tradier.com/v1/markets/options/chains",
+            f"{TRADIER_API_BASE}/v1/markets/options/chains",
             params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
             headers=hdrs, timeout=6,
         )
@@ -5784,7 +5787,7 @@ try:
         if not _token:
             return 0, None
         _hdr  = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
-        _base = "https://api.tradier.com/v1/markets"
+        _base = f"{TRADIER_API_BASE}/v1/markets"
         try:
             # Step 1: get live underlying quote
             _rq = _td_req.get(f"{_base}/quotes", params={"symbols": ticker},
@@ -21201,23 +21204,15 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     print(f"[aiem_paper] G6 SHADOW: would have blocked candidate {_t} — {_g6_result.get('reason_code')} "
                           f"(ledger_event_id={_g6_result.get('ledger_event_id')})")
 
-                # ── Execution realism: apply half-spread slippage BEFORE persisting ──
-                # No live bid/ask available at write time (Tradier market-data only,
-                # Polygon prev-close only). _NANO_CAP_SPREAD_PCT is the auditor-approved
-                # default; change that constant — not this code — to adjust.
+                # ── Execution realism: Tradier NBBO paper fill when broker wired ──
+                # Prefer tradier_paper adapter (live bid/ask, no live orders). Fall
+                # back to fixed-spread model so research never hard-fails offline.
                 _mid_price = _price
-                try:
-                    import execution_simulator as _exec_sim
-                    _slip = _exec_sim.fixed_spread_slippage(
-                        _mid_price, "long", _NANO_CAP_SPREAD_PCT
-                    )
-                    _fill_price      = _slip["fill_price"]
-                    _spread_pct_used = _NANO_CAP_SPREAD_PCT
-                except Exception as _slip_exc:
-                    print(f"[aiem_paper] slippage calc failed, using mid: {_slip_exc}")
-                    _fill_price      = _mid_price
-                    _spread_pct_used = None
-
+                _fill_price = _mid_price
+                _spread_pct_used = None
+                _broker_order_id = None
+                _broker_provider = None
+                _fill_source = None
                 _notional   = 1000.0
                 _trade_type = pick["trade_type"]
                 _direction  = pick.get("direction", "BULLISH")
@@ -21236,6 +21231,106 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     except Exception as _oem_e:
                         print(f"[aiem_paper] option_entry_mid capture skipped {_t}: {_oem_e}")
                         _option_entry_mid = None
+
+                # Brokerage-like paper fill via Tradier quotes (SIMULATED — no order HTTP)
+                _br_adapter_ref = None
+                _br_side_ref = None
+                _br_is_opt = False
+                try:
+                    from aiem_broker import (
+                        AssetClass as _BrAsset,
+                        OrderRequest as _BrReq,
+                        OrderSide as _BrSide,
+                        get_broker_adapter as _get_br,
+                    )
+                    _br = _get_br()
+                    _broker_provider = getattr(_br, "provider_id", None)
+                    if getattr(_br, "uses_live_quotes", False) or _broker_provider == "tradier_paper":
+                        _is_opt = (_trade_type or "").upper() in ("CALL_OPTION", "PUT_OPTION")
+                        _br_side = (
+                            _BrSide.BUY_TO_OPEN
+                            if (_direction or "BULLISH").upper() == "BULLISH"
+                            else _BrSide.SELL
+                        )
+                        # Resolve NBBO for fill realism; place_order runs after sizing
+                        # so quantity matches the final paper ticket.
+                        _br_adapter_ref = _br
+                        _br_side_ref = _br_side
+                        _br_is_opt = _is_opt
+                        if hasattr(_br, "resolve_fill_price"):
+                            _br_order = _BrReq(
+                                ticker=_t,
+                                side=_br_side,
+                                quantity=1.0,
+                                asset_class=_BrAsset.OPTION if _is_opt else _BrAsset.EQUITY,
+                                strike=float(pick["strike"]) if pick.get("strike") is not None else None,
+                                expiry=str(pick.get("expiry") or "")[:10] or None,
+                                option_right=(
+                                    "put" if (_trade_type or "").upper() == "PUT_OPTION" else "call"
+                                ),
+                                metadata={
+                                    "trade_type": _trade_type,
+                                    "ref_price": _price,
+                                    "signal_source": pick.get("source"),
+                                    "strategy_paper": True,
+                                },
+                            )
+                            _resolved = _br.resolve_fill_price(_br_order)
+                            if _is_opt:
+                                # Keep aiem_paper_trades.entry_price as underlying
+                                # (existing MTM/sizing contract). Option NBBO → option_entry_mid.
+                                if _resolved.get("mid_price"):
+                                    _option_entry_mid = float(_resolved["mid_price"])
+                                elif _resolved.get("fill_price"):
+                                    _option_entry_mid = float(_resolved["fill_price"])
+                                _eq = _br.get_quote(_t) if hasattr(_br, "get_quote") else None
+                                if _eq:
+                                    _ubid = _eq.get("bid")
+                                    _uask = _eq.get("ask")
+                                    _ulast = _eq.get("last")
+                                    if _ubid and _uask:
+                                        _mid_price = (float(_ubid) + float(_uask)) / 2.0
+                                        _spread_pct_used = (float(_uask) - float(_ubid)) / _mid_price
+                                    elif _ulast:
+                                        _mid_price = float(_ulast)
+                                    # Long entry crosses the ask when available
+                                    _fill_price = float(_uask or _ulast or _ubid or _price)
+                                    _fill_source = "tradier_underlying_nbbo+option_chain"
+                            else:
+                                if _resolved.get("mid_price"):
+                                    _mid_price = float(_resolved["mid_price"])
+                                if _resolved.get("fill_price"):
+                                    _fill_price = float(_resolved["fill_price"])
+                                    _fill_source = _resolved.get("source")
+                                if _resolved.get("bid") and _resolved.get("ask") and _mid_price:
+                                    try:
+                                        _spread_pct_used = (
+                                            (float(_resolved["ask"]) - float(_resolved["bid"]))
+                                            / float(_mid_price)
+                                        )
+                                    except Exception:
+                                        pass
+                except Exception as _br_exc:
+                    print(f"[aiem_paper] broker fill path skipped {_t}: {_br_exc}")
+                    _br_adapter_ref = None
+                    _br_side_ref = None
+                    _br_is_opt = False
+
+                if not _fill_source or float(_fill_price or 0) <= 0:
+                    _mid_price = _mid_price or _price
+                    try:
+                        import execution_simulator as _exec_sim
+                        _slip = _exec_sim.fixed_spread_slippage(
+                            float(_mid_price), "long", _NANO_CAP_SPREAD_PCT
+                        )
+                        _fill_price      = _slip["fill_price"]
+                        _spread_pct_used = _NANO_CAP_SPREAD_PCT
+                        _fill_source = _fill_source or "fixed_spread_fallback"
+                    except Exception as _slip_exc:
+                        print(f"[aiem_paper] slippage calc failed, using mid: {_slip_exc}")
+                        _fill_price      = _mid_price
+                        _spread_pct_used = None
+                        _fill_source = _fill_source or "mid_fallback"
 
                 # ── Position sizing (spec §2-5, aiem_position_sizing) ─────────
                 # compute_position_size() returns PARAMS_NOT_CONFIRMED only when
@@ -21348,6 +21443,50 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 else:  # STOCK
                     _qty       = round(_notional / _fill_price, 4)
                     _hold_days = 5
+
+                # Book simulated brokerage fill at final sized qty (Tradier quotes only)
+                if _br_adapter_ref is not None and _br_side_ref is not None and float(_qty or 0) > 0:
+                    try:
+                        from aiem_broker import AssetClass as _BrAsset2, OrderRequest as _BrReq2
+                        _br_final = _BrReq2(
+                            ticker=_t,
+                            side=_br_side_ref,
+                            quantity=float(_qty),
+                            asset_class=_BrAsset2.OPTION if _br_is_opt else _BrAsset2.EQUITY,
+                            strike=float(pick["strike"]) if pick.get("strike") is not None else None,
+                            expiry=str(pick.get("expiry") or "")[:10] or None,
+                            option_right=(
+                                "put" if (_trade_type or "").upper() == "PUT_OPTION" else "call"
+                            ),
+                            metadata={
+                                "trade_type": _trade_type,
+                                "ref_price": _fill_price,
+                                "signal_source": pick.get("source"),
+                                "strategy_paper": True,
+                                "notional": _notional,
+                            },
+                        )
+                        _br_res = _br_adapter_ref.place_order(_br_final)
+                        if _br_res.ok:
+                            _broker_order_id = _br_res.broker_order_id
+                            _broker_provider = getattr(_br_adapter_ref, "provider_id", _broker_provider)
+                            _fill_source = (_br_res.raw or {}).get("fill_source") or _fill_source
+                            if _br_is_opt and (_br_res.raw or {}).get("mid_price"):
+                                _option_entry_mid = float(_br_res.raw["mid_price"])
+                            elif _br_is_opt and _br_res.fill_price:
+                                _option_entry_mid = float(_br_res.fill_price)
+                            print(
+                                f"[aiem_paper] TRADIER_PAPER_FILL {_t}: "
+                                f"qty={_qty} fill=${float(_fill_price or 0):.4f} "
+                                f"opt_mid={_option_entry_mid} oid={_broker_order_id} src={_fill_source}"
+                            )
+                        else:
+                            print(
+                                f"[aiem_paper] tradier_paper place_order soft-fail {_t}: "
+                                f"{_br_res.message}"
+                            )
+                    except Exception as _br_place_e:
+                        print(f"[aiem_paper] tradier_paper place after sizing skipped {_t}: {_br_place_e}")
 
                 # ── Pipeline audit: create trace + log AIEM decision steps ──
                 try:
@@ -22120,10 +22259,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                          sizing_risk_pct, sizing_gate_result,
                          pre_sizing_model, audit_trace_id,
                          candidate_id, execution_plan_id,
-                         option_entry_mid)
+                         option_entry_mid,
+                         broker_provider, broker_order_id, fill_source)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
                             %s,%s,%s,%s,%s,%s,%s,FALSE,%s,
-                            %s,%s,%s)
+                            %s,%s,%s,%s,%s,%s)
                     ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
                 """, (_today, _t, _trade_type, _direction,
                       _fill_price, _qty,
@@ -22134,7 +22274,8 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                       _sizing_stop, _sizing_stop_basis,
                       _sizing_risk_pct, _sizing_gate, _audit_trace_id,
                       _d2_candidate_id, _exec_plan_id,
-                      _option_entry_mid))
+                      _option_entry_mid,
+                      _broker_provider, _broker_order_id, _fill_source))
                 _dir_tag = "" if _direction == "BULLISH" else f" ↓{_direction}"
                 _tg_entry_lines.append(
                     f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}{_dir_tag}  [{pick['source']}]"
@@ -50241,6 +50382,10 @@ def _init_aiem_paper_trades_table():
             # Real option premium at entry (distinct from mid_price which is
             # underlying mid used for slippage audit on stock fills).
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS option_entry_mid NUMERIC(14,4)")
+            # Tradier paper brokerage metadata (simulated fills at live NBBO)
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS broker_provider TEXT")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS broker_order_id TEXT")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS fill_source TEXT")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
@@ -53194,9 +53339,32 @@ def aiem_paper_portfolio():
             "closed_trades":     _closed,
             "daily_pnl":         _daily,
             "as_of":             _apvdt.datetime.now().strftime("%b %d %I:%M %p ET"),
+            "broker":            _paper_broker_public_status(),
         })
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
+
+
+def _paper_broker_public_status() -> dict:
+    """Safe broker summary for Paper Money UI (no secrets)."""
+    try:
+        from aiem_broker import default_provider_name, get_broker_adapter
+        br = get_broker_adapter()
+        st = br.status() if hasattr(br, "status") else {}
+        return {
+            "provider": br.provider_id,
+            "default_provider": default_provider_name(),
+            "mode": st.get("mode", "paper"),
+            "connected": bool(st.get("connected")),
+            "uses_live_quotes": bool(st.get("uses_live_quotes")),
+            "linked_account_id": st.get("linked_account_id"),
+            "option_level": st.get("option_level"),
+            "paper_cash": st.get("paper_cash"),
+            "live_orders": False,
+            "note": st.get("note") or "Paper trading",
+        }
+    except Exception as e:
+        return {"provider": "unknown", "error": str(e), "live_orders": False}
 
 
 @app.route("/stock-api/aiem-paper-portfolio/force-execute", methods=["POST"])
@@ -53280,10 +53448,29 @@ def aiem_sales_readiness_endpoint():
 
 @app.route("/stock-api/aiem-broker/status", methods=["GET"])
 def aiem_broker_status_endpoint():
-    """Broker adapter readiness — paper default; stubs hookup-ready, not live."""
+    """Broker adapter readiness — tradier_paper default when token present."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 401
+        # Allow a reduced public status (no secrets) so Paper Money UI can show mode.
+        try:
+            from aiem_broker import default_provider_name, get_broker_adapter
+            _br = get_broker_adapter()
+            _st = _br.status()
+            return jsonify({
+                "ok": True,
+                "public": True,
+                "active_provider": _br.provider_id,
+                "default_provider": default_provider_name(),
+                "mode": _st.get("mode"),
+                "connected": _st.get("connected"),
+                "uses_live_quotes": _st.get("uses_live_quotes", False),
+                "linked_account_id": _st.get("linked_account_id"),
+                "option_level": _st.get("option_level"),
+                "paper_cash": _st.get("paper_cash"),
+                "note": _st.get("note"),
+            })
+        except Exception as _e:
+            return jsonify({"ok": False, "error": str(_e)}), 500
     try:
         from aiem_broker import broker_readiness_report
         return jsonify({"ok": True, **broker_readiness_report()})
@@ -53293,22 +53480,49 @@ def aiem_broker_status_endpoint():
 
 @app.route("/stock-api/aiem-broker/paper-order", methods=["POST"])
 def aiem_broker_paper_order_endpoint():
-    """Smoke-test the paper adapter only. Never routes to a live broker."""
+    """Smoke-test the active paper broker (tradier_paper preferred). Never live."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     try:
-        from aiem_broker import OrderRequest, OrderSide, get_broker_adapter
+        from aiem_broker import (
+            AssetClass,
+            OrderRequest,
+            OrderSide,
+            get_broker_adapter,
+        )
         body = request.get_json(silent=True) or {}
-        adapter = get_broker_adapter("paper")
+        # Use active provider (tradier_paper when token set) — never force live stub.
+        provider = str(body.get("provider") or "").strip().lower()
+        if provider in ("tradier", "alpaca", "ibkr"):
+            return jsonify({
+                "ok": False,
+                "error": "live stubs blocked on paper-order endpoint — use tradier_paper|paper",
+            }), 400
+        adapter = get_broker_adapter(provider or None)
+        side_raw = str(body.get("side") or "buy").lower()
+        side = OrderSide.BUY_TO_OPEN if side_raw in ("buy", "buy_to_open") else OrderSide.SELL_TO_CLOSE
+        asset = AssetClass.OPTION if body.get("strike") and body.get("expiry") else AssetClass.EQUITY
         order = OrderRequest(
             ticker=str(body.get("ticker") or "").upper(),
-            side=OrderSide.BUY if str(body.get("side") or "buy").lower() in ("buy", "buy_to_open") else OrderSide.SELL,
+            side=side,
             quantity=float(body.get("quantity") or 1),
-            metadata={"ref_price": body.get("ref_price")},
+            asset_class=asset,
+            strike=float(body["strike"]) if body.get("strike") is not None else None,
+            expiry=str(body.get("expiry") or "")[:10] or None,
+            option_right=str(body.get("option_right") or body.get("right") or "call"),
+            limit_price=float(body["limit_price"]) if body.get("limit_price") is not None else None,
+            metadata={"ref_price": body.get("ref_price"), "smoke_test": True},
         )
         result = adapter.place_order(order)
-        return jsonify({"ok": result.ok, "result": result.to_dict(), "account": adapter.get_account().to_dict()})
+        return jsonify({
+            "ok": result.ok,
+            "result": result.to_dict(),
+            "account": adapter.get_account().to_dict(),
+            "provider": adapter.provider_id,
+            "simulated": True,
+            "live_order_sent": live_order_sent(http_order_posted=False),
+        })
     except Exception as _e:
         return jsonify({"ok": False, "error": str(_e)}), 500
 
@@ -63161,7 +63375,7 @@ def ai_short_calls():
                 if _td_tok:
                     try:
                         _qr2 = _mreq2.get(
-                            "https://api.tradier.com/v1/markets/quotes",
+                            f"{TRADIER_API_BASE}/v1/markets/quotes",
                             params={"symbols": ",".join(_all_syms), "greeks": "false"},
                             headers={"Authorization": f"Bearer {_td_tok}", "Accept": "application/json"},
                             timeout=8,
@@ -75817,7 +76031,7 @@ def _fetch_tradier_put_chain(ticker, token):
     """Fetch all PUT contracts for ticker from Tradier."""
     import urllib.request as _ureq2, json as _json2
     try:
-        url = f"https://api.tradier.com/v1/markets/options/chains?symbol={ticker}&greeks=true"
+        url = f"{TRADIER_API_BASE}/v1/markets/options/chains?symbol={ticker}&greeks=true"
         req = _ureq2.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
         with _ureq2.urlopen(req, timeout=8) as r:
             data = _json2.loads(r.read())
@@ -75833,7 +76047,7 @@ def _fetch_tradier_last_price(ticker, token):
     """Fetch last price for ticker from Tradier."""
     import urllib.request as _ureq3, json as _json3
     try:
-        url = f"https://api.tradier.com/v1/markets/quotes?symbols={ticker}"
+        url = f"{TRADIER_API_BASE}/v1/markets/quotes?symbols={ticker}"
         req = _ureq3.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
         with _ureq3.urlopen(req, timeout=5) as r:
             q = _json3.loads(r.read())

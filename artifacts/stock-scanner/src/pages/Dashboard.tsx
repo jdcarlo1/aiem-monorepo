@@ -18053,8 +18053,18 @@ export default function Dashboard() {
               <div>
                 <div className="text-white font-semibold text-base flex items-center gap-2">
                   <span className="text-violet-400">💹</span> AIEM Autonomous Paper Trading
+                  {aiemPortfolio?.broker?.provider === "tradier_paper" && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/50 border border-emerald-700/50 text-emerald-300 font-bold tracking-wide">
+                      TRADIER LIVE QUOTES · PAPER FILLS
+                    </span>
+                  )}
                 </div>
-                <div className="text-slate-500 text-xs mt-0.5">20 picks/day · $1,000/trade · stocks, calls, ETFs · fully autonomous · picks at 9:35 AM ET</div>
+                <div className="text-slate-500 text-xs mt-0.5">
+                  20 picks/day · $1,000/trade · stocks, calls, ETFs · fully autonomous · picks at 9:35 AM ET
+                  {aiemPortfolio?.broker?.uses_live_quotes
+                    ? ` · fills at live Tradier bid/ask${aiemPortfolio.broker.linked_account_id ? ` · acct ${aiemPortfolio.broker.linked_account_id}` : ""}${aiemPortfolio.broker.option_level != null ? ` · options L${aiemPortfolio.broker.option_level}` : ""} · no live orders`
+                    : ""}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {aiemPortfolio && <span className="text-slate-500 text-xs">{aiemPortfolio.as_of}</span>}

@@ -77,11 +77,20 @@ def proof_2_entry_path() -> bool:
     src = inspect.getsource(m.AsymOptionsLedger.evaluate)
     checks = {
         "dynamic_set_gate": "self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES" in src,
-        "calls_dynamic_tp_pct": "dynamic_tp_pct(per_pkg_debit)" in src,
-        "per_pkg_from_entry_usd": "per_pkg_debit = float(entry_usd) / float(packages)" in src,
-        "assigns_self_take_profit_pct": "self.take_profit_pct = float(dynamic_tp_pct(per_pkg_debit))" in src,
-        "no_hardcoded_300_assign": "take_profit_pct = 300" not in src and "take_profit_pct = 300.0" not in src,
-        "priced_via_polygon": "price_legs_polygon(" in src,
+        "calls_dynamic_tp_pct": "dynamic_tp_pct(per_pkg_debit" in src,
+        "per_pkg_from_entry_usd": (
+            "per_pkg_debit = float(premium_usd) / float(packages)" in src
+            or "per_pkg_debit = float(entry_usd) / float(packages)" in src
+        ),
+        "assigns_self_take_profit_pct": (
+            "self.take_profit_pct = float(" in src
+            and "dynamic_tp_pct(per_pkg_debit" in src
+        ),
+        "no_hardcoded_300_assign": "take_profit_pct = 300" not in src
+        and "take_profit_pct = 300.0" not in src,
+        "priced_via_polygon": (
+            "price_legs_polygon(" in src or "price_legs_for_paper(" in src
+        ),
         "entry_usd_from_priced_debit": "unit_cost = debit_ps * 100.0" in src,
     }
     for k, v in checks.items():
@@ -147,35 +156,39 @@ def proof_2_entry_path() -> bool:
             starting_capital_usd=10000.0,
         )
         expected = m.dynamic_tp_pct(d)
-        with patch.object(m, "price_legs_polygon", return_value=_fake_priced(d, right)):
-            with patch.object(m, "persist_asym_paper_open", return_value=9001) as pers:
-                # Wednesday 2026-08-05
-                ledger.evaluate(_session_df(2026, 8, 5, 769.79))
-                # Prove persist received dynamic TP, not 300 / not 0
-                kwargs = pers.call_args.kwargs if pers.call_args else {}
-                persisted_tp = kwargs.get("take_profit_pct")
-                pkgs = float(ledger.active_position["packages"]) if ledger.active_position else 0
-                entry_usd = float(ledger.active_position["entry_debit_usd"]) if ledger.active_position else 0
-                per_pkg = entry_usd / pkgs if pkgs else 0
-                print(f"--- runtime_{strat} ---")
-                print(f"priced_unit_debit_usd={d}")
-                print(f"packages={pkgs}")
-                print(f"entry_debit_usd={entry_usd}")
-                print(f"per_pkg_debit_usd={per_pkg}")
-                print(f"ledger_take_profit_pct_after_entry={ledger.take_profit_pct}")
-                print(f"position_take_profit_pct={ledger.active_position and ledger.active_position.get('take_profit_pct')}")
-                print(f"persist_take_profit_pct={persisted_tp}")
-                print(f"expected_dynamic_tp={expected}")
-                print(f"persist_called={pers.called}")
-                ok = (
-                    ledger.active_position is not None
-                    and abs(float(ledger.take_profit_pct) - expected) < 1e-9
-                    and abs(float(persisted_tp) - expected) < 1e-9
-                    and abs(per_pkg - d) < 1e-6
-                )
-                print(f"runtime_path_ok={ok}")
-                if not ok:
-                    runtime_ok = False
+        fake = _fake_priced(d, right)
+        with patch.object(m, "price_legs_for_paper", return_value=fake):
+            with patch.object(m, "price_legs_polygon", return_value=fake):
+                with patch.object(m, "persist_asym_paper_open", return_value=9001) as pers:
+                    # Wednesday 2026-08-05
+                    ledger.evaluate(_session_df(2026, 8, 5, 769.79))
+                    # Prove persist received dynamic TP, not 300 / not 0
+                    kwargs = pers.call_args.kwargs if pers.call_args else {}
+                    persisted_tp = kwargs.get("take_profit_pct")
+                    pkgs = float(ledger.active_position["packages"]) if ledger.active_position else 0
+                    entry_usd = float(ledger.active_position["entry_debit_usd"]) if ledger.active_position else 0
+                    premium_usd = float(ledger.active_position.get("premium_usd") or 0) if ledger.active_position else 0
+                    per_pkg = (premium_usd / pkgs) if pkgs else 0
+                    print(f"--- runtime_{strat} ---")
+                    print(f"priced_unit_debit_usd={d}")
+                    print(f"packages={pkgs}")
+                    print(f"entry_debit_usd={entry_usd}")
+                    print(f"premium_usd={premium_usd}")
+                    print(f"per_pkg_debit_usd={per_pkg}")
+                    print(f"ledger_take_profit_pct_after_entry={ledger.take_profit_pct}")
+                    print(f"position_take_profit_pct={ledger.active_position and ledger.active_position.get('take_profit_pct')}")
+                    print(f"persist_take_profit_pct={persisted_tp}")
+                    print(f"expected_dynamic_tp={expected}")
+                    print(f"persist_called={pers.called}")
+                    ok = (
+                        ledger.active_position is not None
+                        and abs(float(ledger.take_profit_pct) - expected) < 1e-9
+                        and abs(float(persisted_tp) - expected) < 1e-9
+                        and abs(per_pkg - d) < 1e-6
+                    )
+                    print(f"runtime_path_ok={ok}")
+                    if not ok:
+                        runtime_ok = False
 
     all_checks = all(checks.values()) and cfg_ok and runtime_ok
     print(f"PROOF_2_OK={all_checks}")

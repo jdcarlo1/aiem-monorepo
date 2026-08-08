@@ -19,6 +19,9 @@ PARAMETER STATUS (all confirmed 2026-07-04):
 params_confirmed() == True. Sizing math is ACTIVE.
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import json
 import math
@@ -857,7 +860,7 @@ def _get_contrarian_context() -> dict:
         _api = os.environ.get("TRADIER_API_TOKEN_2") or os.environ.get("TRADIER_API_TOKEN", "")
         if _api:
             req = _ur.Request(
-                "https://api.tradier.com/v1/markets/quotes?symbols=HYG",
+                f"{TRADIER_API_BASE}/v1/markets/quotes?symbols=HYG",
                 headers={"Authorization": f"Bearer {_api}",
                          "Accept": "application/json"},
             )
