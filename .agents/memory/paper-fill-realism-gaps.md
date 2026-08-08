@@ -1,14 +1,44 @@
 ---
 name: Paper fill realism gaps (16) — weekend vs live-only
-description: Permanent record of 16 pre-live paper-fill gaps; weekend 1-6 built 2026-08-08; live-only 7-9 explicitly open until live capital
+description: Permanent record of 16 pre-live paper-fill gaps; honest CLOSED vs PARTIAL vs OPEN (no blanket weekend True)
 ---
 
 # Paper Fill Realism — 16-gap permanent record
 
-**Date:** 2026-08-08  
+**Date:** 2026-08-08 (reconciled)  
 **Branch:** `cursor/tradier-paper-broker`  
 **Evidence:** `.local/Directive_PaperFillRealism_Weekend_RAW_2026-08-08.txt`  
 **Harness:** `artifacts/stock-scanner-api/verify_paper_fill_realism_weekend.py`
+
+## Honest scope banner (replaces `ALL_WEEKEND_ITEMS_OK=True`)
+
+```
+WEEKEND_SCOPE — NOT a blanket pass
+FULLY_CLOSED (code + evidence, no sandbox token required):
+  #10 Margin/BP checks
+  #11 Multi-leg package AON pricing
+  #12 Regulatory fee schedule (OCC/ORF/TAF/exchange)
+  #13 Halt gate (historical fixture + forced block)
+PARTIAL (code exists; proof incomplete or books unfinished):
+  #2  Sandbox order adapter — needs #1 for real order/status/positions loop
+  #3  Fill realism all books — OE mid / MARKET_ON_EXPIRY still open
+  #8  Order rejects — handler proven; real sandbox reject body blocked by #1 (401)
+  #9  Partial fills — fixture/P&L proven; real sandbox partial blocked by #1
+OPEN (not done this pass / human / ops):
+  #1  Real Tradier sandbox account+token — JOEL / EXTERNAL (only credential blocker)
+  #4  HTTP 429 backoff — not implemented
+  #5  ≥5 trading days sandbox + heartbeats — needs #1 + DATABASE_URL
+  #6  Freeze rule config — needs Joel sign-off
+LIVE-ONLY (explicitly open; do not fake):
+  #7  Live brokerage connection
+  #14 Assignment / early exercise
+  #15 Queue position / execution latency
+  #16 Real slippage under live stress
+
+HARNESS_NOTE: verify_paper_fill_realism_weekend.py exercises the six
+directive weekend checks (#8–#13 mapping). A green harness means those
+unit paths ran — it does NOT mean every WEEKEND-bucket gap is closed.
+```
 
 ## Source of the "16" list
 
@@ -24,7 +54,7 @@ No single prior file was titled “16 gaps.” The prior enumerations that toget
 6. Freeze rule config (delta/OTM/TP/size/fees) with Joel sign-off; diff against runtime.
 7. Only then consider live brokerage connection (still behind live_gate).
 
-**B. Fill-realism edge gaps** (this directive’s numbered list) — **9 items, verbatim:**
+**B. Fill-realism edge gaps** (directive list) — **9 items, verbatim:**
 
 8. Order rejects — submit real orders through Tradier sandbox with conditions that should reject (bad price, insufficient BP). Paste raw reject response, confirm code handles it (no silent fill assumption).
 9. Partial fills — submit sandbox order sized to partially fill if possible; else simulate via sandbox order-status polling logic. Paste raw status showing partial, confirm P&L/position code handles partial correctly.
@@ -36,38 +66,66 @@ No single prior file was titled “16 gaps.” The prior enumerations that toget
 15. Queue position / execution latency — sandbox fills are near-instant, not representative.
 16. Real slippage under live market stress — sandbox liquidity/depth differs from live.
 
-## Classification
+## Classification (reconciled)
 
-| # | Gap (short) | Bucket | Status 2026-08-08 |
+| # | Gap (short) | Bucket | Status |
 |---|---|---|---|
-| 1 | Real Tradier sandbox account + token | **WEEKEND-BLOCKED / EXTERNAL** | OPEN — sandbox still 401 with brokerage token; cannot complete without Joel sandbox credentials. Does not fit pure WEEKEND-build or LIVE-ONLY: it is a **credential prerequisite**. |
-| 2 | Sandbox order adapter | **WEEKEND** | PARTIAL — `tradier_sandbox.py` posts + parses; never assumes fill. Full status/positions loop still needs working sandbox token (#1). |
-| 3 | Fix fill realism all books (ask/bid/fees/fill_quality) | **WEEKEND** | PARTIAL — asym/paper_fills NBBO+fees done in PR #61; OE `MARKET_ON_EXPIRY` / mid paths still outstanding in phase2. |
-| 4 | HTTP 429 backoff | **WEEKEND** | OPEN — not implemented this pass. |
-| 5 | ≥5 trading days sandbox + heartbeats | **LIVE-ONLY / OPS** | OPEN — requires sandbox (#1) + `DATABASE_URL` + multi-day run. Not faked. |
-| 6 | Freeze rule config + Joel sign-off | **WEEKEND** | OPEN — needs Joel sign-off (human). |
-| 7 | Live brokerage connection (behind live_gate) | **LIVE-ONLY** | OPEN — do not connect. |
-| 8 | Order rejects (directive weekend #1) | **WEEKEND** | FIXED (handler) — raw sandbox POST **401** captured; fixture rejects parsed; `assumed_fill=false`. True sandbox reject body still blocked by #1. |
-| 9 | Partial fills (directive weekend #2) | **WEEKEND** | FIXED (sim) — order-status poll fixture `partially_filled` exec_qty=4/10; P&L on filled qty only ($120). No real sandbox partial without #1. |
-| 10 | Margin/BP checks (directive weekend #3) | **WEEKEND** | FIXED — `buying_power.py`; trade blocked at BP=$100 need=$453; live acct OBP=$0 also blocks. |
-| 11 | Multi-leg package pricing (directive weekend #4) | **WEEKEND** | FIXED — `package_pricing.price_package_atomic` AON + single `fill_id`; condor before/after evidence. |
-| 12 | Regulatory fees (directive weekend #5) | **WEEKEND** | FIXED — `fee_schedule.py` OCC/ORF/TAF/exchange; old $2.60 → new $2.914 on 4-lot. |
-| 13 | Halts (directive weekend #6) | **WEEKEND** | FIXED — historical GME 2021-01-28 fixture + forced halt blocks package fill. |
-| 14 | Assignment / early exercise | **LIVE-ONLY** | **EXPLICITLY OPEN** — paper/sandbox cannot validate. Do not build synthetic coverage. |
-| 15 | Queue position / execution latency | **LIVE-ONLY** | **EXPLICITLY OPEN** — sandbox/paper fills are near-instant; not representative. |
-| 16 | Real slippage under live stress | **LIVE-ONLY** | **EXPLICITLY OPEN** — sandbox liquidity/depth ≠ live. |
+| 1 | Real Tradier sandbox account + token | **JOEL / EXTERNAL** | **OPEN** — only Joel can issue sandbox-authorized credentials. Brokerage token → sandbox 401. |
+| 2 | Sandbox order adapter | **WEEKEND** | **PARTIAL** — code posts/parses and never assumes fill; live order/status/positions loop needs #1. |
+| 3 | Fill realism all books | **WEEKEND** | **PARTIAL** — asym/paper_fills NBBO+fees done; **OE mid / `MARKET_ON_EXPIRY` still open** (agent work, not blocked solely by #1). |
+| 4 | HTTP 429 backoff | **WEEKEND** | **OPEN** — not implemented this pass (agent work; not blocked solely by #1). |
+| 5 | ≥5 trading days sandbox + heartbeats | **OPS** | **OPEN** — needs #1 + `DATABASE_URL` + multi-day run. |
+| 6 | Freeze rule config + Joel sign-off | **WEEKEND** | **OPEN** — Joel human sign-off. |
+| 7 | Live brokerage connection | **LIVE-ONLY** | **OPEN** |
+| 8 | Order rejects | **WEEKEND** | **PARTIAL** — see consistency note below. |
+| 9 | Partial fills | **WEEKEND** | **PARTIAL** — see consistency note below. |
+| 10 | Margin/BP checks | **WEEKEND** | **FULLY_CLOSED** |
+| 11 | Multi-leg package pricing | **WEEKEND** | **FULLY_CLOSED** |
+| 12 | Regulatory fees | **WEEKEND** | **FULLY_CLOSED** |
+| 13 | Halts | **WEEKEND** | **FULLY_CLOSED** |
+| 14 | Assignment / early exercise | **LIVE-ONLY** | **EXPLICITLY OPEN** |
+| 15 | Queue / latency | **LIVE-ONLY** | **EXPLICITLY OPEN** |
+| 16 | Live stress slippage | **LIVE-ONLY** | **EXPLICITLY OPEN** |
 
-### Why some don't fit either WEEKEND or LIVE-ONLY cleanly
+### Consistency note — why #8/#9 are PARTIAL (same as #2), not FIXED
 
-- **#1** is an external credential dependency (WEEKEND-BLOCKED).
-- **#5** is multi-day ops requiring DB + sandbox (ops gate, not a code weekend unit).
-- **#6** requires human Joel sign-off.
+Directive text for #8/#9 requires **real Tradier sandbox** reject/partial evidence (or, for #9, “else simulate via sandbox order-status polling”).
+
+What we have:
+- **#8:** Real sandbox POST returned **401 Unauthorized** (auth failure), plus fixture-shaped reject parsing with `assumed_fill=false`. That proves the handler does not silently fill on error — it does **not** prove a brokerage-valid reject (bad price / insufficient BP) from an authorized sandbox account.
+- **#9:** Fixture order-status `partially_filled` + PartialPosition P&L math. Directive allows simulation of status polling, but end-to-end sandbox partial still needs #1.
+
+**Same dependency as #2:** without #1, #8/#9 cannot be promoted to FULLY_CLOSED. Relabeled **PARTIAL** for consistency. Fixture/handler proof is valuable and remains on record; it is not equivalent to a real sandbox reject/partial body.
+
+## Item #1 — Joel’s blocker; what unblocks
+
+**Confirm:** #1 (real Tradier sandbox account + sandbox-authorized token) is **on Joel, not the agent**. It is the **only credential/external blocker**.
+
+Once #1 is resolved (sandbox profile/orders authorize), these specifically unblock:
+
+| Unblocks | Why |
+|---|---|
+| **#2** Sandbox order adapter | Can complete real POST + GET order status + positions against sandbox |
+| **#8** Order rejects | Can submit bad-price / insufficient-BP orders and capture real reject JSON (not 401) |
+| **#9** Partial fills | Can attempt real partial (or poll real sandbox order ids); still may use status-poll sim as supplement |
+| **#5** ≥5 trading-day campaign | Sandbox execution path becomes usable (still also needs `DATABASE_URL` / heartbeats) |
+
+**Does NOT auto-close when #1 lands** (still agent or Joel work):
+
+| Still open after #1 | Owner |
+|---|---|
+| **#3** OE mid / `MARKET_ON_EXPIRY` fill realism | Agent code |
+| **#4** HTTP 429 backoff | Agent code |
+| **#6** Freeze rule config sign-off | Joel |
+| **#7, #14–#16** Live-only | Live capital / later |
+
+So: #1 is the **only true external blocker** for the sandbox-dependent PARTIALs (#2/#8/#9) and a prerequisite for #5 — **not** the only remaining work overall.
 
 ## Paper trading cannot validate (#14–#16)
 
-State plainly: **paper trading cannot validate assignment, queue latency, or live stress slippage until live capital is connected.** No synthetic approximation is presented as coverage.
+**Paper trading cannot validate assignment, queue latency, or live stress slippage until live capital is connected.** No synthetic approximation is presented as coverage.
 
-## Code added this pass
+## Code added (weekend pass)
 
 - `aiem_broker/order_lifecycle.py`
 - `aiem_broker/tradier_sandbox.py`

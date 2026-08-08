@@ -75,7 +75,7 @@ def item1_order_rejects() -> bool:
         assert p["status"] == "rejected"
         assert p["filled_qty"] == 0.0
         assert p["assumed_fill"] is False
-    print("ITEM1_OK=True")
+    print("ITEM1_HARNESS_PATH_OK=True  # PARTIAL gap #8 — fixture/401 handler only; needs Joel #1 for real sandbox reject")
     return True
 
 
@@ -122,7 +122,7 @@ def item2_partial_fills() -> bool:
     # Prove we do NOT invent fill for remaining 6
     full = parse_broker_order_response(200, FIXTURE_FILLED_STATUS, requested_qty=10)
     print("RAW_FULL_FILL_STATUS=", json.dumps(full))
-    print("ITEM2_OK=True")
+    print("ITEM2_HARNESS_PATH_OK=True  # PARTIAL gap #9 — fixture partial+PnL only; needs Joel #1 for real sandbox partial")
     return True
 
 
@@ -298,16 +298,26 @@ def main() -> int:
             import traceback
             traceback.print_exc()
             results.append((fn.__name__, False))
-    _hdr("SUMMARY")
+    _hdr("SUMMARY — honest scope (not a blanket weekend pass)")
     for name, ok in results:
-        print(f"{name}={'PASS' if ok else 'FAIL'}")
-    all_ok = all(ok for _, ok in results)
-    print(f"ALL_WEEKEND_ITEMS_OK={all_ok}")
+        print(f"harness_{name}={'PASS' if ok else 'FAIL'}")
+    harness_ok = all(ok for _, ok in results)
+    print(f"HARNESS_SIX_CHECKS_RAN_OK={harness_ok}")
     print(
-        "NOTE_SANDBOX: real sandbox order rejects/partials require sandbox token; "
-        "current token → 401. Handler proven; live-capital items 7–9 remain OPEN."
+        """
+WEEKEND_SCOPE_BANNER
+FULLY_CLOSED: #10 BP, #11 package AON, #12 reg fees, #13 halts
+PARTIAL:      #2 sandbox adapter, #3 OE fill realism, #8 rejects, #9 partials
+OPEN:         #1 Joel sandbox token, #4 429 backoff, #5 5-day ops, #6 Joel freeze sign-off
+LIVE-ONLY:    #7 live connect, #14 assignment, #15 queue/latency, #16 live slippage
+NOTE: HARNESS_SIX_CHECKS_RAN_OK=True means #8–#13 unit paths executed.
+      It does NOT mean every WEEKEND-bucket gap is closed.
+      #8/#9 are PARTIAL — fixture/handler proof only; real sandbox bodies need #1 (same as #2).
+      #1 is Joel's only credential blocker; unblocks #2/#8/#9 and is prerequisite for #5.
+      #3 and #4 remain agent work even after #1.
+""".strip()
     )
-    return 0 if all_ok else 1
+    return 0 if harness_ok else 1
 
 
 if __name__ == "__main__":
