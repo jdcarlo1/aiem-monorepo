@@ -104,7 +104,23 @@ jobs:
             "import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=':/?=@#'))" \
             "${RUN_URL}" 2>/dev/null || echo "${RUN_URL}")
 
-          TEXT="🚀 DEPLOY+READY%0A%0ACommit%3A+${SHORT_SHA}%0A${SAFE_LINE}%0A%0A✅+Merged+to+main+by+${PUSHER}%0A%0A👉+Publish+now%3A+${SAFE_URL}%0A%0AGH+run%3A+${SAFE_RUN}"
+          # ── Morning blackout guard (next-best; Replit cannot block Publish) ─
+          # Replit has no public API to refuse Publish. If merge lands inside
+          # Mon–Fri 08:50–10:20 ET, do NOT say "Publish now" — warn hard.
+          # Override only with ALLOW_MORNING_PUBLISH=1.
+          BLACKOUT_MODE=$(python3 - <<'PY'
+import sys
+sys.path.insert(0, "artifacts/stock-scanner-api")
+from morning_deploy_blackout import deploy_reminder_mode, et_now
+print(deploy_reminder_mode(et_now()))
+PY
+)
+          echo "Blackout mode: ${BLACKOUT_MODE}"
+          if [ "${BLACKOUT_MODE}" = "blackout" ] && [ "${ALLOW_MORNING_PUBLISH:-}" != "1" ]; then
+            TEXT="⛔+MORNING+BLACKOUT+—+DO+NOT+PUBLISH%0A%0ACommit%3A+${SHORT_SHA}%0A${SAFE_LINE}%0A%0AMerged+to+main+by+${PUSHER}+during+08%3A50–10%3A20+ET.%0A%0ADo+NOT+click+Publish+until+after+10%3A30+ET+%28or+before+08%3A45+ET%29.%0AMid-window+Publish+missed+Loop+B+%2B+paper+9%3A42+on+2026-08-07.%0A%0AEditor%3A+${SAFE_URL}%0AGH+run%3A+${SAFE_RUN}"
+          else
+            TEXT="🚀 DEPLOY+READY%0A%0ACommit%3A+${SHORT_SHA}%0A${SAFE_LINE}%0A%0A✅+Merged+to+main+by+${PUSHER}%0A%0A👉+Publish+now%3A+${SAFE_URL}%0A%0AGH+run%3A+${SAFE_RUN}"
+          fi
 
           # ── Send Telegram message ─────────────────────────────────────────
           HTTP=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \

@@ -48,6 +48,8 @@ type Snapshot = {
   put_butterfly?: StrategySnap;
   call_butterfly?: StrategySnap;
   put_ladder?: StrategySnap;
+  call_condor?: StrategySnap;
+  put_condor?: StrategySnap;
   narrow_wing_butterfly?: StrategySnap;
   bullish_risk_reversal?: StrategySnap;
   gap_fill?: unknown;
@@ -60,6 +62,8 @@ const ASYM_CARDS: Array<{
     | 'put_butterfly'
     | 'call_butterfly'
     | 'put_ladder'
+    | 'call_condor'
+    | 'put_condor'
     | 'narrow_wing_butterfly'
     | 'bullish_risk_reversal';
   title: string;
@@ -69,31 +73,43 @@ const ASYM_CARDS: Array<{
     key: 'put_butterfly',
     title: 'Long Put Butterfly',
     blurb:
-      'ATM ±5 put fly · Monday 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily',
+      'ATM ±5 put fly · Mon–Fri 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily',
   },
   {
     key: 'call_butterfly',
     title: 'Long Call Butterfly',
     blurb:
-      'ATM ±5 call fly · Monday 09:30 ET · ≤$500 debit · TP +100% · no stop · ~3wk Friday · Polygon daily',
+      'ATM ±5 call fly · Mon–Fri 09:30 ET · ≤$500 debit · TP +100% · no stop · ~3wk Friday · Polygon daily',
   },
   {
     key: 'put_ladder',
     title: 'Put Ladder Defined',
     blurb:
-      'Long ATM / short −5/−10 / long −15 puts · Monday 09:30 ET · ≤$500 debit · TP +150% · no stop · Polygon daily',
+      'Long ATM / short −5/−10 / long −15 puts · Mon–Fri 09:30 ET · ≤$500 debit · TP +150% · no stop · Polygon daily',
+  },
+  {
+    key: 'call_condor',
+    title: 'Long Call Condor',
+    blurb:
+      'ATM ±5 / ±10 call condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · ~3wk Friday · Polygon daily',
+  },
+  {
+    key: 'put_condor',
+    title: 'Long Put Condor',
+    blurb:
+      'ATM ±5 / ±10 put condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · ~3wk Friday · Polygon daily',
   },
   {
     key: 'narrow_wing_butterfly',
     title: 'Narrow-Wing Call Butterfly',
     blurb:
-      'ATM ±2 call fly · Monday 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily · catalog #1',
+      'ATM ±2 call fly · Mon–Fri 09:30 ET · ≤$500 debit · TP +200% · no stop · ~3wk Friday · Polygon daily · catalog #1',
   },
   {
     key: 'bullish_risk_reversal',
     title: 'Bullish Risk Reversal',
     blurb:
-      'Long call k+5 / short put k−5 · Monday 09:30 ET · cash-secured credit · TP +75% of |entry| · no stop · Polygon daily · catalog #2',
+      'Long call k+5 / short put k−5 · Mon–Fri 09:30 ET · cash-secured credit · TP +75% of |entry| · no stop · Polygon daily · catalog #2',
   },
 ];
 
@@ -109,13 +125,13 @@ export default function StrategiesPage() {
 
   return (
     <>
-      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end border-b border-border pb-5">
-        <div>
-          <h1 className="text-3xl font-mono font-bold tracking-tight uppercase">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end border-b border-border pb-5 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-mono font-bold tracking-tight uppercase truncate">
             Strategies
           </h1>
-          <p className="text-sm font-mono text-muted-foreground mt-1">
-            Live paper on Options Engine — F3 0DTE + asym packages (flies, ladder, narrow-wing, bullish RR)
+          <p className="text-sm font-mono text-muted-foreground mt-1 break-words">
+            Live paper on Options Engine — F3 0DTE + asym packages (flies, ladder, condors, narrow-wing, bullish RR)
           </p>
         </div>
         <div className="font-mono text-sm text-muted-foreground text-left sm:text-right shrink-0">
@@ -130,15 +146,15 @@ export default function StrategiesPage() {
       </div>
 
       {isError ? (
-        <div className="border border-destructive/40 bg-destructive/10 p-3 font-mono text-sm text-destructive">
+        <div className="border border-destructive/40 bg-destructive/10 p-3 font-mono text-sm text-destructive break-words">
           {String((error as Error)?.message || error)}
         </div>
       ) : null}
 
-      <div className="space-y-5 max-w-6xl">
+      <div className="space-y-5 max-w-6xl min-w-0">
         <F3Card snap={data?.f3} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 min-w-0">
           {ASYM_CARDS.slice(0, 3).map((c) => (
             <AsymCard
               key={c.key}
@@ -149,8 +165,19 @@ export default function StrategiesPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {ASYM_CARDS.slice(3).map((c) => (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 min-w-0">
+          {ASYM_CARDS.slice(3, 6).map((c) => (
+            <AsymCard
+              key={c.key}
+              title={c.title}
+              blurb={c.blurb}
+              snap={data?.[c.key]}
+            />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0">
+          {ASYM_CARDS.slice(6).map((c) => (
             <AsymCard
               key={c.key}
               title={c.title}
@@ -190,7 +217,7 @@ function F3Card({ snap }: { snap?: StrategySnap }) {
           No profit target. Real Tradier premiums when available (no synthetic leverage).
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 min-w-0">
           <Metric
             label="Account"
             value={`$${(snap?.account_balance_usd ?? 10000).toLocaleString(undefined, {
@@ -331,20 +358,23 @@ function AsymCard({
   const tpPct = Number(snap?.rules?.take_profit_pct ?? 0);
 
   return (
-    <div className="border border-border bg-card rounded-lg overflow-hidden flex flex-col">
-      <div className="p-4 border-b border-border bg-sidebar/40 flex justify-between items-center gap-2">
-        <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2 uppercase">
-          <FlaskConical size={14} /> {title}
+    <div className="border border-border bg-card rounded-lg overflow-hidden flex flex-col min-w-0">
+      <div className="p-4 border-b border-border bg-sidebar/40 flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-center sm:gap-2">
+        <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2 uppercase min-w-0">
+          <FlaskConical size={14} className="shrink-0" />{' '}
+          <span className="truncate">{title}</span>
         </h2>
-        <span className="text-xs font-mono text-muted-foreground uppercase shrink-0">
+        <span className="text-[10px] sm:text-xs font-mono text-muted-foreground uppercase truncate max-w-full">
           {snap?.pattern || '—'}
         </span>
       </div>
 
-      <div className="p-4 space-y-3 flex-1 flex flex-col">
-        <p className="font-mono text-xs text-muted-foreground leading-relaxed">{blurb}</p>
+      <div className="p-4 space-y-3 flex-1 flex flex-col min-w-0">
+        <p className="font-mono text-xs text-muted-foreground leading-relaxed break-words">
+          {blurb}
+        </p>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 min-w-0">
           <Metric
             label="Account"
             value={`$${(snap?.account_balance_usd ?? 10000).toLocaleString(undefined, {
@@ -364,7 +394,8 @@ function AsymCard({
           />
           <Metric
             label="Trades"
-            value={`${snap?.total_trades ?? 0} W${snap?.wins ?? 0}/L${snap?.losses ?? 0}`}
+            value={`${snap?.total_trades ?? 0}`}
+            subValue={`W${snap?.wins ?? 0}/L${snap?.losses ?? 0}`}
           />
         </div>
 
@@ -482,16 +513,29 @@ function RecentTrades({
 function Metric({
   label,
   value,
+  subValue,
   valueClass = 'text-foreground',
 }: {
   label: string;
   value: string;
+  subValue?: string;
   valueClass?: string;
 }) {
   return (
-    <div className="border border-border rounded-md bg-muted/30 p-3">
-      <div className="text-sm font-mono text-muted-foreground uppercase">{label}</div>
-      <div className={`text-xl font-mono font-bold mt-1.5 ${valueClass}`}>{value}</div>
+    <div className="border border-border rounded-md bg-muted/30 p-2.5 sm:p-3 min-w-0 overflow-hidden">
+      <div className="text-[10px] sm:text-xs font-mono text-muted-foreground uppercase tracking-wide truncate">
+        {label}
+      </div>
+      <div
+        className={`text-base sm:text-xl font-mono font-bold mt-1 tabular-nums leading-tight break-all ${valueClass}`}
+      >
+        {value}
+      </div>
+      {subValue ? (
+        <div className="text-[10px] sm:text-xs font-mono text-muted-foreground mt-0.5 truncate">
+          {subValue}
+        </div>
+      ) : null}
     </div>
   );
 }
