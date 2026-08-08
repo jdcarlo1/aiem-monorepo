@@ -99,13 +99,18 @@ class _StubBroker(BrokerAdapter):
 
 
 class TradierBrokerStub(_StubBroker):
-    """Tradier brokerage orders — NOT wired. Market data already used elsewhere."""
+    """Tradier LIVE brokerage orders — NOT wired.
+
+    For brokerage-like paper fills use AIEM_BROKER_PROVIDER=tradier_paper
+    (TradierPaperBrokerAdapter) which quotes live NBBO but never POSTs orders.
+    """
     provider_id = "tradier"
     supports_options = True
     env_keys = ("TRADIER_API_TOKEN_2", "TRADIER_ACCOUNT_ID")
     docs_hookup = (
-        "Implement POST /v1/accounts/{account_id}/orders using TRADIER_API_TOKEN_2. "
-        "Keep market-data token separate from order token. Call assert_live_orders_allowed() first."
+        "LIVE ONLY: Implement POST /v1/accounts/{account_id}/orders using TRADIER_API_TOKEN_2. "
+        "Paper path is already live via tradier_paper (quotes only, no order HTTP). "
+        "Call assert_live_orders_allowed() first. Never confuse with tradier_paper."
     )
 
 
