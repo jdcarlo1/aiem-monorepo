@@ -52,6 +52,8 @@ type Snapshot = {
   put_butterfly?: PatternSnap;
   call_butterfly?: PatternSnap;
   put_ladder?: PatternSnap;
+  call_condor?: PatternSnap;
+  put_condor?: PatternSnap;
   narrow_wing_butterfly?: PatternSnap;
   bullish_risk_reversal?: PatternSnap;
   error?: string;
@@ -172,7 +174,7 @@ function PatternCard({
               ) : null}
             </div>
             <div className="text-[10px] uppercase tracking-wide pt-1">
-              Mon 09:30 ET ·{" "}
+              Mon–Fri 09:30 ET ·{" "}
               {allowCredit
                 ? cashSecured
                   ? "cash-secured credit"
@@ -321,7 +323,7 @@ export default function PatternLab() {
             Pattern Lab
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1">
-            Gap Fill &amp; ORB equity · F3 0DTE · asym flies + ladder + narrow-wing + bullish RR (paper)
+            Gap Fill &amp; ORB equity · F3 0DTE · asym flies + ladder + condors + narrow-wing + bullish RR (paper)
           </p>
         </div>
         <div className="font-mono text-xs text-muted-foreground text-right">
@@ -356,12 +358,25 @@ export default function PatternLab() {
         <PatternCard snap={data?.put_ladder} title="Put Ladder Defined" mode="asym" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <PatternCard
+          snap={data?.call_condor}
+          title="Long Call Condor"
+          mode="asym"
+        />
+        <PatternCard
+          snap={data?.put_condor}
+          title="Long Put Condor"
+          mode="asym"
+        />
         <PatternCard
           snap={data?.narrow_wing_butterfly}
           title="Narrow-Wing Call Butterfly"
           mode="asym"
         />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PatternCard
           snap={data?.bullish_risk_reversal}
           title="Bullish Risk Reversal"

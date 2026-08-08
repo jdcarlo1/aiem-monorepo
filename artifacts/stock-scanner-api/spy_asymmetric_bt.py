@@ -349,6 +349,12 @@ def build_put_ladder_defined(spot, d0, exp_near, exp_far) -> list:
     return [(1, "P", k, exp_near), (-1, "P", k - 5, exp_near), (-1, "P", k - 10, exp_near), (1, "P", k - 15, exp_near)]
 
 
+def build_narrow_wing_call_fly(spot, d0, exp_near, exp_far) -> list:
+    """ATM ±2 long call butterfly — catalog Narrow-Wing Butterfly (paper parity)."""
+    k = _round_strike(spot)
+    return [(1, "C", k - 2, exp_near), (-2, "C", k, exp_near), (1, "C", k + 2, exp_near)]
+
+
 STRATEGIES: dict[str, Callable] = {
     "01_long_call": build_long_call,
     "02_long_put": build_long_put,
@@ -373,6 +379,7 @@ STRATEGIES: dict[str, Callable] = {
     "21_christmas_tree_butterfly": build_christmas_tree_call,
     "22_call_ladder_defined_risk": build_call_ladder_defined,
     "23_put_ladder_defined_risk": build_put_ladder_defined,
+    "24_narrow_wing_call_butterfly": build_narrow_wing_call_fly,
 }
 
 
