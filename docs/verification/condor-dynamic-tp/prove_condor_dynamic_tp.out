@@ -96,7 +96,7 @@ tp_below_MAX_REACHABLE=True
 target_payoff_usd=433.400000
 target_payoff_le_plateau=True
 persist_kwargs_tp=159.52095808383186
-paper_trade_id=9123
+paper_trade_id=9143
 fill_ok=True
 --- price_put_condor ---
 legs_spec=[(1, 'put', 780.0), (-1, 'put', 775.0), (-1, 'put', 765.0), (1, 'put', 760.0)]
@@ -114,7 +114,7 @@ tp_below_MAX_REACHABLE=True
 target_payoff_usd=428.200000
 target_payoff_le_plateau=True
 persist_kwargs_tp=203.68794326241135
-paper_trade_id=9176
+paper_trade_id=9153
 fill_ok=True
 PROOF_3_OK=True
 FILLS={'call_condor': {'per_pkg_D': 167.0, 'packages': 2.0, 'tp': 159.52095808383186, 'max_reachable': 199.40119760478981, 'ok': True, 'pricing_mode': 'polygon_live_fetch'}, 'put_condor': {'per_pkg_D': 141.0, 'packages': 3.0, 'tp': 203.68794326241135, 'max_reachable': 254.60992907801418, 'ok': True, 'pricing_mode': 'polygon_live_fetch'}}

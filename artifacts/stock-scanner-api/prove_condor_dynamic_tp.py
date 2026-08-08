@@ -98,7 +98,7 @@ def proof_2_entry_path() -> bool:
             break
 
     # Config ledger starts at 0.0 placeholder
-    ledgers = m.build_default_asym_ledgers(sku="aiem")
+    ledgers = m.build_default_asym_ledgers()
     print(f"call_condor_config_tp={ledgers['call_condor'].take_profit_pct}")
     print(f"put_condor_config_tp={ledgers['put_condor'].take_profit_pct}")
     cfg_ok = (
@@ -145,7 +145,6 @@ def proof_2_entry_path() -> bool:
             0.0,
             strat,
             starting_capital_usd=10000.0,
-            sku="aiem",
         )
         expected = m.dynamic_tp_pct(d)
         with patch.object(m, "price_legs_polygon", return_value=_fake_priced(d, right)):
@@ -245,7 +244,6 @@ def proof_3_paper_fills_real_polygon() -> bool:
             0.0,
             strat,
             starting_capital_usd=10000.0,
-            sku="oe",
         )
         with patch.object(m, "price_legs_polygon", return_value=priced):
             with patch.object(m, "persist_asym_paper_open", return_value=9100 + hash(strat) % 100) as pers:
