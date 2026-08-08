@@ -1,0 +1,386 @@
+{
+  "directive": "Directive_Backtest_RealisticFill_Rerun_2026-08-08 (v2)",
+  "generated_at_utc": "2026-08-08T15:43:25.078344+00:00",
+  "reproduce": "cd artifacts/stock-scanner-api && python3 scripts/rerun_backtest_realistic_fills_2026_08_08.py",
+  "paper_engine_commit_reference": "c3edc5fd",
+  "version_b_rules": {
+    "entry": "BUY at ASK (one-sided -> ONE_SIDED_ASK)",
+    "exit": "SELL at BID (one-sided -> ONE_SIDED_BID); intrinsic ONLY at MARKET_ON_EXPIRY_SETTLE",
+    "fees": "paper_round_trip_fees(n_legs, qty) = 0.65 * legs * qty * 2",
+    "slippage": "half-spread dollars on BOTH entry and exit, always adverse; engine passes quantity=qty*n_legs into paper_slippage_dollars",
+    "worthless_expiry": "full loss",
+    "no_synthetic_spreads": true
+  },
+  "strategies_actually_ran": [
+    "GAP_FILL",
+    "ORB",
+    "F3_SPY_0DTE"
+  ],
+  "strategies": [
+    {
+      "id": "GAP_FILL",
+      "name": "Gap Fill",
+      "surface": "Pattern Lab (AIEM)",
+      "instrument": "equity",
+      "options_fill_applicable": false,
+      "version_a": {
+        "status": "NO_PUBLISHED_TRADE_BOOK",
+        "trades": null,
+        "total_pnl": null,
+        "win_rate": null,
+        "avg_per_trade": null,
+        "max_dd": null,
+        "profit_factor": null,
+        "profitable": null,
+        "reason": "backtest_pattern_lab.py references docs/verification/pattern-lab-backtest-6mo.md but that artifact was never committed. Live paper snapshots exist (pattern-lab-FINAL.md single-day) but are not a multi-trade historical book. POLYGON_API_KEY absent in this environment \u2014 refusing to invent equity fills."
+      },
+      "version_b": {
+        "status": "N/A_EQUITY",
+        "reason": "Equity strategy \u2014 options ask/bid fill model does not apply.",
+        "total_pnl": null,
+        "win_rate": null,
+        "avg_per_trade": null,
+        "max_dd": null,
+        "profit_factor": null,
+        "profitable": null
+      },
+      "diff_dollars": null,
+      "pct_overstated": null,
+      "flips_to_unprofitable": false,
+      "still_profitable_under_b": "N/A",
+      "pricing_source": "Equity OHLC (when backtested) \u2014 not options NBBO"
+    },
+    {
+      "id": "ORB",
+      "name": "Opening Range Breakout",
+      "surface": "Pattern Lab (AIEM)",
+      "instrument": "equity",
+      "options_fill_applicable": false,
+      "version_a": {
+        "status": "NO_PUBLISHED_TRADE_BOOK",
+        "trades": null,
+        "total_pnl": null,
+        "win_rate": null,
+        "avg_per_trade": null,
+        "max_dd": null,
+        "profit_factor": null,
+        "profitable": null,
+        "reason": "backtest_pattern_lab.py references docs/verification/pattern-lab-backtest-6mo.md but that artifact was never committed. Live paper snapshots exist (pattern-lab-FINAL.md single-day) but are not a multi-trade historical book. POLYGON_API_KEY absent in this environment \u2014 refusing to invent equity fills."
+      },
+      "version_b": {
+        "status": "N/A_EQUITY",
+        "reason": "Equity strategy \u2014 options ask/bid fill model does not apply.",
+        "total_pnl": null,
+        "win_rate": null,
+        "avg_per_trade": null,
+        "max_dd": null,
+        "profit_factor": null,
+        "profitable": null
+      },
+      "diff_dollars": null,
+      "pct_overstated": null,
+      "flips_to_unprofitable": false,
+      "still_profitable_under_b": "N/A",
+      "pricing_source": "Equity OHLC (when backtested) \u2014 not options NBBO"
+    },
+    {
+      "id": "F3_SPY_0DTE",
+      "name": "F3 SPY 0DTE",
+      "surface": "Pattern Lab (AIEM) + OE Strategies",
+      "instrument": "options",
+      "options_fill_applicable": true,
+      "version_a": {
+        "trades": 178,
+        "total_pnl": 11899.26,
+        "win_rate": 42.7,
+        "avg_per_trade": 66.85,
+        "max_dd": 2039.77,
+        "profit_factor": 1.698,
+        "profitable": true,
+        "status": "AS_PUBLISHED"
+      },
+      "version_b": {
+        "status": "CANNOT_VERIFY",
+        "reason": "f3_trade_comparison.csv stores Polygon 1-min bar CLOSE as entry_premium/exit_premium only. No historical bid/ask per contract. Per directive: do not substitute synthetic spreads.",
+        "total_pnl": null,
+        "win_rate": null,
+        "avg_per_trade": null,
+        "max_dd": null,
+        "profit_factor": null,
+        "profitable": null
+      },
+      "diff_dollars": null,
+      "pct_overstated": null,
+      "flips_to_unprofitable": "UNKNOWN \u2014 Version B CANNOT VERIFY",
+      "still_profitable_under_b": "CANNOT VERIFY",
+      "pricing_source": "Polygon 1-min option bar CLOSE (MODELED as fill; not NBBO). Source file: artifacts/stock-scanner-api/f3_trade_comparison.csv",
+      "version_a_assumption_note": "As-published real_dollar = (exit_premium-entry_premium)/entry_premium*200 (=$200 notional). No paper_round_trip_fees. No dual half-spread slippage. No ask-entry / bid-exit differentiation \u2014 bar close used both sides.",
+      "still_profitable_under_a": true
+    }
+  ],
+  "proof_fixture_ab": {
+    "id": "IRON_CONDOR_PROOF_FIXTURE",
+    "name": "Iron Condor (c3edc5fd verification fixture)",
+    "surface": "oe_paper_proof DB only \u2014 NOT live on site",
+    "instrument": "options",
+    "options_fill_applicable": true,
+    "trades": 1,
+    "version_a": {
+      "trades": 1,
+      "total_pnl": 39.35,
+      "win_rate": 100.0,
+      "avg_per_trade": 39.35,
+      "max_dd": 0.0,
+      "profit_factor": "inf",
+      "profitable": true
+    },
+    "version_b": {
+      "trades": 1,
+      "total_pnl": -35.2,
+      "win_rate": 0.0,
+      "avg_per_trade": -35.2,
+      "max_dd": 35.2,
+      "profit_factor": 0.0,
+      "profitable": false
+    },
+    "diff_dollars": 74.55,
+    "pct_overstated": 211.8,
+    "flips_to_unprofitable": true,
+    "still_profitable_under_b": false,
+    "pricing_source": "REAL Tradier-style two-sided package quotes stored on oe_trade_records (entry 1.2/1.4, exit 1.9/2.1)",
+    "detail": {
+      "strategy_family": "IRON_CONDOR",
+      "ticker": "PROOF",
+      "n_legs": 4,
+      "qty": 1,
+      "entry_bid": 1.2,
+      "entry_ask": 1.4,
+      "exit_bid": 1.9,
+      "exit_ask": 2.1,
+      "db_realized_pnl": -35.2,
+      "db_entry_slippage_est": 40.0,
+      "db_exit_slippage_est": 40.0,
+      "db_fees_est": 5.2,
+      "fill_quality": "ASK|BID",
+      "exit_fill_quality": "BID",
+      "half_spread_entry": 0.09999999999999998,
+      "half_spread_exit": 0.10000000000000009,
+      "spread_abs_entry": 0.19999999999999996,
+      "spread_pct_of_mid_entry": 15.38,
+      "version_a": {
+        "entry_fill": 1.4,
+        "entry_quality": "ASK",
+        "exit_fill": 1.9,
+        "exit_quality": "BID",
+        "fees": 0.65,
+        "entry_slippage_est": 10.0,
+        "exit_slippage_est": 0.0,
+        "realized_pnl": 39.35,
+        "assumption": "pre-c3edc5fd: ask entry, bid exit gross, fees=$0.65 flat, entry-only half-spread slip at quantity=1 (no leg multiplier, no exit slip)",
+        "n_legs_ignored_for_slip_and_fees": 4
+      },
+      "version_b": {
+        "entry_fill": 1.4,
+        "entry_quality": "ASK",
+        "exit_fill": 1.9,
+        "exit_quality": "BID",
+        "fees": 5.2,
+        "entry_slippage_est": 40.0,
+        "exit_slippage_est": 40.0,
+        "realized_pnl": -35.2,
+        "assumption": "c3edc5fd live: ask entry, bid exit, fees=0.65*legs*qty*2, dual half-spread slip with quantity=qty*n_legs",
+        "two_sided_both": true
+      },
+      "diff_dollars": 74.55,
+      "pct_overstated": 211.8,
+      "flips_to_unprofitable": true,
+      "note": "Verification fixture in oe_paper_proof \u2014 NOT a Pattern Lab / OE Strategies live card. Included because it is the only archived closed options trade with real two-sided bid/ask at entry and exit."
+    }
+  },
+  "directive_named_but_not_live": [
+    {
+      "directive_name": "long_call_condor",
+      "catalog_id": "LONG_CALL_CONDOR",
+      "status": "CATALOG_ONLY_NOT_LIVE",
+      "version_a": "NO_PUBLISHED_TRADE_BOOK",
+      "version_b": "CANNOT_VERIFY",
+      "reason": "Registered as `LONG_CALL_CONDOR` in OE strategy catalog/registry, but not currently saved/live as a Pattern Lab or OE Strategies card with an archived historical trade list + bid/ask."
+    },
+    {
+      "directive_name": "long_put_condor",
+      "catalog_id": "LONG_PUT_CONDOR",
+      "status": "CATALOG_ONLY_NOT_LIVE",
+      "version_a": "NO_PUBLISHED_TRADE_BOOK",
+      "version_b": "CANNOT_VERIFY",
+      "reason": "Registered as `LONG_PUT_CONDOR` in OE strategy catalog/registry, but not currently saved/live as a Pattern Lab or OE Strategies card with an archived historical trade list + bid/ask."
+    },
+    {
+      "directive_name": "narrow_wing_butterfly",
+      "catalog_id": null,
+      "status": "NOT_IN_CATALOG",
+      "version_a": "NO_PUBLISHED_TRADE_BOOK",
+      "version_b": "CANNOT_VERIFY",
+      "reason": "Name `narrow_wing_butterfly` appears in the directive but is not present in _STRATEGY_CATALOG and is not a live Pattern Lab / OE Strategies card."
+    },
+    {
+      "directive_name": "call_butterfly",
+      "catalog_id": "LONG_CALL_BUTTERFLY",
+      "status": "CATALOG_ONLY_NOT_LIVE",
+      "version_a": "NO_PUBLISHED_TRADE_BOOK",
+      "version_b": "CANNOT_VERIFY",
+      "reason": "Registered as `LONG_CALL_BUTTERFLY` in OE strategy catalog/registry, but not currently saved/live as a Pattern Lab or OE Strategies card with an archived historical trade list + bid/ask."
+    },
+    {
+      "directive_name": "put_butterfly",
+      "catalog_id": "LONG_PUT_BUTTERFLY",
+      "status": "CATALOG_ONLY_NOT_LIVE",
+      "version_a": "NO_PUBLISHED_TRADE_BOOK",
+      "version_b": "CANNOT_VERIFY",
+      "reason": "Registered as `LONG_PUT_BUTTERFLY` in OE strategy catalog/registry, but not currently saved/live as a Pattern Lab or OE Strategies card with an archived historical trade list + bid/ask."
+    },
+    {
+      "directive_name": "put_ladder",
+      "catalog_id": null,
+      "status": "NOT_IN_CATALOG",
+      "version_a": "NO_PUBLISHED_TRADE_BOOK",
+      "version_b": "CANNOT_VERIFY",
+      "reason": "Name `put_ladder` appears in the directive but is not present in _STRATEGY_CATALOG and is not a live Pattern Lab / OE Strategies card."
+    },
+    {
+      "directive_name": "bullish_risk_reversal",
+      "catalog_id": "RISK_REVERSAL",
+      "status": "CATALOG_ONLY_NOT_LIVE",
+      "version_a": "NO_PUBLISHED_TRADE_BOOK",
+      "version_b": "CANNOT_VERIFY",
+      "reason": "Registered as `RISK_REVERSAL` in OE strategy catalog/registry, but not currently saved/live as a Pattern Lab or OE Strategies card with an archived historical trade list + bid/ask."
+    }
+  ],
+  "catalog_also_not_live_additional": [
+    "LONG_CALL",
+    "LONG_PUT",
+    "SHORT_CALL",
+    "SHORT_PUT",
+    "COVERED_CALL",
+    "CSP",
+    "PROTECTIVE_PUT",
+    "COLLAR",
+    "BULL_CALL_SPREAD",
+    "BEAR_PUT_SPREAD",
+    "BEAR_CALL_SPREAD",
+    "BULL_PUT_SPREAD",
+    "CALENDAR_CALL",
+    "CALENDAR_PUT",
+    "DIAGONAL_CALL",
+    "DIAGONAL_PUT",
+    "LONG_STRADDLE",
+    "SHORT_STRADDLE",
+    "LONG_STRANGLE",
+    "SHORT_STRANGLE",
+    "IRON_CONDOR",
+    "IRON_BUTTERFLY",
+    "RATIO_CALL_SPREAD",
+    "RATIO_PUT_SPREAD",
+    "CALL_BACKSPREAD",
+    "PUT_BACKSPREAD",
+    "REVERSE_RISK_REVERSAL",
+    "JADE_LIZARD",
+    "BIG_LIZARD",
+    "SYNTHETIC_LONG",
+    "SYNTHETIC_SHORT",
+    "CONVERSION",
+    "REVERSAL",
+    "BOX_SPREAD",
+    "CUSTOM_MULTI_LEG",
+    "STOCK_LONG_CALL",
+    "STOCK_LONG_PUT"
+  ],
+  "catalog_strategy_count": 42,
+  "spread_liquidity_census": {
+    "historical_backtest_contracts": {
+      "pricing_label": "Polygon 1-min CLOSE premiums in f3_trade_comparison.csv \u2014 MODELED/SYNTHESIZED as fills; NOT historical NBBO",
+      "n_trades": 178,
+      "date_range": [
+        "2025-08-08",
+        "2026-08-04"
+      ],
+      "entry_premium_median": 1.09,
+      "entry_premium_p75": 1.44,
+      "entry_premium_p90": 1.92,
+      "exit_premium_median": 0.6,
+      "avg_version_a_pnl": 66.85,
+      "bid_ask_spread_abs_median": "CANNOT VERIFY \u2014 no historical bid/ask",
+      "bid_ask_spread_abs_p75": "CANNOT VERIFY",
+      "bid_ask_spread_abs_p90": "CANNOT VERIFY",
+      "bid_ask_spread_pct_mid_median": "CANNOT VERIFY",
+      "bid_ask_spread_pct_mid_p75": "CANNOT VERIFY",
+      "bid_ask_spread_pct_mid_p90": "CANNOT VERIFY",
+      "pct_trades_two_sided_both_entry_exit": "CANNOT VERIFY \u2014 no quote-quality archive",
+      "pct_one_sided_or_synthetic": "CANNOT VERIFY",
+      "round_trip_cost_pct_of_max_theoretical_gain": "CANNOT VERIFY without bid/ask",
+      "version_a_cost_model": "As-published real_dollar = (exit_premium-entry_premium)/entry_premium*200 (=$200 notional). No paper_round_trip_fees. No dual half-spread slippage. No ask-entry / bid-exit differentiation \u2014 bar close used both sides."
+    },
+    "live_verified_paper_trade_c3edc5fd": {
+      "trades": [
+        {
+          "strategy_family": "IRON_CONDOR",
+          "ticker": "PROOF",
+          "n_legs": 4,
+          "qty": 1,
+          "entry_bid": 1.2,
+          "entry_ask": 1.4,
+          "exit_bid": 1.9,
+          "exit_ask": 2.1,
+          "db_realized_pnl": -35.2,
+          "db_entry_slippage_est": 40.0,
+          "db_exit_slippage_est": 40.0,
+          "db_fees_est": 5.2,
+          "fill_quality": "ASK|BID",
+          "exit_fill_quality": "BID",
+          "half_spread_entry": 0.09999999999999998,
+          "half_spread_exit": 0.10000000000000009,
+          "spread_abs_entry": 0.19999999999999996,
+          "spread_pct_of_mid_entry": 15.38,
+          "version_a": {
+            "entry_fill": 1.4,
+            "entry_quality": "ASK",
+            "exit_fill": 1.9,
+            "exit_quality": "BID",
+            "fees": 0.65,
+            "entry_slippage_est": 10.0,
+            "exit_slippage_est": 0.0,
+            "realized_pnl": 39.35,
+            "assumption": "pre-c3edc5fd: ask entry, bid exit gross, fees=$0.65 flat, entry-only half-spread slip at quantity=1 (no leg multiplier, no exit slip)",
+            "n_legs_ignored_for_slip_and_fees": 4
+          },
+          "version_b": {
+            "entry_fill": 1.4,
+            "entry_quality": "ASK",
+            "exit_fill": 1.9,
+            "exit_quality": "BID",
+            "fees": 5.2,
+            "entry_slippage_est": 40.0,
+            "exit_slippage_est": 40.0,
+            "realized_pnl": -35.2,
+            "assumption": "c3edc5fd live: ask entry, bid exit, fees=0.65*legs*qty*2, dual half-spread slip with quantity=qty*n_legs",
+            "two_sided_both": true
+          },
+          "diff_dollars": 74.55,
+          "pct_overstated": 211.8,
+          "flips_to_unprofitable": true,
+          "note": "Verification fixture in oe_paper_proof \u2014 NOT a Pattern Lab / OE Strategies live card. Included because it is the only archived closed options trade with real two-sided bid/ask at entry and exit."
+        }
+      ],
+      "source": "127.0.0.1:5432/oe_paper_proof"
+    },
+    "representativeness_of_40_per_side": {
+      "verdict": "OUTLIER / multi-leg formula artifact \u2014 NOT a representative single-contract percent-of-premium",
+      "detail": "On the proof IRON_CONDOR, entry_slippage_est=40.00 equals half-spread $0.10 \u00d7 100 \u00d7 (qty*n_legs=4). It is NOT '29% of a $1.40 premium'. A $0.20 package bid-ask on a 4-leg structure becomes $40 dollar slippage per side by construction of quantity=qty*n_legs. Treat as thin-quote \u00d7 multi-leg multiplier effect, not a typical single-option spread percentage for SPY 0DTE."
+    },
+    "tradeability_finding": "From archived Pattern Lab / OE Strategies backtests: CANNOT conclude whether round-trip cost routinely exceeds average gross gain \u2014 historical bid/ask is not archived for F3 (or for catalog multi-legs, which are not live). From the live IRON_CONDOR proof fixture: round-trip cost (fees $5.20 + dual slippage $80.00 = $85.20) EXCEEDED the favorable gross move ($50.00 on a +0.50 ask\u2192bid package mark), producing realized_pnl=-35.20. That is a TRADEABILITY finding for thin multi-leg package quotes under the leg-multiplied slippage formula \u2014 distinct from 'the strategy has no edge.'"
+  },
+  "honesty": {
+    "version_b_computable_for_any_live_options_strategy": false,
+    "blocking_reason": "No historical NBBO/bid-ask archive tied to published backtest trade lists. F3 uses Polygon bar closes. Equity Pattern Lab multi-month book not archived. Directive-named multi-legs are catalog-only with zero trade books.",
+    "what_would_unblock": "Archive bid, ask, mid, quote_quality at signal time and exit time per leg (or per package) for every backtest fill, then re-run Version B over the same trade IDs via version_b_live_engine()."
+  }
+}

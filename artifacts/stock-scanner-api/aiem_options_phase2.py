@@ -432,6 +432,22 @@ def bootstrap_phase2(db_url: str = "") -> bool:
                 ALTER TABLE oe_decision_records
                     ADD COLUMN IF NOT EXISTS execution_plan_id VARCHAR(64)
             """)
+            # Paper-fill realism columns (bid exit + dual slippage audit)
+            cur.execute("""
+                ALTER TABLE oe_trade_records
+                    ADD COLUMN IF NOT EXISTS entry_slippage_est NUMERIC(12,4),
+                    ADD COLUMN IF NOT EXISTS exit_slippage_est  NUMERIC(12,4),
+                    ADD COLUMN IF NOT EXISTS exit_fill_quality  VARCHAR(64),
+                    ADD COLUMN IF NOT EXISTS entry_bid          NUMERIC(12,4),
+                    ADD COLUMN IF NOT EXISTS entry_ask          NUMERIC(12,4),
+                    ADD COLUMN IF NOT EXISTS exit_bid           NUMERIC(12,4),
+                    ADD COLUMN IF NOT EXISTS exit_ask           NUMERIC(12,4),
+                    ADD COLUMN IF NOT EXISTS capital_efficiency NUMERIC(12,6)
+            """)
+            cur.execute("""
+                ALTER TABLE oe_trade_records
+                    ALTER COLUMN fill_quality TYPE VARCHAR(64)
+            """)
 
             conn.commit()
 
@@ -1166,6 +1182,7 @@ def capture_trade_record(
     best_chain_strategy: Optional[dict] = None,
     call_scoring:    Optional[dict] = None,
     put_scoring:     Optional[dict] = None,
+    quantity:        int = 1,
     db_url:          str = "",
 ) -> Optional[int]:
     """
@@ -1174,9 +1191,16 @@ def capture_trade_record(
     """
     db_url = db_url or _DB_URL
     try:
-        # Prefer live Tradier ask for long entries (paper realism); fall back to mid.
+        # Autonomous paper: long buys fill at ask (conservative). Mid was
+        # optimistic and mismatched grading which used bid as entry_premium_lo.
+        # Prefer quotes already on sel_data; optionally refresh from Tradier NBBO helper.
+        from aiem_options_paper_fill import (
+            paper_buy_fill,
+            paper_slippage_dollars,
+            paper_round_trip_fees,
+        )
         try:
-            from aiem_broker.paper_fills import fee_round_trip, price_single_option_nbbo
+            from aiem_broker.paper_fills import price_single_option_nbbo
             _right = "put" if "PUT" in str(direction).upper() else "call"
             _nbbo = price_single_option_nbbo(
                 ticker, float(sel_strike), str(scan_date), _right,
@@ -1184,30 +1208,45 @@ def capture_trade_record(
             ) if sel_strike else None
         except Exception:
             _nbbo = None
-        if _nbbo and _nbbo.get("premium"):
-            entry_mid = float(_nbbo["premium"])  # ask fill stored as entry
+        if _nbbo and (_nbbo.get("bid") is not None or _nbbo.get("ask") is not None):
             sel_data = dict(sel_data or {})
-            sel_data.setdefault("bid", _nbbo.get("bid"))
-            sel_data.setdefault("ask", _nbbo.get("ask"))
+            if _nbbo.get("bid") is not None:
+                sel_data.setdefault("bid", _nbbo.get("bid"))
+            if _nbbo.get("ask") is not None:
+                sel_data.setdefault("ask", _nbbo.get("ask"))
             sel_data["fill_source"] = "tradier_nbbo_paper"
-        else:
-            entry_mid = (
-                (float(sel_data.get("bid", 0)) + float(sel_data.get("ask", 0))) / 2
-            )
+        _bid = sel_data.get("bid")
+        _ask = sel_data.get("ask")
+        _one_sided = bool(sel_data.get("_quote_one_sided") or sel_data.get("quote_one_sided"))
+        entry_fill, fill_quality = paper_buy_fill(_bid, _ask, one_sided=_one_sided)
+        if entry_fill is None:
+            # Last resort mid if ask missing (should be rare after liquid-chain)
+            try:
+                entry_fill = (
+                    (float(_bid or 0) + float(_ask or 0)) / 2
+                )
+                fill_quality = "MID_FALLBACK"
+            except (TypeError, ValueError):
+                entry_fill = 0.0
+                fill_quality = "NO_QUOTE"
+        entry_mid = entry_fill  # keep local name for leg json compatibility
+        qty = max(1, int(quantity or alert_fields.get("quantity") or 1))
         legs = []
         if best_chain_strategy and best_chain_strategy.get("legs"):
             legs = best_chain_strategy["legs"]
         else:
             legs = [{"action": "BUY", "type": direction.replace("LONG_", ""),
-                     "strike": sel_strike, "mid": entry_mid}]
-        n_legs = max(1, len(legs) if isinstance(legs, list) else 1)
-        try:
-            from aiem_broker.paper_fills import fee_round_trip
-            _fees_est = fee_round_trip(n_legs)  # RT estimate at open
-        except Exception:
-            _fees_est = 0.65 * n_legs * 2
+                     "strike": sel_strike, "mid": entry_mid, "fill": entry_fill,
+                     "fill_quality": fill_quality}]
+        n_legs = len(legs) if legs else 1
+        # Fee: $0.65 per contract per leg, open + close
+        fees_est = paper_round_trip_fees(n_legs=n_legs, quantity=qty)
+        # Entry-side slippage only here; exit slip added at close
+        entry_slip_dollars = paper_slippage_dollars(_bid, _ask, quantity=qty * n_legs)
+        # Keep slippage_est as entry-only until exit updates total
+        slip_dollars = entry_slip_dollars
         sel_data = dict(sel_data or {})
-        sel_data["fees_est"] = _fees_est
+        sel_data["fees_est"] = fees_est
 
         greeks = {
             "delta": sel_data.get("delta"), "gamma": sel_data.get("gamma"),
@@ -1310,30 +1349,58 @@ def capture_trade_record(
             """, (
                 alert_id, trace_id, ticker, scan_date,
                 strategy_fam, direction, json.dumps(legs),
-                datetime.utcnow(), round(entry_mid, 4),
-                1, round(float(sel_data.get("fees_est") or (
-                    # Joel schedule: $0.65 × legs × qty × 2 (round-trip estimate at open)
-                    0.65 * max(1, len(legs) if isinstance(legs, list) else 1) * 2
-                )), 4), round(float(sel_data.get("slippage_pct", 0.05)), 4),
-                round(entry_mid * 100, 2),
-                round(float(sel_data.get("premium_at_risk", entry_mid * 100)), 2),
-                round(float(sel_data.get("premium_at_risk", entry_mid * 100)), 2),
-                round(float(sel_data.get("premium_at_risk", entry_mid * 100)), 2),
-                round(float(sel_data.get("profit_target", entry_mid * 200)), 2),
+                datetime.utcnow(), round(float(entry_fill), 4),
+                qty, fees_est, slip_dollars,
+                round(float(entry_fill) * 100 * qty, 2),
+                round(float(sel_data.get("premium_at_risk") or (float(entry_fill) * 100 * qty)), 2),
+                round(float(sel_data.get("premium_at_risk") or (float(entry_fill) * 100 * qty)), 2),
+                round(float(sel_data.get("premium_at_risk") or (float(entry_fill) * 100 * qty)), 2),
+                round(float(sel_data.get("profit_target") or (float(entry_fill) * 1.6)), 2),
                 round(float(alert_fields.get("breakeven", sel_strike)), 4),
                 None,
                 json.dumps(greeks, default=str),
                 sel_data.get("iv"),
                 stock_data.get("market_regime"),
                 stock_data.get("sector") or stock_data.get("sector_name"),
-                json.dumps({}),
+                json.dumps({
+                    "fill_quality": fill_quality,
+                    "paper_fill": "ask",
+                    "n_legs": n_legs,
+                    "quantity": qty,
+                }),
                 json.dumps(subsystem, default=str),
                 _cap_eff,
             ))
             tr_id = cur.fetchone()[0]
+            # Stamp fill_quality + entry slippage/bid-ask audit columns
+            try:
+                cur.execute("""
+                    UPDATE oe_trade_records
+                    SET fill_quality = %s,
+                        entry_slippage_est = %s,
+                        entry_bid = %s,
+                        entry_ask = %s
+                    WHERE id = %s
+                """, (
+                    fill_quality,
+                    entry_slip_dollars,
+                    float(_bid) if _bid is not None else None,
+                    float(_ask) if _ask is not None else None,
+                    tr_id,
+                ))
+            except Exception:
+                try:
+                    cur.execute(
+                        "UPDATE oe_trade_records SET fill_quality=%s WHERE id=%s",
+                        (fill_quality, tr_id),
+                    )
+                except Exception:
+                    pass
             conn.commit()
         log.info(f"[phase2] trade_record id={tr_id} alert_id={alert_id} "
-                 f"ticker={ticker} direction={direction}")
+                 f"ticker={ticker} direction={direction} fill={entry_fill} "
+                 f"quality={fill_quality} qty={qty} n_legs={n_legs} "
+                 f"fees={fees_est} entry_slip={entry_slip_dollars}")
         return tr_id
     except Exception as e:
         log.warning(f"[phase2] capture_trade_record failed alert_id={alert_id}: {e}")
@@ -1347,32 +1414,99 @@ def update_trade_record_exit(
     pnl_pct:       float,
     final_price:   float,
     db_url:        str = "",
+    exit_bid:      Any = None,
+    exit_ask:      Any = None,
+    exit_fill_quality: Optional[str] = None,
+    n_legs:        Optional[int] = None,
 ) -> bool:
-    """Update oe_trade_records with exit data at outcome grading time."""
+    """Update oe_trade_records with exit data at outcome grading time.
+
+    Exit-side slippage is computed from exit_bid/exit_ask and ADDED to the
+    stored entry slippage so total adverse cost = entry_slip + exit_slip.
+    """
     db_url = db_url or _DB_URL
     try:
         entry_prem = None
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+            # Ensure audit columns exist (idempotent)
+            try:
+                cur.execute("""
+                    ALTER TABLE oe_trade_records
+                        ADD COLUMN IF NOT EXISTS entry_slippage_est NUMERIC(12,4),
+                        ADD COLUMN IF NOT EXISTS exit_slippage_est  NUMERIC(12,4),
+                        ADD COLUMN IF NOT EXISTS exit_fill_quality  VARCHAR(64),
+                        ADD COLUMN IF NOT EXISTS entry_bid          NUMERIC(12,4),
+                        ADD COLUMN IF NOT EXISTS entry_ask          NUMERIC(12,4),
+                        ADD COLUMN IF NOT EXISTS exit_bid           NUMERIC(12,4),
+                        ADD COLUMN IF NOT EXISTS exit_ask           NUMERIC(12,4)
+                """)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
             cur.execute("""
-                SELECT entry_price, entry_ts, fees_est, slippage_est FROM oe_trade_records
+                SELECT entry_price, entry_ts, fees_est, slippage_est, quantity,
+                       fill_quality, entry_slippage_est, legs_json, entry_bid, entry_ask
+                FROM oe_trade_records
                 WHERE alert_id=%s ORDER BY id ASC LIMIT 1
             """, (alert_id,))
             row = cur.fetchone()
+            qty = 1
+            _entry_fq = "ASK"
+            entry_slip = 0.0
+            _n_legs = max(1, int(n_legs or 1))
             if row:
                 entry_prem = float(row[0]) if row[0] else None
                 entry_ts   = row[1]
                 fees_est   = float(row[2]) if row[2] else 0.0
-                slip_est   = float(row[3]) if row[3] else 0.0
+                slip_legacy = float(row[3]) if row[3] else 0.0
+                if row[4]:
+                    qty = int(row[4])
+                _entry_fq = row[5] or "ASK"
+                if row[6] is not None:
+                    entry_slip = float(row[6])
+                else:
+                    entry_slip = slip_legacy
+                if row[7]:
+                    try:
+                        _legs = row[7] if isinstance(row[7], list) else json.loads(row[7])
+                        if isinstance(_legs, list) and _legs:
+                            _n_legs = len(_legs)
+                    except Exception:
+                        pass
             else:
                 fees_est   = 0.0
-                slip_est   = 0.0
+                entry_slip = 0.0
             hold = None
             if entry_prem is not None and entry_ts:
                 _ets_naive = entry_ts.replace(tzinfo=None) if entry_ts.tzinfo else entry_ts
                 hold = max(1, (datetime.utcnow() - _ets_naive).days)
 
-            pnl_abs = round((pnl_pct * entry_prem) - fees_est - slip_est, 4) if entry_prem else None
-            ror     = round(pnl_pct, 6)
+            from aiem_options_paper_fill import paper_slippage_dollars, paper_realized_pnl
+            exit_slip = paper_slippage_dollars(
+                exit_bid, exit_ask, quantity=max(1, qty) * _n_legs
+            )
+            # If no exit quote, keep exit_slip=0 (settlement path — no spread)
+            if exit_fill_quality == "MARKET_ON_EXPIRY_SETTLE" or (
+                (exit_bid is None or float(exit_bid or 0) <= 0)
+                and (exit_ask is None or float(exit_ask or 0) <= 0)
+            ):
+                if exit_fill_quality == "MARKET_ON_EXPIRY_SETTLE":
+                    exit_slip = 0.0
+            total_slip = round(float(entry_slip or 0) + float(exit_slip or 0), 4)
+            _exit_fq = exit_fill_quality or f"{_entry_fq}|MARKET_ON_EXPIRY"
+
+            if entry_prem is not None:
+                pnl_abs, ror = paper_realized_pnl(
+                    entry_price=float(entry_prem),
+                    exit_price=float(exit_price),
+                    quantity=qty,
+                    fees_est=fees_est,
+                    slippage_est=total_slip,
+                    side="BUY",
+                )
+            else:
+                pnl_abs, ror = None, round(pnl_pct, 6)
 
             cur.execute("""
                 UPDATE oe_trade_records
@@ -1383,19 +1517,27 @@ def update_trade_record_exit(
                     return_on_risk = %s,
                     holding_days = %s,
                     exit_reason  = %s,
-                    fill_quality = COALESCE(%s, fill_quality)
+                    fill_quality = %s,
+                    slippage_est = %s,
+                    entry_slippage_est = %s,
+                    exit_slippage_est = %s,
+                    exit_fill_quality = %s,
+                    exit_bid = %s,
+                    exit_ask = %s
                 WHERE alert_id  = %s
-            """, (round(exit_price, 4), pnl_abs, ror, ror, hold,
-                  outcome_str,
-                  # Keep MARKET_ON_EXPIRY label only when caller says so; else NBBO_PAPER
-                  ("MARKET_ON_EXPIRY" if str(outcome_str).upper() in (
-                      "EXPIRED", "EXPIRY", "MARKET_ON_EXPIRY", "ASSIGNED"
-                   ) else "TRADIER_NBBO_PAPER"),
-                  alert_id))
+            """, (
+                round(exit_price, 4), pnl_abs, ror, ror, hold,
+                outcome_str, f"{_entry_fq}|{_exit_fq}",
+                total_slip, entry_slip, exit_slip, _exit_fq,
+                float(exit_bid) if exit_bid is not None else None,
+                float(exit_ask) if exit_ask is not None else None,
+                alert_id,
+            ))
 
             conn.commit()
         log.debug(f"[phase2] trade_record exit updated alert_id={alert_id} "
-                  f"outcome={outcome_str} pnl_pct={pnl_pct:.4f}")
+                  f"outcome={outcome_str} exit_fq={_exit_fq} "
+                  f"entry_slip={entry_slip} exit_slip={exit_slip}")
         return True
     except Exception as e:
         log.warning(f"[phase2] update_trade_record_exit failed alert_id={alert_id}: {e}")

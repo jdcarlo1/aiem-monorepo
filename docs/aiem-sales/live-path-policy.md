@@ -1,7 +1,15 @@
-# AIEM Live Path Policy
+# AIEM / OE Live Path Policy
 
-## Default
-**PAPER_ONLY.** AIEM is sold as a research / paper terminal.
+## Product doctrine
+**Fully autonomous.** The engine finds strategies and executes them without
+per-trade human approval — that is why it was built.
+
+See: `docs/aiem-sales/autonomous-desk-doctrine.md`
+
+## Default today
+**PAPER_ONLY (autonomous paper).**  
+OE/AIEM auto-find and auto paper-fill. You do not approve each trade.
+Live brokerage orders remain locked until deliberately armed.
 
 ## Broker adapter layer
 
@@ -36,14 +44,32 @@ API:
 Stubs **never** send HTTP order requests — even if locks are armed.
 `tradier_paper` cannot place live orders by construction.
 
-## How to hook up live later
-1. Keep `AIEM_BROKER_PROVIDER=tradier_paper` for brokerage-like paper  
-2. Implement live `place_order()` in the `tradier` stub  
-3. Set broker API credentials  
-4. Arm `LIVE_TRADING_*` dual locks  
-5. Set `AIEM_ALLOW_LIVE_ORDERS=1` after code review  
-6. Flip `AIEM_BROKER_PROVIDER` to `tradier` only then  
+When those locks are armed later, execution stays **autonomous** (engine → broker).
+There is no plan to insert Approve/Reject for each live order.
+
+## How to hook up later (still autonomous)
+1. Keep `AIEM_BROKER_PROVIDER=tradier_paper` (or `paper`) until ready  
+2. Prove autonomous paper completes trades with honest ask/bid P&L  
+3. Implement live `place_order()` in the `tradier` stub (broker paper/sandbox first)  
+4. Wire risk: daily loss, kill-switch flatten, position reconcile  
+5. Set broker API credentials  
+6. Arm `LIVE_TRADING_*` dual locks  
+7. Set `AIEM_ALLOW_LIVE_ORDERS=1` after code review  
+8. Flip `AIEM_BROKER_PROVIDER` to `tradier` / `alpaca` / `ibkr` only then  
+
+Human role after unlock: monitor kill switch / caps — **not** pick daily trades.
+
+## Owner go-live track (2026-08-08)
+See `Directive_Tradier_Autonomous_GoLive_OwnerStrategies_2026-08-08.md`.
+
+- Product target = **all owner-enabled strategies** on Tradier (multi-leg included), autonomous.
+- **F3 is not** the owner’s go-live proving pattern (did not hold up in their backtests).
+- Do not conflate “Tradier can run the catalog” with “every optimistic backtest survives ask/bid costs.”
+- Tradeability skips (wide spreads) keep multi-leg strategies enabled without forcing bad fills.
+- Tradier paper/sandbox mode is the “almost real” path before live cash.
 
 ## Commercial rule
-Do not pitch AIEM as a live trading desk until the chosen live adapter is implemented and reviewed.
-Research buyers stay on paper by default — Tradier paper mode is the “almost real” path.
+Do not pitch as a live autonomous brokerage desk until the chosen live adapter is
+implemented and reviewed. Research buyers stay on autonomous paper by default —
+Tradier paper mode is the “almost real” path.
+
