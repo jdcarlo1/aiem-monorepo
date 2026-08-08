@@ -1,7 +1,15 @@
-# AIEM Live Path Policy
+# AIEM / OE Live Path Policy
 
-## Default
-**PAPER_ONLY.** AIEM is sold as a research / paper terminal.
+## Product doctrine
+**Fully autonomous.** The engine finds strategies and executes them without
+per-trade human approval — that is why it was built.
+
+See: `docs/aiem-sales/autonomous-desk-doctrine.md`
+
+## Default today
+**PAPER_ONLY (autonomous paper).**  
+OE/AIEM auto-find and auto paper-fill. You do not approve each trade.
+Live brokerage orders remain locked until deliberately armed.
 
 ## Broker adapter layer (ready to hook up later)
 
@@ -25,14 +33,21 @@ API:
 
 Stubs **never** send HTTP order requests — even if locks are armed.
 
-## How to hook up later
+When those locks are armed later, execution stays **autonomous** (engine → broker).
+There is no plan to insert Approve/Reject for each live order.
+
+## How to hook up later (still autonomous)
 1. Keep `AIEM_BROKER_PROVIDER=paper` until ready  
-2. Implement `place_order()` in the chosen stub  
-3. Set broker API credentials  
-4. Arm `LIVE_TRADING_*` dual locks  
-5. Set `AIEM_ALLOW_LIVE_ORDERS=1` after code review  
-6. Flip `AIEM_BROKER_PROVIDER` to `tradier` / `alpaca` / `ibkr`  
+2. Prove autonomous paper completes trades with honest P&L  
+3. Implement `place_order()` in the chosen stub (broker **paper** account first)  
+4. Wire risk: daily loss, kill-switch flatten, position reconcile  
+5. Set broker API credentials  
+6. Arm `LIVE_TRADING_*` dual locks  
+7. Set `AIEM_ALLOW_LIVE_ORDERS=1` after code review  
+8. Flip `AIEM_BROKER_PROVIDER` to `tradier` / `alpaca` / `ibkr`  
+
+Human role after unlock: monitor kill switch / caps — **not** pick daily trades.
 
 ## Commercial rule
-Do not pitch AIEM as a live trading desk until the chosen adapter is implemented and reviewed.
-Research buyers stay on paper by default.
+Do not pitch as a live autonomous brokerage desk until the chosen adapter is
+implemented and reviewed. Research buyers stay on autonomous paper by default.
