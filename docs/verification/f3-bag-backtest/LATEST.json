@@ -1,0 +1,572 @@
+{
+  "strategy": "F3_SPY_0DTE",
+  "pricing": "polygon_real_option_aggs",
+  "window": {
+    "start": "2026-06-05",
+    "end": "2026-08-07"
+  },
+  "stops": [
+    0.65
+  ],
+  "rules": {
+    "notional": 200.0,
+    "orb": "09:30-09:44",
+    "entry_from": "09:45",
+    "exit": "16:00 or stop",
+    "primary_stop": 0.65
+  },
+  "summary": {
+    "trades": 28,
+    "notional_per_trade": 200.0,
+    "no_stop": {
+      "total_pnl": 1333.3,
+      "win_rate_pct": 35.7,
+      "cash_on_cash_pct": 23.8
+    },
+    "stops": {
+      "65pct": {
+        "stop_pct": 0.65,
+        "total_pnl": 640.59,
+        "win_rate_pct": 25.0,
+        "cash_on_cash_pct": 11.4,
+        "stops_triggered": 21,
+        "vs_nostop": -692.71
+      }
+    }
+  },
+  "trades": [
+    {
+      "date": "2026-06-05",
+      "direction": "PUT",
+      "ticker": "O:SPY260605P00750000",
+      "spy_entry": 750.02,
+      "entry_px": 1.69,
+      "entry_minute": 585,
+      "nostop_exit": 12.69,
+      "nostop_pnl": 1301.78,
+      "stop_pnls": {
+        "0.65": 1301.78
+      },
+      "stop_hits": {
+        "0.65": false
+      },
+      "stop_exits": {
+        "0.65": 12.69
+      }
+    },
+    {
+      "date": "2026-06-08",
+      "direction": "CALL",
+      "ticker": "O:SPY260608C00745000",
+      "spy_entry": 744.79,
+      "entry_px": 1.39,
+      "entry_minute": 658,
+      "nostop_exit": 0.01,
+      "nostop_pnl": -198.56,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.4865
+      }
+    },
+    {
+      "date": "2026-06-09",
+      "direction": "CALL",
+      "ticker": "O:SPY260609C00746000",
+      "spy_entry": 745.68,
+      "entry_px": 1.35,
+      "entry_minute": 585,
+      "nostop_exit": 0.01,
+      "nostop_pnl": -198.52,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.4725
+      }
+    },
+    {
+      "date": "2026-06-10",
+      "direction": "PUT",
+      "ticker": "O:SPY260610P00731000",
+      "spy_entry": 731.38,
+      "entry_px": 2.66,
+      "entry_minute": 670,
+      "nostop_exit": 5.92,
+      "nostop_pnl": 245.11,
+      "stop_pnls": {
+        "0.65": 245.11
+      },
+      "stop_hits": {
+        "0.65": false
+      },
+      "stop_exits": {
+        "0.65": 5.92
+      }
+    },
+    {
+      "date": "2026-06-11",
+      "direction": "PUT",
+      "ticker": "O:SPY260611P00726000",
+      "spy_entry": 726.32,
+      "entry_px": 2.57,
+      "entry_minute": 655,
+      "nostop_exit": 0.01,
+      "nostop_pnl": -199.22,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.8995
+      }
+    },
+    {
+      "date": "2026-06-12",
+      "direction": "CALL",
+      "ticker": "O:SPY260612C00742000",
+      "spy_entry": 741.68,
+      "entry_px": 2.73,
+      "entry_minute": 654,
+      "nostop_exit": 0.12,
+      "nostop_pnl": -191.21,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.9555
+      }
+    },
+    {
+      "date": "2026-06-15",
+      "direction": "CALL",
+      "ticker": "O:SPY260615C00754000",
+      "spy_entry": 753.73,
+      "entry_px": 1.28,
+      "entry_minute": 588,
+      "nostop_exit": 0.81,
+      "nostop_pnl": -73.44,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.448
+      }
+    },
+    {
+      "date": "2026-06-17",
+      "direction": "PUT",
+      "ticker": "O:SPY260617P00750000",
+      "spy_entry": 749.88,
+      "entry_px": 2.44,
+      "entry_minute": 599,
+      "nostop_exit": 8.98,
+      "nostop_pnl": 536.07,
+      "stop_pnls": {
+        "0.65": 536.07
+      },
+      "stop_hits": {
+        "0.65": false
+      },
+      "stop_exits": {
+        "0.65": 8.98
+      }
+    },
+    {
+      "date": "2026-06-22",
+      "direction": "CALL",
+      "ticker": "O:SPY260622C00750000",
+      "spy_entry": 749.91,
+      "entry_px": 1.22,
+      "entry_minute": 599,
+      "nostop_exit": 0.01,
+      "nostop_pnl": -198.36,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.427
+      }
+    },
+    {
+      "date": "2026-06-24",
+      "direction": "PUT",
+      "ticker": "O:SPY260624P00734000",
+      "spy_entry": 733.94,
+      "entry_px": 1.53,
+      "entry_minute": 796,
+      "nostop_exit": 1.27,
+      "nostop_pnl": -33.99,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.5355
+      }
+    },
+    {
+      "date": "2026-06-25",
+      "direction": "PUT",
+      "ticker": "O:SPY260625P00733000",
+      "spy_entry": 733.34,
+      "entry_px": 1.97,
+      "entry_minute": 585,
+      "nostop_exit": 0.27,
+      "nostop_pnl": -172.59,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.6895
+      }
+    },
+    {
+      "date": "2026-06-29",
+      "direction": "CALL",
+      "ticker": "O:SPY260629C00740000",
+      "spy_entry": 739.69,
+      "entry_px": 1.4,
+      "entry_minute": 585,
+      "nostop_exit": 0.99,
+      "nostop_pnl": -58.57,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.49
+      }
+    },
+    {
+      "date": "2026-07-01",
+      "direction": "CALL",
+      "ticker": "O:SPY260701C00745000",
+      "spy_entry": 745.34,
+      "entry_px": 1.59,
+      "entry_minute": 599,
+      "nostop_exit": 0.98,
+      "nostop_pnl": -76.73,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.5565
+      }
+    },
+    {
+      "date": "2026-07-02",
+      "direction": "CALL",
+      "ticker": "O:SPY260702C00750000",
+      "spy_entry": 750.31,
+      "entry_px": 1.62,
+      "entry_minute": 587,
+      "nostop_exit": 0.01,
+      "nostop_pnl": -198.77,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.567
+      }
+    },
+    {
+      "date": "2026-07-06",
+      "direction": "CALL",
+      "ticker": "O:SPY260706C00750000",
+      "spy_entry": 749.77,
+      "entry_px": 0.88,
+      "entry_minute": 623,
+      "nostop_exit": 1.43,
+      "nostop_pnl": 125.0,
+      "stop_pnls": {
+        "0.65": 125.0
+      },
+      "stop_hits": {
+        "0.65": false
+      },
+      "stop_exits": {
+        "0.65": 1.43
+      }
+    },
+    {
+      "date": "2026-07-08",
+      "direction": "PUT",
+      "ticker": "O:SPY260708P00742000",
+      "spy_entry": 742.48,
+      "entry_px": 1.56,
+      "entry_minute": 636,
+      "nostop_exit": 0.01,
+      "nostop_pnl": -198.72,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.546
+      }
+    },
+    {
+      "date": "2026-07-09",
+      "direction": "CALL",
+      "ticker": "O:SPY260709C00749000",
+      "spy_entry": 748.69,
+      "entry_px": 1.39,
+      "entry_minute": 585,
+      "nostop_exit": 2.26,
+      "nostop_pnl": 125.18,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.4865
+      }
+    },
+    {
+      "date": "2026-07-10",
+      "direction": "CALL",
+      "ticker": "O:SPY260710C00753000",
+      "spy_entry": 753.31,
+      "entry_px": 1.32,
+      "entry_minute": 602,
+      "nostop_exit": 2.07,
+      "nostop_pnl": 113.64,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.462
+      }
+    },
+    {
+      "date": "2026-07-14",
+      "direction": "CALL",
+      "ticker": "O:SPY260714C00752000",
+      "spy_entry": 751.67,
+      "entry_px": 1.44,
+      "entry_minute": 585,
+      "nostop_exit": 0.12,
+      "nostop_pnl": -183.33,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.504
+      }
+    },
+    {
+      "date": "2026-07-16",
+      "direction": "PUT",
+      "ticker": "O:SPY260716P00751000",
+      "spy_entry": 750.92,
+      "entry_px": 1.64,
+      "entry_minute": 588,
+      "nostop_exit": 0.62,
+      "nostop_pnl": -124.39,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.574
+      }
+    },
+    {
+      "date": "2026-07-21",
+      "direction": "CALL",
+      "ticker": "O:SPY260721C00747000",
+      "spy_entry": 746.74,
+      "entry_px": 1.05,
+      "entry_minute": 627,
+      "nostop_exit": 1.18,
+      "nostop_pnl": 24.76,
+      "stop_pnls": {
+        "0.65": 24.76
+      },
+      "stop_hits": {
+        "0.65": false
+      },
+      "stop_exits": {
+        "0.65": 1.18
+      }
+    },
+    {
+      "date": "2026-07-23",
+      "direction": "PUT",
+      "ticker": "O:SPY260723P00738000",
+      "spy_entry": 738.06,
+      "entry_px": 1.69,
+      "entry_minute": 651,
+      "nostop_exit": 0.31,
+      "nostop_pnl": -163.31,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.5915
+      }
+    },
+    {
+      "date": "2026-07-24",
+      "direction": "PUT",
+      "ticker": "O:SPY260724P00738000",
+      "spy_entry": 738.3,
+      "entry_px": 1.54,
+      "entry_minute": 591,
+      "nostop_exit": 0.11,
+      "nostop_pnl": -185.71,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.539
+      }
+    },
+    {
+      "date": "2026-07-28",
+      "direction": "CALL",
+      "ticker": "O:SPY260728C00740000",
+      "spy_entry": 739.7,
+      "entry_px": 1.26,
+      "entry_minute": 651,
+      "nostop_exit": 0.94,
+      "nostop_pnl": -50.79,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.441
+      }
+    },
+    {
+      "date": "2026-07-29",
+      "direction": "PUT",
+      "ticker": "O:SPY260729P00738000",
+      "spy_entry": 738.32,
+      "entry_px": 2.88,
+      "entry_minute": 590,
+      "nostop_exit": 9.06,
+      "nostop_pnl": 429.17,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 1.008
+      }
+    },
+    {
+      "date": "2026-07-30",
+      "direction": "CALL",
+      "ticker": "O:SPY260730C00737000",
+      "spy_entry": 736.84,
+      "entry_px": 2.15,
+      "entry_minute": 585,
+      "nostop_exit": 4.46,
+      "nostop_pnl": 214.88,
+      "stop_pnls": {
+        "0.65": 214.88
+      },
+      "stop_hits": {
+        "0.65": false
+      },
+      "stop_exits": {
+        "0.65": 4.46
+      }
+    },
+    {
+      "date": "2026-07-31",
+      "direction": "PUT",
+      "ticker": "O:SPY260731P00743000",
+      "spy_entry": 742.61,
+      "entry_px": 2.14,
+      "entry_minute": 587,
+      "nostop_exit": 0.01,
+      "nostop_pnl": -199.07,
+      "stop_pnls": {
+        "0.65": -130.0
+      },
+      "stop_hits": {
+        "0.65": true
+      },
+      "stop_exits": {
+        "0.65": 0.749
+      }
+    },
+    {
+      "date": "2026-08-04",
+      "direction": "CALL",
+      "ticker": "O:SPY260804C00762000",
+      "spy_entry": 762.47,
+      "entry_px": 1.74,
+      "entry_minute": 585,
+      "nostop_exit": 9.77,
+      "nostop_pnl": 922.99,
+      "stop_pnls": {
+        "0.65": 922.99
+      },
+      "stop_hits": {
+        "0.65": false
+      },
+      "stop_exits": {
+        "0.65": 9.77
+      }
+    }
+  ],
+  "skipped": []
+}
