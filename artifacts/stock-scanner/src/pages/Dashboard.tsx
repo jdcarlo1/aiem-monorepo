@@ -2607,7 +2607,28 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
   // Hard cap card render — backend also truncates, but an old ~40k-row
   // cache must never mount that many DOM nodes on mobile (black screen / OOM).
   const IR_UI_MAX = 100;
-  const filteredAll = (data?.signals ?? []).filter(s => {
+  const irTodayIso = (() => {
+    try {
+      return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    } catch {
+      return new Date().toISOString().slice(0, 10);
+    }
+  })();
+  const irMinLastSeenIso = (() => {
+    const d = new Date(`${irTodayIso}T12:00:00`);
+    d.setDate(d.getDate() - 14);
+    return d.toISOString().slice(0, 10);
+  })();
+  // Client-side safety net: never render expired / ancient last_seen cards
+  // even if a stale API cache slips through before publish.
+  const liveSignals = (data?.signals ?? []).filter(s => {
+    const exp = String(s.expiry || "").slice(0, 10);
+    if (exp && exp < irTodayIso) return false;
+    const last = String(s.last_seen || "").slice(0, 10);
+    if (last && last < irMinLastSeenIso) return false;
+    return true;
+  });
+  const filteredAll = liveSignals.filter(s => {
     if (filter === "EARNINGS") return s.days_to_earnings != null;
     if (filter === "HIGH")     return s.suspicion_score >= 65;
     if (filter === "QUIET")    return (s.ticker_appearances ?? 99) <= 3;
@@ -2647,7 +2668,7 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
             fontWeight: 700 }}>SEC-STYLE DETECTION</span>
         </div>
         <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 12, margin: 0 }}>
-          Detecting suspicious call bets ($10K+) on quiet stocks · Cross-referenced with earnings up to 90 days out · Scored by rarity, size, timing
+          Live only: unexpired $10K+ call bets seen in the last 14 days · Earnings cross-check up to 90d · Scored by rarity, size, timing
         </p>
       </div>
 
@@ -2676,10 +2697,10 @@ function InsiderRadarTab({ onSelectTicker }: { onSelectTicker: (t: string) => vo
       {view === "live" && data && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
           {[
-            { label: "Total Signals",      val: data.total,           color: "#94a3b8" },
-            { label: "Earnings Linked",    val: data.earnings_linked, color: "#f87171" },
-            { label: "High Suspicion",     val: data.high_suspicion,  color: "#fb923c" },
-            { label: "Rare Ticker Bets",   val: data.rare_tickers,    color: "#a78bfa" },
+            { label: "Live Signals",       val: liveSignals.length, color: "#94a3b8" },
+            { label: "Earnings Linked",    val: liveSignals.filter(s => s.days_to_earnings != null).length, color: "#f87171" },
+            { label: "High Suspicion",     val: liveSignals.filter(s => (s.suspicion_score ?? 0) >= 65).length, color: "#fb923c" },
+            { label: "Rare Ticker Bets",   val: liveSignals.filter(s => (s.ticker_appearances ?? 99) <= 3).length, color: "#a78bfa" },
           ].map(s => (
             <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14, padding: "14px 16px", textAlign: "center" }}>
               <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, color: s.color, letterSpacing: "-0.04em", marginBottom: 3 }}>{s.val}</div>
@@ -4725,7 +4746,7 @@ function AIShortCallsTab() {
 
       {picks.length > 0 && (
         <div style={{ fontSize: 9, color: BB_DIM, marginTop: 14, lineHeight: 1.7 }}>
-          ⚠ These are AI-generated picks based on unusual options flow. Not financial advice. Always verify with your own research before trading.
+          ⚠ Scanner-ranked short-call picks from unusual options flow (not OpenAI-ranked). Not financial advice. Always verify with your own research before trading.
         </div>
       )}
     </div>
