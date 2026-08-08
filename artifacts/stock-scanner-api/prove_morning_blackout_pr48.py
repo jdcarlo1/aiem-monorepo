@@ -35,31 +35,70 @@ def proof_1_diff_and_late_boot() -> bool:
     section("PROOF_1_BEFORE_AFTER_AND_LATE_BOOT")
     ok = True
 
-    # Real git before/after for Step 2c
-    before = subprocess.check_output(
-        [
-            "git", "show",
-            "origin/main:artifacts/stock-scanner-api/aiem_paper_recovery.py",
-        ],
-        cwd=str(REPO),
-        text=True,
+    # Real git baseline for Step 2c. Prefer pre-#48 main tip when that object
+    # is reachable; otherwise use origin/main (already patched after #48 merged).
+    # CI must `git fetch origin main` (see morning-publish-blackout.yml).
+    before_ref = os.environ.get("PR48_BEFORE_REF", "").strip()
+    if not before_ref:
+        # Merge commit of PR #48; ^1 = main tip immediately before that merge.
+        pre48 = "5958b894d8e8d45d47fd9dc7d67b19a95524284b^1"
+        probe = subprocess.run(
+            ["git", "rev-parse", "--verify", pre48],
+            cwd=str(REPO),
+            capture_output=True,
+            text=True,
+        )
+        before_ref = pre48 if probe.returncode == 0 else "origin/main"
+
+    def _git_show(spec: str) -> str:
+        try:
+            return subprocess.check_output(
+                ["git", "show", spec],
+                cwd=str(REPO),
+                text=True,
+                stderr=subprocess.STDOUT,
+            )
+        except subprocess.CalledProcessError:
+            subprocess.check_call(
+                ["git", "fetch", "--no-tags", "origin", "main"],
+                cwd=str(REPO),
+            )
+            return subprocess.check_output(
+                ["git", "show", spec],
+                cwd=str(REPO),
+                text=True,
+            )
+
+    before_spec = (
+        f"{before_ref}:artifacts/stock-scanner-api/aiem_paper_recovery.py"
     )
+    print(f"before_ref={before_ref}")
+    before = _git_show(before_spec)
     after = (ROOT / "aiem_paper_recovery.py").read_text()
     # Extract Step 2c trigger gate lines
-    m_before = re.search(
+    m_before_old = re.search(
         r"if trigger_source == \"scheduled_942\":", before
+    )
+    m_before_new = re.search(
+        r"_ZERO_PICK_OVERRIDE_TRIGGERS = \{([^}]+)\}", before, re.S
     )
     m_after = re.search(
         r"_ZERO_PICK_OVERRIDE_TRIGGERS = \{([^}]+)\}", after, re.S
     )
-    print("--- BEFORE (origin/main) trigger gate ---")
-    if m_before:
-        i = before.rfind("Step 2c", 0, m_before.start())
-        print(before[i:m_before.end() + 80])
+    print(f"--- BEFORE ({before_ref}) trigger gate ---")
+    if m_before_old:
+        i = before.rfind("Step 2c", 0, m_before_old.start())
+        print(before[i : m_before_old.end() + 80])
+    elif m_before_new:
+        print(
+            "NOTE baseline already has _ZERO_PICK_OVERRIDE_TRIGGERS "
+            "(PR48 on main) — git before/after N/A; behavioral proofs still run"
+        )
+        print("_ZERO_PICK_OVERRIDE_TRIGGERS = {" + m_before_new.group(1) + "}")
     else:
         print("FAIL could not find before gate")
         ok = False
-    print("--- AFTER (PR48 branch) override triggers ---")
+    print("--- AFTER (working tree) override triggers ---")
     if m_after:
         print("_ZERO_PICK_OVERRIDE_TRIGGERS = {" + m_after.group(1) + "}")
         print('if trigger_source in _ZERO_PICK_OVERRIDE_TRIGGERS:')
