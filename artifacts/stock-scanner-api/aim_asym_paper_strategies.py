@@ -66,6 +66,26 @@ STRATEGY_KEYS = (
 # Cash-secured SPY short put needs ~strike×100; keep a dedicated paper book.
 RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
 
+# Long call/put condor: wing width $5 → max plateau payoff $500 / package.
+# Static TP% is unreachable when debit is rich; set TP from priced debit at entry.
+MAX_PLATEAU_PAYOFF_USD = 500.00
+SAFETY_MARGIN = 0.80
+DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset({"call_condor", "put_condor"})
+
+
+def dynamic_tp_pct(entry_debit_usd: float) -> float:
+    """TP% of |entry| = SAFETY_MARGIN × max reachable % given $500 plateau."""
+    d = float(entry_debit_usd)
+    if d <= 0:
+        raise ValueError(f"dynamic_tp_pct requires debit > 0, got {d}")
+    if d >= MAX_PLATEAU_PAYOFF_USD:
+        raise ValueError(
+            f"dynamic_tp_pct: debit ${d:.2f} ≥ plateau ${MAX_PLATEAU_PAYOFF_USD:.2f}"
+        )
+    max_reachable_pct = (MAX_PLATEAU_PAYOFF_USD - d) / d * 100.0
+    return SAFETY_MARGIN * max_reachable_pct
+
+
 
 def _api_key() -> str:
     return os.environ.get("POLYGON_API_KEY") or os.environ.get("POLYGON_KEY") or ""
@@ -249,7 +269,7 @@ def build_put_ladder_defined(spot: float) -> list[tuple[int, str, float]]:
 
 
 def build_long_call_condor(spot: float) -> list[tuple[int, str, float]]:
-    """ATM ±5 / ±10 long call condor — BT 08_long_call_condor (+300% TP)."""
+    """ATM ±5 / ±10 long call condor — plateau $500; TP set dynamically at entry."""
     k = float(round(spot))
     return [
         (1, "call", k - 10),
@@ -260,7 +280,7 @@ def build_long_call_condor(spot: float) -> list[tuple[int, str, float]]:
 
 
 def build_long_put_condor(spot: float) -> list[tuple[int, str, float]]:
-    """ATM ±5 / ±10 long put condor — BT 09_long_put_condor (+300% TP)."""
+    """ATM ±5 / ±10 long put condor — plateau $500; TP set dynamically at entry."""
     k = float(round(spot))
     return [
         (1, "put", k + 10),
@@ -546,14 +566,29 @@ class AsymOptionsLedger:
                 "structure": self.pattern_name,
                 "risk_usd": self.risk_usd,
                 "take_profit_pct": self.take_profit_pct,
+                "take_profit_mode": (
+                    "dynamic_plateau_80pct"
+                    if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                    else "fixed_pct"
+                ),
+                "max_plateau_payoff_usd": (
+                    MAX_PLATEAU_PAYOFF_USD
+                    if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                    else None
+                ),
                 "stop_loss": None,
                 "pricing": "Polygon daily option aggregates",
                 "allow_credit": self.allow_credit,
                 "cash_secured": self.cash_secured,
                 "exit": (
-                    f"+{self.take_profit_pct:.0f}% of |entry| premium or "
-                    f"flatten 15:30 on expiry Friday (daily mark asof that day)"
-                ),
+                    (
+                        f"dynamic TP = {SAFETY_MARGIN:.0%} of max reachable "
+                        f"vs ${MAX_PLATEAU_PAYOFF_USD:.0f} plateau (set at entry) or "
+                    )
+                    if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                    else f"+{self.take_profit_pct:.0f}% of |entry| premium or "
+                )
+                + "flatten 15:30 on expiry Friday (daily mark asof that day)",
             },
             "reserved_collateral_usd": round(self._reserved_collateral_usd, 2),
             "account_balance_usd": round(self.account_balance_usd, 2),
@@ -656,10 +691,13 @@ class AsymOptionsLedger:
                 )
                 self.active_position["unrealized_pnl"] = round(pnl, 2)
                 self.net_liquidation_usd = self.account_balance_usd + mark_usd
-                # Catalog/asym BT: TP dollars = abs(entry) * (tp_pct / 100)
-                tp_dollars = abs(entry_usd) * (self.take_profit_pct / 100.0)
+                # TP dollars = abs(entry) * (tp_pct / 100); condors use entry-time dynamic %
+                tp_pct = float(
+                    self.active_position.get("take_profit_pct", self.take_profit_pct)
+                )
+                tp_dollars = abs(entry_usd) * (tp_pct / 100.0)
                 if pnl >= tp_dollars:
-                    self._close(mark_usd, f"TP_{int(self.take_profit_pct)}PCT")
+                    self._close(mark_usd, f"TP_{int(round(tp_pct))}PCT")
                     return
                 if day >= exp and bar_time >= FLATTEN_TIME:
                     self._close(mark_usd, "EXPIRY_FLATTEN")
@@ -667,10 +705,13 @@ class AsymOptionsLedger:
                 if day > exp:
                     self._close(mark_usd, "EXPIRY_FLATTEN")
                     return
+            tp_pct_note = float(
+                self.active_position.get("take_profit_pct", self.take_profit_pct)
+            )
             self.signal_state = {
                 "status": "IN_POSITION",
                 "note": (
-                    f"TP +{int(self.take_profit_pct)}% of |entry| · no stop · "
+                    f"TP +{tp_pct_note:.1f}% of |entry| · no stop · "
                     f"Polygon daily · exp {self.active_position['expiration']}"
                 ),
             }
@@ -759,6 +800,24 @@ class AsymOptionsLedger:
             }
             return
 
+        # Condors: replace static config TP with entry-time dynamic % from priced debit
+        if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES:
+            if entry_usd <= 0:
+                self.signal_state = {
+                    "status": "SKIP_DYNAMIC_TP",
+                    "note": "condor dynamic TP requires debit package",
+                }
+                return
+            per_pkg_debit = float(entry_usd) / float(packages)
+            try:
+                self.take_profit_pct = float(dynamic_tp_pct(per_pkg_debit))
+            except ValueError as _dtp_err:
+                self.signal_state = {
+                    "status": "SKIP_DYNAMIC_TP",
+                    "note": str(_dtp_err),
+                }
+                return
+
         # Debit: pay premium. Credit: receive premium (subtract negative).
         self.account_balance_usd -= entry_usd
         paper_id = persist_asym_paper_open(
@@ -788,8 +847,14 @@ class AsymOptionsLedger:
             "entry_debit_usd": round(entry_usd, 2),
             "collateral_usd": round(collateral, 2),
             "stop": 0.0,
+            "take_profit_pct": float(self.take_profit_pct),
             "target": round(
                 abs(debit_ps) * (self.take_profit_pct / 100.0), 4
+            ),
+            "max_plateau_payoff_usd": (
+                MAX_PLATEAU_PAYOFF_USD * packages
+                if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
+                else None
             ),
             "strike": float(round(spot)),
             "legs": priced["legs"],
@@ -806,13 +871,13 @@ class AsymOptionsLedger:
             "status": "IN_POSITION",
             "note": (
                 f"entered {packages} pkg {kind} ${entry_usd:.2f} "
-                f"TP +{int(self.take_profit_pct)}% of |entry| Polygon daily"
+                f"TP +{self.take_profit_pct:.1f}% of |entry| Polygon daily"
                 + (f" · CSP ${collateral:.0f}" if collateral else "")
             ),
         }
         self.net_liquidation_usd = self.account_balance_usd + entry_usd
         log.info(
-            "[%s] ENTRY: %d pkg @ $%.2f %s | TP +%.0f%% | exp %s | paper_id=%s",
+            "[%s] ENTRY: %d pkg @ $%.2f %s | TP +%.1f%% | exp %s | paper_id=%s",
             self.pattern_name, packages, entry_usd, kind, self.take_profit_pct,
             priced["expiration"], paper_id,
         )
@@ -838,12 +903,13 @@ def build_default_asym_ledgers(
             "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
             "put_ladder", **kw,
         ),
+        # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
         "call_condor": AsymOptionsLedger(
-            "LONG_CALL_CONDOR", build_long_call_condor, 300.0,
+            "LONG_CALL_CONDOR", build_long_call_condor, 0.0,
             "call_condor", **kw,
         ),
         "put_condor": AsymOptionsLedger(
-            "LONG_PUT_CONDOR", build_long_put_condor, 300.0,
+            "LONG_PUT_CONDOR", build_long_put_condor, 0.0,
             "put_condor", **kw,
         ),
         "narrow_wing_butterfly": AsymOptionsLedger(

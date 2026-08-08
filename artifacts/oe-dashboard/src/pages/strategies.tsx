@@ -91,13 +91,13 @@ const ASYM_CARDS: Array<{
     key: 'call_condor',
     title: 'Long Call Condor',
     blurb:
-      'ATM ±5 / ±10 call condor · Mon–Fri 09:30 ET · ≤$500 debit · TP +300% · no stop · ~3wk Friday · Polygon daily',
+      'ATM ±5 / ±10 call condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · ~3wk Friday · Polygon daily',
   },
   {
     key: 'put_condor',
     title: 'Long Put Condor',
     blurb:
-      'ATM ±5 / ±10 put condor · Mon–Fri 09:30 ET · ≤$500 debit · TP +300% · no stop · ~3wk Friday · Polygon daily',
+      'ATM ±5 / ±10 put condor · Mon–Fri 09:30 ET · ≤$500 debit · dynamic TP (80% of max plateau gain) · no stop · ~3wk Friday · Polygon daily',
   },
   {
     key: 'narrow_wing_butterfly',
