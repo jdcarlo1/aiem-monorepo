@@ -291,42 +291,60 @@ def try_claim(business_date: datetime.date, execution_id: str,
                 )
                 return False
 
-        # Step 2c — scheduled_942 overrides a COMPLETED/SKIPPED zero-picks row.
+        # Step 2c — override a COMPLETED/SKIPPED zero-picks row.
         # Root cause (2026-07-20): startup_recovery at 9:00 AM finds NO_CANDIDATES,
         # calls mark_skipped() → ledger status=SKIPPED, picks_count=NULL.  At 9:42
         # the scheduled run hits try_claim(), INSERT fails (UNIQUE conflict), all
         # UPDATE paths fail (row is not PENDING/CLAIMED/EXECUTING) → returns False →
         # the real scheduled run is silently skipped.
-        # Fix: if the caller is "scheduled_942" AND the existing row is terminal
-        # (COMPLETED or SKIPPED) with picks_count IS NULL or 0 (no real trades
-        # were ever placed), steal the row so the scheduled run can proceed.
+        #
+        # Aug 7 2026 addendum: only scheduled_942 had this override.  When a
+        # mid-morning Publish/restart missed 9:42 entirely, startup_recovery
+        # could mark SKIPPED (NO_CANDIDATES before Loop B warmed) and then
+        # internal_watchdog / startup_catchup treated SKIPPED as terminal —
+        # day stayed at 0 picks forever.  Extend override to post-window
+        # recovery triggers + scheduled_1015 retry, capped for non-cron callers.
         # Guard: picks_count > 0 means actual trades were executed — do NOT override.
-        if trigger_source == "scheduled_942":
+        _ZERO_PICK_OVERRIDE_TRIGGERS = {
+            "scheduled_942",
+            "scheduled_1015",
+            "startup_catchup",
+            "startup_recovery",
+            "internal_watchdog",
+            "external_watchdog",
+            "admin",
+        }
+        if trigger_source in _ZERO_PICK_OVERRIDE_TRIGGERS:
+            _cron_override = trigger_source in ("scheduled_942", "scheduled_1015")
             cur.execute("""
                 UPDATE paper_trade_job_ledger
                 SET status          = 'CLAIMED',
                     execution_id    = %s,
                     trigger_source  = %s,
                     claimed_at      = NOW(),
-                    recovery_attempts = recovery_attempts + 1
+                    recovery_attempts = COALESCE(recovery_attempts, 0) + 1
                 WHERE business_date = %s
                   AND status        IN ('COMPLETED', 'SKIPPED')
                   AND (picks_count IS NULL OR picks_count = 0)
+                  AND (
+                    %s
+                    OR COALESCE(recovery_attempts, 0) < 5
+                  )
                 RETURNING id, recovery_attempts
-            """, (execution_id, trigger_source, date_str))
+            """, (execution_id, trigger_source, date_str, _cron_override))
             row2c = cur.fetchone()
             if row2c:
                 conn.commit()
                 _log_evidence({
                     "event": "LEDGER_CLAIMED",
-                    "via": "OVERRIDE_ZERO_PICKS_SCHEDULED_942",
+                    "via": "OVERRIDE_ZERO_PICKS",
                     "business_date": date_str,
                     "execution_id": execution_id,
                     "trigger_source": trigger_source,
                     "recovery_attempt": row2c[1],
                 })
-                print(f"[paper_recovery] CLAIMED (override zero-picks, scheduled_942 preempts) "
-                      f"{date_str} execution_id={execution_id} trigger={trigger_source}")
+                print(f"[paper_recovery] CLAIMED (override zero-picks, {trigger_source}) "
+                      f"{date_str} execution_id={execution_id}")
                 return True
 
         # Step 2e — reclaim FAILED so watchdog / scheduled / admin can retry.
@@ -428,7 +446,8 @@ def mark_completed(business_date: datetime.date, execution_id: str,
 def mark_skipped(business_date: datetime.date, execution_id: str, reason: str):
     """
     Transition → SKIPPED (loss limit, governance block, no candidates).
-    Treated as terminal — watchdog will NOT retry a SKIPPED day.
+    Terminal for picks_count>0 days.  Zero-pick SKIPPED may be reclaimed by
+    Step 2c override triggers (scheduled_942/1015 + recovery callers).
     """
     date_str = str(business_date)
     with _db() as conn, conn.cursor() as cur:
@@ -564,15 +583,27 @@ def start_internal_watchdog(execute_fn, is_trading_day_fn, et_tz,
 
                 if is_wday and past_944 and before_4 and is_trading_day_fn(today):
                     status_info = get_today_status(today)
-                    terminal = {"COMPLETED", "SKIPPED"}
-                    if status_info["status"] not in terminal:
+                    _st = status_info.get("status")
+                    _pc = status_info.get("picks_count")
+                    # Non-terminal OR zero-pick terminal (Aug 7: late redeploy left
+                    # SKIPPED/NO_CANDIDATES and old logic never retried).
+                    _needs = (
+                        _st not in {"COMPLETED", "SKIPPED"}
+                        or (
+                            _st in {"COMPLETED", "SKIPPED"}
+                            and (_pc is None or int(_pc or 0) == 0)
+                            and int(status_info.get("recovery_attempts") or 0) < 5
+                        )
+                    )
+                    if _needs:
                         print(f"[paper_watchdog_internal] {today} "
-                              f"status={status_info['status']} at {h:02d}:{m:02d} ET "
+                              f"status={_st} picks={_pc} at {h:02d}:{m:02d} ET "
                               f"— triggering internal_watchdog recovery")
                         _log_evidence({
                             "event": "INTERNAL_WATCHDOG_FIRED",
                             "business_date": str(today),
-                            "status_before": status_info["status"],
+                            "status_before": _st,
+                            "picks_count_before": _pc,
                             "time_et": f"{h:02d}:{m:02d}",
                         })
                         try:
@@ -580,7 +611,6 @@ def start_internal_watchdog(execute_fn, is_trading_day_fn, et_tz,
                         except Exception as exc:
                             print(f"[paper_watchdog_internal] recovery error: {exc}")
                         # D14 verification: fires after any recovery attempt
-                        # (the fn itself checks ledger status and skips if SKIPPED)
                         if d14_verify_fn:
                             try:
                                 d14_verify_fn()
