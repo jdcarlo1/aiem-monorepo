@@ -150,8 +150,8 @@ class AIMPaperTradingEngine:
 
     Gap Fill / ORB: $10k each, 1.5% risk equity.
     F3: $200 notional ATM 0DTE long call/put, −65% premium stop, else 16:00.
-    Asym: put/call butterfly, put ladder, narrow-wing fly (debit, ≤$500),
-    bullish risk reversal (credit, cash-secured, $100k paper book).
+    Asym: put/call butterfly, put ladder, call/put condor, narrow-wing fly
+    (debit, ≤$500), bullish risk reversal (credit, cash-secured, $100k book).
     Mon–Fri 09:30 ET when flat, no stop, Polygon daily, TP of |entry|.
     """
 

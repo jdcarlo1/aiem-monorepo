@@ -2,14 +2,16 @@
 """
 Asymmetric SPY paper strategies — Pattern Lab / OE Strategies.
 
-From 2y Polygon BTs (no stop, TP grid):
-  Asym top-3 (spy_asymmetric_bt):
+From 2y Polygon BTs (no stop, TP grid; weekdays mode):
+  Asym packages (spy_asymmetric_bt):
     1. Long put butterfly   — TP +200% of |entry|
     2. Long call butterfly  — TP +100% of |entry|
     3. Put ladder (defined) — TP +150% of |entry|
+    4. Long call condor     — TP +300% of |entry|
+    5. Long put condor      — TP +300% of |entry|
   Catalog winners (spy_catalog_untested_bt):
-    4. Narrow-wing call butterfly — TP +200% of |entry|
-    5. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
+    6. Narrow-wing call butterfly — TP +200% of |entry|
+    7. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
 
 Parity with BT engines (weekdays mode — spy_asymmetric_bt --entry weekdays):
   - Underlying SPY
@@ -55,6 +57,8 @@ STRATEGY_KEYS = (
     "put_butterfly",
     "call_butterfly",
     "put_ladder",
+    "call_condor",
+    "put_condor",
     "narrow_wing_butterfly",
     "bullish_risk_reversal",
 )
@@ -242,6 +246,28 @@ def build_long_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
 def build_put_ladder_defined(spot: float) -> list[tuple[int, str, float]]:
     k = float(round(spot))
     return [(1, "put", k), (-1, "put", k - 5), (-1, "put", k - 10), (1, "put", k - 15)]
+
+
+def build_long_call_condor(spot: float) -> list[tuple[int, str, float]]:
+    """ATM ±5 / ±10 long call condor — BT 08_long_call_condor (+300% TP)."""
+    k = float(round(spot))
+    return [
+        (1, "call", k - 10),
+        (-1, "call", k - 5),
+        (-1, "call", k + 5),
+        (1, "call", k + 10),
+    ]
+
+
+def build_long_put_condor(spot: float) -> list[tuple[int, str, float]]:
+    """ATM ±5 / ±10 long put condor — BT 09_long_put_condor (+300% TP)."""
+    k = float(round(spot))
+    return [
+        (1, "put", k + 10),
+        (-1, "put", k + 5),
+        (-1, "put", k - 5),
+        (1, "put", k - 10),
+    ]
 
 
 def build_narrow_wing_call_butterfly(spot: float) -> list[tuple[int, str, float]]:
@@ -787,6 +813,14 @@ def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0
         "put_ladder": AsymOptionsLedger(
             "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
             "put_ladder", underlying, capital,
+        ),
+        "call_condor": AsymOptionsLedger(
+            "LONG_CALL_CONDOR", build_long_call_condor, 300.0,
+            "call_condor", underlying, capital,
+        ),
+        "put_condor": AsymOptionsLedger(
+            "LONG_PUT_CONDOR", build_long_put_condor, 300.0,
+            "put_condor", underlying, capital,
         ),
         "narrow_wing_butterfly": AsymOptionsLedger(
             "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 200.0,

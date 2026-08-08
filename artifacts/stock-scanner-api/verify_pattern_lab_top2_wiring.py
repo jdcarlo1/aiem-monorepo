@@ -74,14 +74,39 @@ def section_spec_constants():
 
     nw = m.build_narrow_wing_call_butterfly(500.0)
     rr = m.build_bullish_risk_reversal(500.0)
+    cc = m.build_long_call_condor(500.0)
+    pc = m.build_long_put_condor(500.0)
     print(f"narrow_wing_legs_spot500={nw!r}")
     print(f"bullish_rr_legs_spot500={rr!r}")
+    print(f"call_condor_legs_spot500={cc!r}")
+    print(f"put_condor_legs_spot500={pc!r}")
     _ok("narrow_atm_pm2", nw == [(1, "call", 498.0), (-2, "call", 500.0), (1, "call", 502.0)])
     _ok("rr_call_kp5_put_km5", rr == [(1, "call", 505.0), (-1, "put", 495.0)])
+    _ok(
+        "call_condor_atm_pm5_pm10",
+        cc
+        == [
+            (1, "call", 490.0),
+            (-1, "call", 495.0),
+            (-1, "call", 505.0),
+            (1, "call", 510.0),
+        ],
+    )
+    _ok(
+        "put_condor_atm_pm5_pm10",
+        pc
+        == [
+            (1, "put", 510.0),
+            (-1, "put", 505.0),
+            (-1, "put", 495.0),
+            (1, "put", 490.0),
+        ],
+    )
 
     ledgers = m.build_default_asym_ledgers()
     nw_l = ledgers["narrow_wing_butterfly"]
     rr_l = ledgers["bullish_risk_reversal"]
+    print("LEDGER_KEYS", sorted(ledgers.keys()))
     print(
         "narrow_ledger",
         {
@@ -111,6 +136,12 @@ def section_spec_constants():
     _ok("rr_allow_credit", rr_l.allow_credit is True)
     _ok("rr_cash_secured_flag", rr_l.cash_secured is True)
     _ok("rr_capital_100k", rr_l._starting_capital == 100000.0)
+    _ok("has_call_condor_ledger", "call_condor" in ledgers)
+    _ok("has_put_condor_ledger", "put_condor" in ledgers)
+    _ok("call_condor_tp_300", ledgers["call_condor"].take_profit_pct == 300.0)
+    _ok("put_condor_tp_300", ledgers["put_condor"].take_profit_pct == 300.0)
+    _ok("asym_ledger_count_7", len(ledgers) == 7)
+    _ok("strategy_keys_count_7", len(m.STRATEGY_KEYS) == 7)
 
 
 def section_reject_budget():

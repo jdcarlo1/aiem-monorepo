@@ -75754,7 +75754,7 @@ def _build_bear_tech_signals(close_str, rvol, vpin, hurst, iv):
 @app.route("/stock-api/pattern-lab/snapshot", methods=["GET"])
 @app.route("/pattern-lab/snapshot", methods=["GET"])
 def pattern_lab_snapshot():
-    """Pattern Lab — Gap Fill, ORB, F3, + asym packages (flies, ladder, narrow-wing, bullish RR)."""
+    """Pattern Lab — Gap Fill, ORB, F3, + asym packages (flies, ladder, condors, narrow-wing, bullish RR)."""
     try:
         eng = _get_pattern_lab_engine()
         return jsonify(eng.dashboard_snapshot())
