@@ -138,8 +138,21 @@ def section_spec_constants():
     _ok("rr_capital_100k", rr_l._starting_capital == 100000.0)
     _ok("has_call_condor_ledger", "call_condor" in ledgers)
     _ok("has_put_condor_ledger", "put_condor" in ledgers)
-    _ok("call_condor_tp_300", ledgers["call_condor"].take_profit_pct == 300.0)
-    _ok("put_condor_tp_300", ledgers["put_condor"].take_profit_pct == 300.0)
+    # Condor TP is placeholder 0 until entry-time dynamic_tp_pct(D)
+    _ok("call_condor_tp_placeholder_0", ledgers["call_condor"].take_profit_pct == 0.0)
+    _ok("put_condor_tp_placeholder_0", ledgers["put_condor"].take_profit_pct == 0.0)
+    _ok(
+        "condor_in_dynamic_plateau_set",
+        "call_condor" in m.DYNAMIC_PLATEAU_TP_STRATEGIES
+        and "put_condor" in m.DYNAMIC_PLATEAU_TP_STRATEGIES,
+    )
+    d_call, d_put = 167.0, 141.0
+    tp_call = m.dynamic_tp_pct(d_call)
+    tp_put = m.dynamic_tp_pct(d_put)
+    print(f"dynamic_tp_call_D167={tp_call:.4f}")
+    print(f"dynamic_tp_put_D141={tp_put:.4f}")
+    _ok("dynamic_tp_call_below_max", tp_call < (500.0 - d_call) / d_call * 100.0)
+    _ok("dynamic_tp_put_below_max", tp_put < (500.0 - d_put) / d_put * 100.0)
     _ok("asym_ledger_count_7", len(ledgers) == 7)
     _ok("strategy_keys_count_7", len(m.STRATEGY_KEYS) == 7)
 
