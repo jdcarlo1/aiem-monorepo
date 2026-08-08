@@ -1538,6 +1538,8 @@ export interface InsiderRadarResult {
   as_of:           string;
   stale?:          boolean;
   generating?:     boolean;
+  live_window_days?: number;
+  expired_filtered?: boolean;
 }
 
 export function fetchInsiderRadar(bust = false) {
@@ -2463,6 +2465,18 @@ export interface AiemPaperPortfolio {
   closed_trades: AiemPaperClosedTrade[];
   daily_pnl: AiemDailyPnl[];
   as_of: string;
+  broker?: {
+    provider?: string;
+    default_provider?: string;
+    mode?: string;
+    connected?: boolean;
+    uses_live_quotes?: boolean;
+    linked_account_id?: string | null;
+    option_level?: number | null;
+    paper_cash?: number | null;
+    live_orders?: boolean;
+    note?: string;
+  };
 }
 
 export function fetchAiemPaperPortfolio(days = 30): Promise<AiemPaperPortfolio> {

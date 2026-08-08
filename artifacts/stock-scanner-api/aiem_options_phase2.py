@@ -1193,11 +1193,28 @@ def capture_trade_record(
     try:
         # Autonomous paper: long buys fill at ask (conservative). Mid was
         # optimistic and mismatched grading which used bid as entry_premium_lo.
+        # Prefer quotes already on sel_data; optionally refresh from Tradier NBBO helper.
         from aiem_options_paper_fill import (
             paper_buy_fill,
             paper_slippage_dollars,
             paper_round_trip_fees,
         )
+        try:
+            from aiem_broker.paper_fills import price_single_option_nbbo
+            _right = "put" if "PUT" in str(direction).upper() else "call"
+            _nbbo = price_single_option_nbbo(
+                ticker, float(sel_strike), str(scan_date), _right,
+                quantity=1.0, is_buy=True, for_exit=False,
+            ) if sel_strike else None
+        except Exception:
+            _nbbo = None
+        if _nbbo and (_nbbo.get("bid") is not None or _nbbo.get("ask") is not None):
+            sel_data = dict(sel_data or {})
+            if _nbbo.get("bid") is not None:
+                sel_data.setdefault("bid", _nbbo.get("bid"))
+            if _nbbo.get("ask") is not None:
+                sel_data.setdefault("ask", _nbbo.get("ask"))
+            sel_data["fill_source"] = "tradier_nbbo_paper"
         _bid = sel_data.get("bid")
         _ask = sel_data.get("ask")
         _one_sided = bool(sel_data.get("_quote_one_sided") or sel_data.get("quote_one_sided"))
@@ -1228,6 +1245,8 @@ def capture_trade_record(
         entry_slip_dollars = paper_slippage_dollars(_bid, _ask, quantity=qty * n_legs)
         # Keep slippage_est as entry-only until exit updates total
         slip_dollars = entry_slip_dollars
+        sel_data = dict(sel_data or {})
+        sel_data["fees_est"] = fees_est
 
         greeks = {
             "delta": sel_data.get("delta"), "gamma": sel_data.get("gamma"),
@@ -1514,6 +1533,7 @@ def update_trade_record_exit(
                 float(exit_ask) if exit_ask is not None else None,
                 alert_id,
             ))
+
             conn.commit()
         log.debug(f"[phase2] trade_record exit updated alert_id={alert_id} "
                   f"outcome={outcome_str} exit_fq={_exit_fq} "

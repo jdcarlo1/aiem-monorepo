@@ -30,6 +30,9 @@ Data flow:
        →  top 10 picks written to aiem_process_predictions
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import sys
 import time
@@ -921,7 +924,7 @@ def _td_quotes(symbols: list) -> dict:
     try:
         batch   = ",".join(symbols[:200])
         req     = urllib.request.Request(
-            f"https://api.tradier.com/v1/markets/quotes?symbols={batch}",
+            f"{TRADIER_API_BASE}/v1/markets/quotes?symbols={batch}",
             headers={"Authorization": f"Bearer {TRADIER_TOKEN}",
                      "Accept": "application/json"},
         )
@@ -1014,7 +1017,7 @@ def _tradier_live_update(candidates: list) -> list:
         batch = syms[i:i + 200]
         try:
             req = urllib.request.Request(
-                f"https://api.tradier.com/v1/markets/quotes?symbols={','.join(batch)}",
+                f"{TRADIER_API_BASE}/v1/markets/quotes?symbols={','.join(batch)}",
                 headers={"Authorization": f"Bearer {TRADIER_TOKEN}",
                          "Accept": "application/json"},
             )

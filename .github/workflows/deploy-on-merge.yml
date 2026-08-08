@@ -3,9 +3,9 @@ name: Deploy-on-Merge Reminder
 # ─────────────────────────────────────────────────────────────────────────────
 # What this does
 # ─────────────────────────────────────────────────────────────────────────────
-# Fires every time a PR is merged into origin/main (push to main === merged PR).
-# Sends a Telegram notification with the merged commit SHA and a direct link to
-# the Replit editor, so the one-click "Publish" step is never forgotten.
+# Fires when origin/dev moves (live Replit branch). Normally that is the
+# auto-sync from main (workflow sync-main-to-dev.yml) after a merge to main.
+# Sends Telegram: pull origin/dev in the Replit workspace, then Publish.
 #
 # IMPORTANT — what this cannot do
 # ─────────────────────────────────────────────────────────────────────────────
@@ -14,22 +14,21 @@ name: Deploy-on-Merge Reminder
 # Access Tokens are for bypassing access controls on private apps, not for
 # initiating deploys. This was verified against Replit's own documentation on
 # 2026-08-04. The only way to republish is to click Publish in the editor.
-# This workflow automates the notification; the one click remains manual.
+# Publish also does NOT git-fetch — pull the workspace to origin/dev first.
+# This workflow automates the notification; pull + Publish remain manual.
 #
 # Secrets required (all already in repo secrets from other workflows):
 #   TELEGRAM_BOT_TOKEN  — bot token
 #   TELEGRAM_CHAT_ID    — owner chat ID
 #
 # Triggers on:
-#   push to main  — fires after every merge; the short-circuit guard below
-#                   skips it if the push is just a workflow-file-only change
-#                   on a non-merge commit (rare, but keeps noise down).
+#   push to dev   — live branch updated (auto-sync or direct merge into dev)
 #   workflow_dispatch — manual trigger for testing, with a dry_run option.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -104,7 +103,17 @@ jobs:
             "import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=':/?=@#'))" \
             "${RUN_URL}" 2>/dev/null || echo "${RUN_URL}")
 
-          TEXT="🚀 DEPLOY+READY%0A%0ACommit%3A+${SHORT_SHA}%0A${SAFE_LINE}%0A%0A✅+Merged+to+main+by+${PUSHER}%0A%0A👉+Publish+now%3A+${SAFE_URL}%0A%0AGH+run%3A+${SAFE_RUN}"
+          # ── Morning blackout guard (next-best; Replit cannot block Publish) ─
+          # Replit has no public API to refuse Publish. If merge lands inside
+          # Mon–Fri 08:50–10:20 ET, do NOT say "Publish now" — warn hard.
+          # Override only with ALLOW_MORNING_PUBLISH=1.
+          BLACKOUT_MODE=$(python3 -c "import sys; sys.path.insert(0, 'artifacts/stock-scanner-api'); from morning_deploy_blackout import deploy_reminder_mode, et_now; print(deploy_reminder_mode(et_now()))")
+          echo "Blackout mode: ${BLACKOUT_MODE}"
+          if [ "${BLACKOUT_MODE}" = "blackout" ] && [ "${ALLOW_MORNING_PUBLISH:-}" != "1" ]; then
+            TEXT="MORNING+BLACKOUT+-+DO+NOT+PUBLISH%0A%0ACommit%3A+${SHORT_SHA}+on+dev%0A${SAFE_LINE}%0A%0Aorigin%2Fdev+updated+by+${PUSHER}+during+08%3A50-10%3A20+ET.%0A%0A1)+In+Replit%3A+git+pull+--ff-only+origin+dev%0A2)+Do+NOT+Publish+until+after+10%3A30+ET+%28or+before+08%3A45+ET%29.%0AMid-window+Publish+missed+Loop+B+%2B+paper+9%3A42+on+2026-08-07.%0A%0AEditor%3A+${SAFE_URL}%0AGH+run%3A+${SAFE_RUN}"
+          else
+            TEXT="DEV+READY+-+PULL+%2B+PUBLISH%0A%0ACommit%3A+${SHORT_SHA}+on+dev%0A${SAFE_LINE}%0A%0Aorigin%2Fdev+updated+by+${PUSHER}%0A%0A1)+Replit+Shell%3A+git+pull+--ff-only+origin+dev%0A2)+Publish%3A+${SAFE_URL}%0A%0APublish+alone+does+NOT+fetch+GitHub.%0AGH+run%3A+${SAFE_RUN}"
+          fi
 
           # ── Send Telegram message ─────────────────────────────────────────
           HTTP=$(curl -s -o /tmp/tg_resp.json -w "%{http_code}" \

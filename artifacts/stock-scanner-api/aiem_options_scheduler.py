@@ -27,6 +27,9 @@ Schedule (ET, Mon-Fri)
   00:05 — clean up jobs older than 30 days
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import sys
 import json
@@ -2097,7 +2100,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             exp_dates = []
             try:
                 exp_url = (
-                    f"https://api.tradier.com/v1/markets/options/expirations"
+                    f"{TRADIER_API_BASE}/v1/markets/options/expirations"
                     f"?symbol={sym}&includeAllRoots=true"
                 )
                 req = urllib.request.Request(exp_url, headers=headers)
@@ -2140,7 +2143,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             out = []
             for dte, exp in exp_dates:
                 url = (
-                    f"https://api.tradier.com/v1/markets/options/chains"
+                    f"{TRADIER_API_BASE}/v1/markets/options/chains"
                     f"?symbol={sym}&expiration={exp.strftime('%Y-%m-%d')}&greeks=true"
                 )
                 try:
@@ -2374,7 +2377,9 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 except Exception as _te:
                     log.warning(f"[exec] Tradier enrich {ticker} {_e}: {_te}")
 
+            # D1: exact strike + expiry match; first match wins; no ±7.5 window.
             for _o in _all_enrich:
+
                 _typ = _o.get("option_type")
                 _sk  = _o.get("strike")
                 _oexp = _o.get("expiration_date")

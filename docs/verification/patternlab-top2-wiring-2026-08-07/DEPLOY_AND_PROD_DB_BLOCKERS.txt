@@ -1,0 +1,43 @@
+# Deploy + prod DB blockers (Directive follow-up §3–§4)
+
+## §3 Live snapshot / dashboard
+
+```
+$ curl -sS https://nclexai.org/stock-api/pattern-lab/snapshot | python3 -c '...'
+LIVE_KEYS ['f3', 'gap_fill', 'orb']
+LIVE_narrow_wing_butterfly=MISSING
+LIVE_bullish_risk_reversal=MISSING
+```
+
+```
+$ gh pr view 45 --json state,mergedAt
+state=OPEN mergedAt=null
+```
+
+```
+$ gh pr merge 45 --merge
+GraphQL: Pull Request is still a draft (mergePullRequest)
+```
+
+**CANNOT PRODUCE** live snapshot cards or dashboard screenshot until:
+1. PR #45 marked ready + merged to `main`
+2. stock-api Publish/restart on nclexai.org
+3. Agent re-fetches `/pattern-lab/snapshot` and screenshots Pattern Lab
+
+Agent limitation: no merge tool for draft PRs in ManagePullRequest; cannot restart Replit/nclexai workflows.
+
+## §4 Prod Neon DB
+
+```
+$ env | grep -iE 'DATABASE|NEON|POSTGRES'
+DATABASE_URL=postgresql://asym_dry:***@127.0.0.1:5432/asym_dry
+```
+
+No `NEON_DATABASE_URL` / `PROD_DATABASE_URL` in agent env. Local `asym_dry` ids 4/5 are **not** prod.
+
+**What must change for prod proof:**
+1. Add secret `NEON_DATABASE_URL` (or `PROD_DATABASE_URL`) = Neon connection string with write access to `aiem_paper_trades`
+2. Network egress to Neon host must be allowed from this cloud agent
+3. After deploy, run OPEN/CLOSE (or wait for live Monday entry) and `SELECT ... WHERE strategy IN ('narrow_wing_butterfly','bullish_risk_reversal')` against that DSN
+
+Requested via cursor-cloud `request-environment-setup-actions` (merge/deploy external action + Neon secrets).

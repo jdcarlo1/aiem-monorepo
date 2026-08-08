@@ -1,3 +1,4 @@
+from aiem_broker.tradier_config import TRADIER_API_BASE as _TAB
 """
 config.py — All tuneable thresholds, weights, and constants for the
 Advanced Strategy Engine. Edit only here; import everywhere else.
@@ -6,7 +7,7 @@ import hashlib, json, os
 
 # ── Tradier data source ─────────────────────────────────────────────────────
 TRADIER_TOKEN   = os.environ.get("TRADIER_API_TOKEN_2") or os.environ.get("TRADIER_API_TOKEN", "")
-TRADIER_BASE    = "https://api.tradier.com/v1/markets"
+TRADIER_BASE    = f"{_TAB}/v1/markets"
 CHAIN_CACHE_TTL = 300      # seconds
 
 # ── Commission / fee model ──────────────────────────────────────────────────

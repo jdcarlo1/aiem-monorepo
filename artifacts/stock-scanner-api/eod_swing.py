@@ -13,6 +13,9 @@ Looks for the 'quiet accumulation' pattern:
 Threshold: score ≥ 60 to make the email / SMS.
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import math
 import requests as _req
@@ -70,7 +73,7 @@ def _score_swing(ticker: str) -> dict | None:
         _end   = _es_dt.date.today()
         _start = _end - _es_dt.timedelta(days=44)
         _r = _es_req.get(
-            "https://api.tradier.com/v1/markets/history",
+            f"{TRADIER_API_BASE}/v1/markets/history",
             params={"symbol": ticker, "interval": "daily",
                     "start": str(_start), "end": str(_end)},
             headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},

@@ -2174,9 +2174,13 @@ def _td_quotes_lite(symbols: list) -> dict:
         return {}
     try:
         import urllib.parse as _uparse
+        _api_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "artifacts", "stock-scanner-api")
+        if _api_dir not in sys.path:
+            sys.path.insert(0, _api_dir)
+        from aiem_broker.tradier_config import TRADIER_API_BASE
         qs = _uparse.urlencode({"symbols": ",".join(str(s) for s in symbols[:200])})
         req = urllib.request.Request(
-            f"https://api.tradier.com/v1/markets/quotes?{qs}",
+            f"{TRADIER_API_BASE}/v1/markets/quotes?{qs}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=8) as r:

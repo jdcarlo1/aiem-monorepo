@@ -1,0 +1,111 @@
+name: Sync main to dev (live)
+
+# Live Replit tracks `dev`. Cursor/GitHub merges land on `main`.
+# On every push to main, merge main into dev and push.
+# On conflict: open a sync PR + Telegram (no force-push).
+# Publish stays manual; after sync we dispatch deploy-on-merge
+# (GITHUB_TOKEN pushes do not re-trigger workflows).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-main-to-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  sync:
+    name: Merge origin/main into origin/dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync main to dev
+        id: sync
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main dev
+
+          MAIN_SHA=$(git rev-parse origin/main)
+          DEV_SHA=$(git rev-parse origin/dev)
+          echo "origin/main=${MAIN_SHA}"
+          echo "origin/dev=${DEV_SHA}"
+
+          if git merge-base --is-ancestor "$MAIN_SHA" origin/dev; then
+            echo "status=already_synced" >> "$GITHUB_OUTPUT"
+            echo "origin/dev already contains origin/main — nothing to do"
+            exit 0
+          fi
+
+          git checkout -B dev origin/dev
+
+          if git merge --no-ff origin/main -m "Auto-sync: merge origin/main into dev ($(echo "$MAIN_SHA" | cut -c1-7))"; then
+            git push origin HEAD:dev
+            NEW_SHA=$(git rev-parse HEAD)
+            echo "status=synced" >> "$GITHUB_OUTPUT"
+            echo "dev_sha=${NEW_SHA}" >> "$GITHUB_OUTPUT"
+            echo "Pushed sync commit ${NEW_SHA} to origin/dev"
+
+            # GITHUB_TOKEN pushes do not re-trigger workflows.
+            gh workflow run deploy-on-merge.yml --ref dev \
+              || echo "WARN: could not dispatch deploy-on-merge (non-fatal)"
+            exit 0
+          fi
+
+          echo "status=conflict" >> "$GITHUB_OUTPUT"
+          git merge --abort || true
+
+          BRANCH="auto/sync-main-to-dev-conflict-${GITHUB_RUN_ID}"
+          git push -u origin "origin/main:refs/heads/${BRANCH}"
+
+          cat > /tmp/sync-conflict-pr-body.md <<EOF
+          Automatic main -> dev sync failed with merge conflicts after push \`${MAIN_SHA}\` to main.
+
+          Live Replit tracks \`dev\`. Resolve conflicts into \`dev\`, merge this PR, then in Replit: \`git pull --ff-only origin dev\` and Publish.
+
+          Actions run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          # Strip the YAML/run indentation that remains in the heredoc body.
+          sed -i 's/^          //' /tmp/sync-conflict-pr-body.md
+
+          PR_URL=$(gh pr create \
+            --base dev \
+            --head "$BRANCH" \
+            --title "CONFLICT: auto-sync main to dev failed — manual resolve needed" \
+            --body-file /tmp/sync-conflict-pr-body.md \
+            2>/dev/null || gh pr list --base dev --head "$BRANCH" --json url --jq '.[0].url')
+
+          echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
+          echo "Conflict — opened/found PR: ${PR_URL}"
+
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            SAFE_PR=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=':/?=@#'))" "${PR_URL}")
+            TEXT="MAIN-DEV+SYNC+CONFLICT%0A%0Amain=${MAIN_SHA:0:7}%0AResolve+PR%3A+${SAFE_PR}%0AThen+Replit+pull+%2B+Publish."
+            curl -sS -o /tmp/tg.json -w "%{http_code}" \
+              -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}&text=${TEXT}" \
+              --max-time 10 || true
+            echo
+            cat /tmp/tg.json || true
+          fi
+
+          exit 1

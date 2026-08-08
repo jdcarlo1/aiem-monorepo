@@ -1,0 +1,46 @@
+{
+  "strategy": "GAMMA_BLAST",
+  "label": "sweep-tp2.0-profit100pct-sl75pct",
+  "saved_utc": "20260807T011103Z",
+  "pricing_mode": "synthetic",
+  "disclaimer": "synthetic = logic check only, not real P&L",
+  "days_requested": 504,
+  "days_with_bars": 482,
+  "start": "2024-09-03",
+  "end": "2026-08-07",
+  "config": {
+    "ticker": "SPY",
+    "risk_per_trade": 100.0,
+    "take_profit_multiplier": 2.0,
+    "stop_loss_pct": 0.75,
+    "range_threshold": 0.01,
+    "breakout_threshold": 0.05,
+    "time_stop_minutes": 45,
+    "entry_start": "09:30",
+    "entry_end": "14:30",
+    "risk_free_rate": 0.05,
+    "iv_estimate": 0.2
+  },
+  "default_config": {
+    "ticker": "SPY",
+    "risk_per_trade": 100.0,
+    "take_profit_multiplier": 3.0,
+    "stop_loss_pct": 0.5,
+    "range_threshold": 0.01,
+    "breakout_threshold": 0.05,
+    "time_stop_minutes": 45,
+    "entry_start": "09:30",
+    "entry_end": "14:30",
+    "risk_free_rate": 0.05,
+    "iv_estimate": 0.2
+  },
+  "summary": {
+    "trades": 0,
+    "mode": "synthetic",
+    "total_pnl": 0.0,
+    "win_rate": null,
+    "avg_pnl": null
+  },
+  "trades": [],
+  "trade_count": 0
+}

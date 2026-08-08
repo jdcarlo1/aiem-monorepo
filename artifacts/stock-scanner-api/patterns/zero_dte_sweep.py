@@ -32,6 +32,8 @@ import os
 import threading
 from datetime import datetime, date
 
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 _TICKERS        = ["SPY", "SPX"]
 _SPREAD_LIMIT   = {"SPY": 0.10, "SPX": 0.30}
 _PREMIUM_THRESH = 500_000      # USD per 5-min window
@@ -49,9 +51,9 @@ _WINDOWS_ET     = [(10, 0, 11, 30), (14, 0, 15, 30)]
 #    stop_loss_pct=0.06     → exit when option loses 6% of entry premium (−6%).
 #    These are the live paper-trading defaults (UI banner must match).
 #    Change these constants to adjust; they are NOT hardcoded in any logic.
-_PAPER_PROFIT_TARGET_PCT: float = 0.50   # +50% gain on entry premium → target exit
-_PAPER_STOP_LOSS_PCT:     float = 0.06   # −6% loss on entry premium  → stop exit
-_PAPER_CONTRACTS:         int   = 1      # hypothetical contracts per trade (×100 shares)
+_PAPER_PROFIT_TARGET_PCT: float = float(os.environ.get("ZERO_DTE_PROFIT_TARGET_PCT", "0.50") or 0.50)
+_PAPER_STOP_LOSS_PCT:     float = float(os.environ.get("ZERO_DTE_STOP_LOSS_PCT", "0.06") or 0.06)
+_PAPER_CONTRACTS:         int   = int(os.environ.get("ZERO_DTE_PAPER_CONTRACTS", "1") or 1)
 
 _tables_ready   = False
 _last_vol: dict = {}           # {(ticker, side, strike, expiry): int}
@@ -75,7 +77,7 @@ def _today_expiry(ticker: str) -> str | None:
         return None
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/options/expirations",
+            f"{TRADIER_API_BASE}/v1/markets/options/expirations",
             params={"symbol": ticker, "includeAllRoots": "false"},
             headers=hdrs, timeout=5,
         )
@@ -103,7 +105,7 @@ def _fetch_chain(ticker: str, expiry: str) -> tuple:
         return [], []
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/options/chains",
+            f"{TRADIER_API_BASE}/v1/markets/options/chains",
             params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
             headers=hdrs, timeout=8,
         )
@@ -153,7 +155,7 @@ def _fetch_5min_bars(ticker: str) -> list:
     hdrs = {"Authorization": f"Bearer {tok}", "Accept": "application/json"}
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={"symbol": ticker, "interval": "5min", "session_filter": "open"},
             headers=hdrs, timeout=6,
         )
@@ -181,7 +183,7 @@ def _fetch_underlying_price(ticker: str) -> float:
         return 0.0
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": sym},
             headers=hdrs, timeout=5,
         )
@@ -208,7 +210,7 @@ def _fetch_option_mid(contract_symbol: str) -> float | None:
         return None
     try:
         r = requests.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": contract_symbol, "greeks": "false"},
             headers=hdrs, timeout=5,
         )

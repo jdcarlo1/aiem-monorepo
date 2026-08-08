@@ -19,7 +19,7 @@ Adjustment types (append-only, each = new ase_adjustments row):
   CONVERT       — restructure (e.g. vertical → diagonal)
 """
 from __future__ import annotations
-import json, uuid
+import json, os, uuid
 from datetime import datetime, timezone, date
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -32,10 +32,10 @@ from .config import COMMISSION_PER_LEG
 
 
 # ── Exit thresholds ──────────────────────────────────────────────────────────
-PROFIT_TARGET_PCT     = 0.50    # 50% of max profit → close
-STOP_LOSS_PCT         = 2.00    # 2× max loss → hard stop
-MIN_DTE_HOLD          = 3       # don't hold short options through last 3 DTE
-MAX_HOLDING_DAYS      = 90      # time-based cap
+PROFIT_TARGET_PCT     = float(os.environ.get("ASE_PROFIT_TARGET_PCT", "0.50") or 0.50)
+STOP_LOSS_PCT         = float(os.environ.get("ASE_STOP_LOSS_PCT", "2.00") or 2.00)
+MIN_DTE_HOLD          = int(os.environ.get("ASE_MIN_DTE_HOLD", "3") or 3)
+MAX_HOLDING_DAYS      = int(os.environ.get("ASE_MAX_HOLDING_DAYS", "90") or 90)
 
 
 def _new_adj_id() -> str:

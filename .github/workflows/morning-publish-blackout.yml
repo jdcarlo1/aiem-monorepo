@@ -1,0 +1,65 @@
+name: Morning Publish Blackout Gate
+
+# Structural next-best guard: Replit cannot refuse the Publish button
+# (no public deploy API — see deploy-on-merge.yml). This workflow fails
+# when run during Mon–Fri 08:50–10:20 ET unless ALLOW_MORNING_PUBLISH=1.
+#
+# Use:
+#   - workflow_dispatch before a manual Publish
+#   - required check / preflight for operators
+#   - called from deploy-on-merge messaging path
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_override:
+        description: 'Set to 1 only to force OK during blackout (ALLOW_MORNING_PUBLISH)'
+        required: false
+        default: '0'
+  pull_request:
+    paths:
+      - 'artifacts/stock-scanner-api/morning_deploy_blackout.py'
+      - 'artifacts/stock-scanner-api/check_morning_publish_blackout.py'
+      - 'artifacts/stock-scanner-api/prove_morning_blackout_pr48.py'
+      - 'artifacts/stock-scanner-api/aiem_paper_recovery.py'
+      - '.github/workflows/morning-publish-blackout.yml'
+      - '.github/workflows/deploy-on-merge.yml'
+
+jobs:
+  blackout-proof:
+    name: Prove blackout helpers + cron TZ + late-boot retry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch origin/main for before/after proof
+        run: git fetch --no-tags origin main
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install proof deps
+        run: pip install pytz apscheduler
+      - name: Run PR48 proof harness
+        run: python3 artifacts/stock-scanner-api/prove_morning_blackout_pr48.py
+
+  blackout-gate:
+    name: Pre-publish blackout gate (ET clock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    # On pull_request: only run the proof job above (gate is time-dependent).
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tz
+        run: pip install pytz
+      - name: Check morning blackout
+        env:
+          ALLOW_MORNING_PUBLISH: ${{ github.event.inputs.allow_override }}
+        run: python3 artifacts/stock-scanner-api/check_morning_publish_blackout.py

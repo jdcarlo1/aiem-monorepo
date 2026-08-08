@@ -1,0 +1,50 @@
+{
+    "f3": {
+        "account_balance_usd": 10000.0,
+        "active_position": null,
+        "losses": 0,
+        "net_liquidation_usd": 10000.0,
+        "orb_high": null,
+        "orb_low": null,
+        "pattern": "F3_SPY_0DTE",
+        "pm_direction": null,
+        "profit_rate_pct": 0.0,
+        "recent_trades": [],
+        "rules": {
+            "entry": "breakout with PM direction \u2192 ATM long call/put",
+            "exit": "16:00 ET or -65% premium stop; no profit target",
+            "notional_usd": 200.0,
+            "orb": "09:30-09:44 ET",
+            "premarket_filter": true,
+            "stop_loss_pct": 0.65
+        },
+        "signal_state": {
+            "status": "IDLE"
+        },
+        "total_trades": 0,
+        "win_rate_pct": 0.0,
+        "wins": 0
+    },
+    "gap_fill": {
+        "account_balance_usd": 10000.0,
+        "active_position": null,
+        "losses": 0,
+        "net_liquidation_usd": 10000.0,
+        "pattern": "GAP_FILL",
+        "profit_rate_pct": 0.0,
+        "total_trades": 0,
+        "win_rate_pct": 0.0,
+        "wins": 0
+    },
+    "orb": {
+        "account_balance_usd": 10000.0,
+        "active_position": null,
+        "losses": 0,
+        "net_liquidation_usd": 10000.0,
+        "pattern": "ORB",
+        "profit_rate_pct": 0.0,
+        "total_trades": 0,
+        "win_rate_pct": 0.0,
+        "wins": 0
+    }
+}
