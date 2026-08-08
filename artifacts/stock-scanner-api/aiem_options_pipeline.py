@@ -713,10 +713,58 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                 else:
                     intrinsic = max(0.0, strike_f - final_price)
 
-                pnl         = intrinsic - entry_prem
+                # Exit fill: prefer live/near-expiry option quote → sell at BID.
+                # Intrinsic only as true-expiry settlement when no quote exists.
+                # Do NOT reuse entry bid/ask from the alert as exit quotes.
+                from aiem_options_paper_fill import paper_sell_fill
+                exit_bid = exit_ask = None
+                exit_fill_quality = "MARKET_ON_EXPIRY_SETTLE"
+                exit_price = float(intrinsic)
+                try:
+                    try:
+                        import os as _os_q, json as _jq, urllib.request as _urq
+                        _tok = "".join((_os_q.environ.get("TRADIER_API_TOKEN_2")
+                                        or _os_q.environ.get("TRADIER_API_TOKEN")
+                                        or "").split())
+                        if _tok and expiry:
+                            _url = (
+                                f"https://api.tradier.com/v1/markets/options/chains"
+                                f"?symbol={ticker}&expiration={str(expiry)[:10]}&greeks=true"
+                            )
+                            _req = _urq.Request(
+                                _url,
+                                headers={"Authorization": f"Bearer {_tok}",
+                                         "Accept": "application/json"},
+                            )
+                            with _urq.urlopen(_req, timeout=6) as _resp:
+                                _raw = _jq.loads(_resp.read())
+                            _opts = (_raw.get("options") or {}).get("option") or []
+                            if isinstance(_opts, dict):
+                                _opts = [_opts]
+                            _want = "call" if direction == "LONG_CALL" else "put"
+                            for _o in _opts:
+                                if (_o.get("option_type") == _want
+                                        and float(_o.get("strike") or 0) == float(strike_f)):
+                                    exit_bid = _o.get("bid")
+                                    exit_ask = _o.get("ask")
+                                    break
+                    except Exception:
+                        pass
+                    _sell_px, _sell_q = paper_sell_fill(exit_bid, exit_ask, last=None)
+                    if _sell_px is not None and _sell_q in ("BID", "ONE_SIDED_BID"):
+                        exit_price = float(_sell_px)
+                        exit_fill_quality = _sell_q
+                    else:
+                        exit_price = float(intrinsic)
+                        exit_fill_quality = "MARKET_ON_EXPIRY_SETTLE"
+                except Exception:
+                    exit_price = float(intrinsic)
+                    exit_fill_quality = "MARKET_ON_EXPIRY_SETTLE"
+
+                pnl         = exit_price - entry_prem
                 pnl_pct_val = pnl / entry_prem if entry_prem > 0 else 0.0
 
-                if intrinsic == 0:
+                if exit_fill_quality == "MARKET_ON_EXPIRY_SETTLE" and intrinsic == 0:
                     outcome_str = "EXPIRED_WORTHLESS"
                 elif pnl > 0:
                     outcome_str = "WIN"
@@ -783,9 +831,11 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                     WHERE id = %s
                 """, (
                     outcome_str,
-                    round(intrinsic, 4),
+                    round(exit_price, 4),
                     round(pnl_pct_val, 4),
-                    (f"close={final_price}  intrinsic={intrinsic:.4f}"
+                    (f"close={final_price}  exit={exit_price:.4f}"
+                     f"  exit_fq={exit_fill_quality}"
+                     f"  intrinsic={intrinsic:.4f}"
                      f"  entry={entry_prem:.4f}  pnl={pnl:.4f}"),
                     json.dumps(stage_hashes),
                     h10,
@@ -826,10 +876,13 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                     _p2.update_trade_record_exit(
                         alert_id=aid,
                         outcome_str=outcome_str,
-                        exit_price=float(intrinsic),
+                        exit_price=float(exit_price),
                         pnl_pct=float(pnl_pct_val),
                         final_price=float(final_price),
                         db_url=_DB_URL,
+                        exit_bid=exit_bid,
+                        exit_ask=exit_ask,
+                        exit_fill_quality=exit_fill_quality,
                     )
                 except Exception as _p2_e:
                     pass  # non-fatal: phase2 outcome capture never blocks grading

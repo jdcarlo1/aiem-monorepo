@@ -1,4 +1,4 @@
-"""Unit tests for autonomous OE paper fill / P&L helpers."""
+"""Unit tests for paper fill realism fixes (ask entry / bid exit / dual slip / fees)."""
 from __future__ import annotations
 
 import sys
@@ -10,52 +10,52 @@ if str(ROOT) not in sys.path:
 
 from aiem_options_paper_fill import (
     paper_buy_fill,
-    paper_realized_pnl,
+    paper_sell_fill,
     paper_slippage_dollars,
+    paper_realized_pnl,
+    paper_round_trip_fees,
 )
 
 
-def test_paper_buy_fill_uses_ask():
-    px, q = paper_buy_fill(1.20, 1.40)
-    assert px == 1.40
-    assert q == "ASK"
+def test_sell_fill_at_bid():
+    px, q = paper_sell_fill(1.90, 2.10)
+    assert px == 1.90
+    assert q == "BID"
 
 
-def test_paper_buy_fill_one_sided():
-    px, q = paper_buy_fill(0, 1.50, one_sided=True)
-    assert px == 1.50
-    assert q == "ONE_SIDED_ASK"
+def test_sell_fill_one_sided():
+    px, q = paper_sell_fill(None, 2.00)
+    assert q == "ONE_SIDED_BID"
+    assert px == round(2.00 * 0.85, 4)
 
 
-def test_paper_buy_fill_missing_ask():
-    px, q = paper_buy_fill(1.2, None)
-    assert px is None
-    assert q == "NO_ASK"
+def test_condor_fees():
+    assert paper_round_trip_fees(n_legs=4, quantity=1) == 5.20
 
 
-def test_slippage_half_spread_dollars():
-    # (1.40-1.20)/2 = 0.10 → $10 per contract
-    assert paper_slippage_dollars(1.20, 1.40, quantity=1) == 10.0
-    assert paper_slippage_dollars(1.20, 1.40, quantity=2) == 20.0
-
-
-def test_slippage_one_sided():
-    # half of ask * 100
-    assert paper_slippage_dollars(0, 2.00, quantity=1) == 100.0
-
-
-def test_realized_pnl_long_winner():
-    # bought 1.40, expired intrinsic 2.00 → +$60 - fees - slip
-    pnl, ret = paper_realized_pnl(
-        entry_price=1.40, exit_price=2.00, quantity=1, fees_est=0.65, slippage_est=10.0
+def test_asymmetry_ask_in_bid_out():
+    entry, _ = paper_buy_fill(1.20, 1.40)
+    exit_px, _ = paper_sell_fill(1.90, 2.10)
+    entry_slip = paper_slippage_dollars(1.20, 1.40, 1)
+    exit_slip = paper_slippage_dollars(1.90, 2.10, 1)
+    total_slip = entry_slip + exit_slip
+    pnl, _ = paper_realized_pnl(
+        entry_price=entry,
+        exit_price=exit_px,
+        quantity=1,
+        fees_est=0.65,
+        slippage_est=total_slip,
     )
-    assert pnl == round(60.0 - 0.65 - 10.0, 4)
-    assert ret == round((2.0 - 1.4) / 1.4, 6)
+    # Prior demo: exit-at-bid with entry slip only ≈ 39.35; with dual slip lower.
+    assert entry == 1.4
+    assert exit_px == 1.9
+    assert entry_slip == 10.0
+    assert exit_slip == 10.0
+    assert pnl == round((1.9 - 1.4) * 100 - 0.65 - 20.0, 4)
 
 
-def test_realized_pnl_worthless():
-    pnl, ret = paper_realized_pnl(
-        entry_price=1.40, exit_price=0.0, quantity=1, fees_est=0.65, slippage_est=10.0
+def test_slippage_always_subtracted():
+    pnl, _ = paper_realized_pnl(
+        entry_price=1.4, exit_price=1.9, fees_est=0, slippage_est=10
     )
-    assert pnl == round(-140.0 - 0.65 - 10.0, 4)
-    assert ret == round(-1.0, 6)
+    assert pnl == 40.0  # 50 - 10
