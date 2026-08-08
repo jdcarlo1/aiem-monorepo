@@ -117,8 +117,8 @@ export default function StrategiesPage() {
   const { apiFetch } = useApi();
 
   const { data, isLoading, isError, error, dataUpdatedAt } = useQuery({
-    queryKey: ['pattern-lab-strategies'],
-    queryFn: () => apiFetch<Snapshot>('/pattern-lab/snapshot'),
+    queryKey: ['oe-strategies-snapshot'],
+    queryFn: () => apiFetch<Snapshot>('/oe/strategies/snapshot'),
     refetchInterval: 30_000,
     retry: false,
   });
@@ -131,7 +131,7 @@ export default function StrategiesPage() {
             Strategies
           </h1>
           <p className="text-sm font-mono text-muted-foreground mt-1 break-words">
-            Live paper on Options Engine — F3 0DTE + asym packages (flies, ladder, condors, narrow-wing, bullish RR)
+            OE paper book (SKU-isolated) — F3 0DTE + same asym patterns as AIEM (flies, ladder, condors, narrow-wing, bullish RR)
           </p>
         </div>
         <div className="font-mono text-sm text-muted-foreground text-left sm:text-right shrink-0">

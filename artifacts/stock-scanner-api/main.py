@@ -1061,23 +1061,37 @@ _AIEM_PAPER_LOCK      = threading.Lock()  # prevents concurrent _aiem_paper_exec
 # Change this constant (only here) if a different spread is approved.
 _NANO_CAP_SPREAD_PCT  = 0.01
 
-# ── Pattern Lab (Gap Fill + ORB) — independent paper ledgers ──────────────────
-# Isolated from D1/D2/D3. Fed by td_intraday_capture; snapshot via /pattern-lab/snapshot.
-_PATTERN_LAB_ENGINE = None
+# ── Pattern Lab (AIEM) + OE Strategies — same VM, separate SKU engines ────────
+# Same option pattern set on both terminals; independent ledgers / paper tickers.
+# AIEM: /pattern-lab/snapshot  |  OE: /oe/strategies/snapshot
+# Fed by td_intraday_capture (one SPY feed → two evaluate calls).
+_PATTERN_LAB_ENGINE = None  # sku=aiem
+_OE_STRATEGIES_ENGINE = None  # sku=oe
 _PATTERN_LAB_LOCK = threading.Lock()
+_OE_STRATEGIES_LOCK = threading.Lock()
 
 def _get_pattern_lab_engine():
-    """Module-level singleton — one AIMPaperTradingEngine for process lifetime."""
+    """AIEM Pattern Lab singleton (Gap Fill + ORB + F3 + asym)."""
     global _PATTERN_LAB_ENGINE
     if _PATTERN_LAB_ENGINE is None:
         with _PATTERN_LAB_LOCK:
             if _PATTERN_LAB_ENGINE is None:
                 from aim_paper_trading_engine import AIMPaperTradingEngine as _AIM_PTE
-                _PATTERN_LAB_ENGINE = _AIM_PTE(symbol="SPY")
+                _PATTERN_LAB_ENGINE = _AIM_PTE(symbol="SPY", sku="aiem")
     return _PATTERN_LAB_ENGINE
 
+def _get_oe_strategies_engine():
+    """OE Strategies singleton (F3 + same asym packages; separate book)."""
+    global _OE_STRATEGIES_ENGINE
+    if _OE_STRATEGIES_ENGINE is None:
+        with _OE_STRATEGIES_LOCK:
+            if _OE_STRATEGIES_ENGINE is None:
+                from aim_paper_trading_engine import AIMPaperTradingEngine as _AIM_PTE
+                _OE_STRATEGIES_ENGINE = _AIM_PTE(symbol="SPY", sku="oe")
+    return _OE_STRATEGIES_ENGINE
+
 def _pattern_lab_feed_from_spy_df(spy_df) -> None:
-    """Normalize Tradier OHLCV → engine schema and evaluate_market_bars once."""
+    """Normalize Tradier OHLCV → evaluate BOTH AIEM and OE engines (SKU-isolated)."""
     try:
         import pandas as _pl_pd
         if spy_df is None or getattr(spy_df, "empty", True):
@@ -1124,8 +1138,16 @@ def _pattern_lab_feed_from_spy_df(spy_df) -> None:
             print(f"[pattern_lab] prior_close lookup error: {_pc_e}")
         if prior_close is None or prior_close <= 0:
             return
-        eng = _get_pattern_lab_engine()
-        eng.evaluate_market_bars(prior_close, df)
+        # AIEM Pattern Lab
+        try:
+            _get_pattern_lab_engine().evaluate_market_bars(prior_close, df)
+        except Exception as _aiem_ev:
+            print(f"[pattern_lab] AIEM evaluate skipped: {_aiem_ev}")
+        # OE Strategies (same patterns, separate book — same reserved VM)
+        try:
+            _get_oe_strategies_engine().evaluate_market_bars(prior_close, df)
+        except Exception as _oe_ev:
+            print(f"[oe_strategies] OE evaluate skipped: {_oe_ev}")
     except Exception as _pl_e:
         print(f"[pattern_lab] evaluate skipped: {_pl_e}")
 
@@ -75754,12 +75776,23 @@ def _build_bear_tech_signals(close_str, rvol, vpin, hurst, iv):
 @app.route("/stock-api/pattern-lab/snapshot", methods=["GET"])
 @app.route("/pattern-lab/snapshot", methods=["GET"])
 def pattern_lab_snapshot():
-    """Pattern Lab — Gap Fill, ORB, F3, + asym packages (flies, ladder, condors, narrow-wing, bullish RR)."""
+    """AIEM Pattern Lab — Gap Fill, ORB, F3, + asym packages (SKU=aiem)."""
     try:
         eng = _get_pattern_lab_engine()
         return jsonify(eng.dashboard_snapshot())
     except Exception as _e_pl:
         return jsonify({"error": str(_e_pl)}), 500
+
+
+@app.route("/stock-api/oe/strategies/snapshot", methods=["GET"])
+@app.route("/oe/strategies/snapshot", methods=["GET"])
+def oe_strategies_snapshot():
+    """OE Strategies — F3 + same asym packages as AIEM (SKU=oe, separate book)."""
+    try:
+        eng = _get_oe_strategies_engine()
+        return jsonify(eng.options_snapshot())
+    except Exception as _e_oe:
+        return jsonify({"error": str(_e_oe)}), 500
 
 
 @app.route("/stock-api/admin/decision-audit", methods=["GET"])

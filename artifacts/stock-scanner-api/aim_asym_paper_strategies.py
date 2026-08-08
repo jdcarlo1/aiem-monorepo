@@ -320,16 +320,24 @@ def persist_asym_paper_open(
     legs: list,
     entry_premium_ps: float,
     take_profit_pct: float,
+    sku: str = "aiem",
 ) -> Optional[int]:
-    """INSERT OPEN row into aiem_paper_trades. Returns id or None."""
+    """INSERT OPEN row into aiem_paper_trades. Returns id or None.
+
+    sku separates AIEM vs OE paper books on the same DB/VM
+    (ticker = '{SKU}:SPY:{strategy}' so same-day unique constraint does not collide).
+    """
     dsn = _db_url()
     if not dsn:
         log.warning("[asym] DATABASE_URL unset — skip aiem_paper_trades INSERT")
         return None
-    # Distinct ticker per strategy so ticker+trade_date unique allows 3 same-day rows
-    ticker = f"SPY:{strategy}"
+    sku_norm = (sku or "aiem").strip().lower()
+    if sku_norm not in ("aiem", "oe"):
+        sku_norm = "aiem"
+    # Distinct ticker per SKU+strategy so ticker+trade_date unique allows parallel books
+    ticker = f"{sku_norm.upper()}:SPY:{strategy}"
     detail = (
-        f"asym paper {strategy} TP+{take_profit_pct:.0f}% no-stop "
+        f"asym paper sku={sku_norm} {strategy} TP+{take_profit_pct:.0f}% no-stop "
         f"exp={expiration} legs={legs!r}"
     )[:500]
     try:
@@ -374,7 +382,10 @@ def persist_asym_paper_open(
             row = cur.fetchone()
             conn.commit()
             if row:
-                log.info("[asym] aiem_paper_trades OPEN id=%s strategy=%s", row[0], strategy)
+                log.info(
+                    "[asym] aiem_paper_trades OPEN id=%s sku=%s strategy=%s",
+                    row[0], sku_norm, strategy,
+                )
                 return int(row[0])
             # Conflict: fetch existing open id
             cur.execute(
@@ -480,12 +491,16 @@ class AsymOptionsLedger:
         risk_usd: float = RISK_USD,
         allow_credit: bool = False,
         cash_secured: bool = False,
+        sku: str = "aiem",
     ):
         self.pattern_name = pattern_name
         self.strategy_key = strategy_key
         self.builder = builder
         self.take_profit_pct = take_profit_pct
         self.underlying = underlying
+        self.sku = (sku or "aiem").strip().lower()
+        if self.sku not in ("aiem", "oe"):
+            self.sku = "aiem"
         self._starting_capital = starting_capital_usd
         self.account_balance_usd = starting_capital_usd
         self.net_liquidation_usd = starting_capital_usd
@@ -520,7 +535,9 @@ class AsymOptionsLedger:
         return {
             "pattern": self.pattern_name,
             "strategy": self.strategy_key,
+            "sku": self.sku,
             "rules": {
+                "sku": self.sku,
                 "entry": (
                     "Mon–Fri from 09:30 ET when flat; fill = Polygon daily "
                     "option close dated exactly that session day (BT asof "
@@ -753,6 +770,7 @@ class AsymOptionsLedger:
             legs=priced["legs"],
             entry_premium_ps=debit_ps,
             take_profit_pct=self.take_profit_pct,
+            sku=self.sku,
         )
         side = "LONG" if entry_usd >= 0 else "CREDIT"
         self.active_position = {
@@ -800,36 +818,50 @@ class AsymOptionsLedger:
         )
 
 
-def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0) -> dict:
+def build_default_asym_ledgers(
+    underlying: str = "SPY",
+    capital: float = 10000.0,
+    sku: str = "aiem",
+) -> dict:
+    """Build the full asym package set for one SKU (aiem|oe). Same patterns, separate books."""
+    kw = dict(underlying=underlying, starting_capital_usd=capital, sku=sku)
     return {
         "put_butterfly": AsymOptionsLedger(
             "LONG_PUT_BUTTERFLY", build_long_put_butterfly, 200.0,
-            "put_butterfly", underlying, capital,
+            "put_butterfly", **kw,
         ),
         "call_butterfly": AsymOptionsLedger(
             "LONG_CALL_BUTTERFLY", build_long_call_butterfly, 100.0,
-            "call_butterfly", underlying, capital,
+            "call_butterfly", **kw,
         ),
         "put_ladder": AsymOptionsLedger(
             "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
-            "put_ladder", underlying, capital,
+            "put_ladder", **kw,
         ),
         "call_condor": AsymOptionsLedger(
             "LONG_CALL_CONDOR", build_long_call_condor, 300.0,
-            "call_condor", underlying, capital,
+            "call_condor", **kw,
         ),
         "put_condor": AsymOptionsLedger(
             "LONG_PUT_CONDOR", build_long_put_condor, 300.0,
-            "put_condor", underlying, capital,
+            "put_condor", **kw,
         ),
         "narrow_wing_butterfly": AsymOptionsLedger(
             "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 200.0,
-            "narrow_wing_butterfly", underlying, capital,
+            "narrow_wing_butterfly", **kw,
         ),
         "bullish_risk_reversal": AsymOptionsLedger(
             "BULLISH_RISK_REVERSAL", build_bullish_risk_reversal, 75.0,
-            "bullish_risk_reversal", underlying, RR_PAPER_CAPITAL_USD,
+            "bullish_risk_reversal",
+            underlying,
+            RR_PAPER_CAPITAL_USD,
             allow_credit=True,
             cash_secured=True,
+            sku=sku,
         ),
     }
+
+# Canonical options pattern keys shown on BOTH AIEM Pattern Lab and OE Strategies.
+SHARED_OPTIONS_PATTERN_KEYS = (
+    "f3",
+) + STRATEGY_KEYS

@@ -145,23 +145,42 @@ class PatternLedger:
 
 class AIMPaperTradingEngine:
     """
-    Runs Gap Fill, ORB, F3 SPY 0DTE, and asymmetric option packages
-    as independent paper ledgers.
+    SKU-scoped paper engine (same reserved VM OK — separate in-memory books).
 
-    Gap Fill / ORB: $10k each, 1.5% risk equity.
-    F3: $200 notional ATM 0DTE long call/put, −65% premium stop, else 16:00.
-    Asym: put/call butterfly, put ladder, call/put condor, narrow-wing fly
-    (debit, ≤$500), bullish risk reversal (credit, cash-secured, $100k book).
-    Mon–Fri 09:30 ET when flat, no stop, Polygon daily, TP of |entry|.
+    sku='aiem' → AIEM Pattern Lab (Gap Fill + ORB + F3 + asym packages)
+    sku='oe'   → OE Strategies (F3 + same asym packages; no equity patterns)
+
+    Same option patterns on both SKUs; independent capital / fills / persist.
     """
 
-    def __init__(self, symbol: str = "SPY", initial_capital_usd: float = 10000.0):
+    def __init__(
+        self,
+        symbol: str = "SPY",
+        initial_capital_usd: float = 10000.0,
+        sku: str = "aiem",
+        include_equity_patterns: bool | None = None,
+    ):
         self.symbol = symbol
+        self.sku = (sku or "aiem").strip().lower()
+        if self.sku not in ("aiem", "oe"):
+            self.sku = "aiem"
         self.buffer_pct = 0.0005
         self.min_gap_rr = 1.2
 
-        self.gap_fill = PatternLedger("GAP_FILL", initial_capital_usd)
-        self.orb = PatternLedger("ORB", initial_capital_usd)
+        if include_equity_patterns is None:
+            include_equity_patterns = self.sku == "aiem"
+        self.include_equity_patterns = bool(include_equity_patterns)
+
+        self.gap_fill = (
+            PatternLedger("GAP_FILL", initial_capital_usd)
+            if self.include_equity_patterns
+            else None
+        )
+        self.orb = (
+            PatternLedger("ORB", initial_capital_usd)
+            if self.include_equity_patterns
+            else None
+        )
         try:
             from aim_f3_spy_0dte import F3OptionsLedger as _F3
             self.f3 = _F3(underlying=symbol, starting_capital_usd=initial_capital_usd)
@@ -172,7 +191,11 @@ class AIMPaperTradingEngine:
         self.asym = {}
         try:
             from aim_asym_paper_strategies import build_default_asym_ledgers as _build_asym
-            self.asym = _build_asym(underlying=symbol, capital=initial_capital_usd)
+            self.asym = _build_asym(
+                underlying=symbol,
+                capital=initial_capital_usd,
+                sku=self.sku,
+            )
         except Exception as _asyme:
             logging.warning("Asym paper ledgers unavailable: %s", _asyme)
             self.asym = {}
@@ -187,11 +210,30 @@ class AIMPaperTradingEngine:
             try:
                 ledger.evaluate(df)
             except Exception as _asym_ev:
-                logging.warning("[asym:%s] evaluate error: %s", _key, _asym_ev)
+                logging.warning("[asym:%s:%s] evaluate error: %s", self.sku, _key, _asym_ev)
 
     def dashboard_snapshot(self) -> dict:
-        """Everything a dashboard terminal needs to render pattern tiles."""
-        out = {"gap_fill": self.gap_fill.snapshot(), "orb": self.orb.snapshot()}
+        """AIEM Pattern Lab full snapshot (equity + options)."""
+        out = {
+            "sku": self.sku,
+            "product": "AIEM" if self.sku == "aiem" else "OE",
+        }
+        if self.gap_fill is not None:
+            out["gap_fill"] = self.gap_fill.snapshot()
+        if self.orb is not None:
+            out["orb"] = self.orb.snapshot()
+        if self.f3 is not None:
+            out["f3"] = self.f3.snapshot()
+        for key, ledger in (self.asym or {}).items():
+            out[key] = ledger.snapshot()
+        return out
+
+    def options_snapshot(self) -> dict:
+        """OE Strategies surface — F3 + asym only (same option keys as AIEM)."""
+        out = {
+            "sku": self.sku,
+            "product": "AIEM" if self.sku == "aiem" else "OE",
+        }
         if self.f3 is not None:
             out["f3"] = self.f3.snapshot()
         for key, ledger in (self.asym or {}).items():
@@ -203,7 +245,11 @@ class AIMPaperTradingEngine:
 
         opening_bar = df.between_time('09:30', '09:30')
         opening_15min_window = df.between_time('09:30', '09:45')
-        if opening_bar.empty or len(opening_15min_window) < 15:
+        if (
+            not self.include_equity_patterns
+            or opening_bar.empty
+            or len(opening_15min_window) < 15
+        ):
             # F3 / asym can still evaluate without a full Gap Fill / ORB window
             self._evaluate_options_ledgers(df)
             return
@@ -243,5 +289,5 @@ class AIMPaperTradingEngine:
                     orb_target = latest_bar['close'] - (abs(range_high - latest_bar['close']) * 3.0)
                     self.orb.enter(self.symbol, latest_bar['close'], orb_stop, orb_target, "SHORT")
 
-        # --- F3 + asymmetric weekly packages (debit + cash-secured credit) ---
+        # --- F3 + asymmetric packages (debit + cash-secured credit) ---
         self._evaluate_options_ledgers(df)
