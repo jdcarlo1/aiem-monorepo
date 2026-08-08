@@ -15,6 +15,9 @@ Compares 6 scenarios side by side:
   No stop | 30% | 35% | 40% | 45% | 50%
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os, time, requests
 from datetime import datetime, timedelta, date
 from collections import defaultdict
@@ -51,7 +54,7 @@ def fetch_daily(start_date, end_date):
     p = {"symbol": "SPY", "interval": "daily",
          "start": start_date.strftime("%Y-%m-%d"),
          "end":   end_date.strftime("%Y-%m-%d")}
-    r    = requests.get("https://api.tradier.com/v1/markets/history",
+    r    = requests.get(f"{TRADIER_API_BASE}/v1/markets/history",
                         headers=h, params=p, timeout=20)
     days = r.json().get("history", {}).get("day", [])
     if not isinstance(days, list): days = [days]

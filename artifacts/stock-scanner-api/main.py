@@ -1,3 +1,6 @@
+from aiem_broker.tradier_config import TRADIER_API_BASE
+from aiem_broker.live_gate import live_order_sent
+
 from flask import Flask, request, jsonify, Response
 import sys as _sys; _sys.stdout.reconfigure(line_buffering=True)  # flush logs in real time (prod containers buffer by default)
 import hmac
@@ -1404,7 +1407,7 @@ def _td_quotes(symbols: list) -> dict:
     _hdr = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
     try:
         _r = _tq_req.get(
-            "https://api.tradier.com/v1/markets/quotes",
+            f"{TRADIER_API_BASE}/v1/markets/quotes",
             params={"symbols": ",".join(str(s) for s in symbols[:200])},
             headers=_hdr, timeout=5,
         )
@@ -1454,7 +1457,7 @@ def _td_history(ticker: str, days: int = 40, start_date: str = None) -> "pd.Data
               if start_date else _end - _th_dt.timedelta(days=days + 10))
     try:
         _r = _th_req.get(
-            "https://api.tradier.com/v1/markets/history",
+            f"{TRADIER_API_BASE}/v1/markets/history",
             params={"symbol": ticker, "interval": "daily",
                     "start": _start.isoformat(), "end": _end.isoformat()},
             headers=_hdr, timeout=6,
@@ -1499,7 +1502,7 @@ def _td_intraday(ticker: str, interval: str = "1min") -> "pd.DataFrame":
     _td_iv = _iv_map.get(interval, "1min")
     try:
         _r = _ti_req.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={"symbol": ticker, "interval": _td_iv, "session_filter": "open"},
             headers=_hdr, timeout=6,
         )
@@ -1692,7 +1695,7 @@ def _td_expiries(ticker: str, max_days: int = 365) -> list:
         return []
     try:
         r = _tde_req.get(
-            "https://api.tradier.com/v1/markets/options/expirations",
+            f"{TRADIER_API_BASE}/v1/markets/options/expirations",
             params={"symbol": ticker, "includeAllRoots": "false"},
             headers=hdrs, timeout=5,
         )
@@ -1730,7 +1733,7 @@ def _td_chain(ticker: str, expiry: str):
         return _empty
     try:
         r = _tdc_req.get(
-            "https://api.tradier.com/v1/markets/options/chains",
+            f"{TRADIER_API_BASE}/v1/markets/options/chains",
             params={"symbol": ticker, "expiration": expiry, "greeks": "true"},
             headers=hdrs, timeout=6,
         )
@@ -5784,7 +5787,7 @@ try:
         if not _token:
             return 0, None
         _hdr  = {"Authorization": f"Bearer {_token}", "Accept": "application/json"}
-        _base = "https://api.tradier.com/v1/markets"
+        _base = f"{TRADIER_API_BASE}/v1/markets"
         try:
             # Step 1: get live underlying quote
             _rq = _td_req.get(f"{_base}/quotes", params={"symbols": ticker},
@@ -53518,7 +53521,7 @@ def aiem_broker_paper_order_endpoint():
             "account": adapter.get_account().to_dict(),
             "provider": adapter.provider_id,
             "simulated": True,
-            "live_order_sent": False,
+            "live_order_sent": live_order_sent(http_order_posted=False),
         })
     except Exception as _e:
         return jsonify({"ok": False, "error": str(_e)}), 500
@@ -63372,7 +63375,7 @@ def ai_short_calls():
                 if _td_tok:
                     try:
                         _qr2 = _mreq2.get(
-                            "https://api.tradier.com/v1/markets/quotes",
+                            f"{TRADIER_API_BASE}/v1/markets/quotes",
                             params={"symbols": ",".join(_all_syms), "greeks": "false"},
                             headers={"Authorization": f"Bearer {_td_tok}", "Accept": "application/json"},
                             timeout=8,
@@ -76028,7 +76031,7 @@ def _fetch_tradier_put_chain(ticker, token):
     """Fetch all PUT contracts for ticker from Tradier."""
     import urllib.request as _ureq2, json as _json2
     try:
-        url = f"https://api.tradier.com/v1/markets/options/chains?symbol={ticker}&greeks=true"
+        url = f"{TRADIER_API_BASE}/v1/markets/options/chains?symbol={ticker}&greeks=true"
         req = _ureq2.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
         with _ureq2.urlopen(req, timeout=8) as r:
             data = _json2.loads(r.read())
@@ -76044,7 +76047,7 @@ def _fetch_tradier_last_price(ticker, token):
     """Fetch last price for ticker from Tradier."""
     import urllib.request as _ureq3, json as _json3
     try:
-        url = f"https://api.tradier.com/v1/markets/quotes?symbols={ticker}"
+        url = f"{TRADIER_API_BASE}/v1/markets/quotes?symbols={ticker}"
         req = _ureq3.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
         with _ureq3.urlopen(req, timeout=5) as r:
             q = _json3.loads(r.read())

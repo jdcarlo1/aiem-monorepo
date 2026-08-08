@@ -1,6 +1,13 @@
-"""AIEM broker adapter layer — Tradier paper fills now, live stubs later."""
+"""AIEM broker adapter layer — Tradier paper fills now; live Tradier gated."""
 
-from .live_gate import LiveOrdersNotAllowed, assert_live_orders_allowed, live_gate_status, trading_mode
+from .live_gate import (
+    LiveOrdersNotAllowed,
+    assert_live_orders_allowed,
+    live_gate_status,
+    live_order_sent,
+    live_orders_permitted,
+    trading_mode,
+)
 from .registry import (
     available_providers,
     broker_readiness_report,
@@ -15,6 +22,7 @@ from .paper_fills import (
     price_package_nbbo,
     price_single_option_nbbo,
 )
+from .tradier_live import TradierBrokerAdapter
 from .tradier_paper import TradierPaperBrokerAdapter
 from .types import (
     AssetClass,
@@ -38,6 +46,7 @@ __all__ = [
     "OrderStatus",
     "OrderType",
     "TimeInForce",
+    "TradierBrokerAdapter",
     "TradierPaperBrokerAdapter",
     "assert_live_orders_allowed",
     "available_providers",
@@ -48,6 +57,8 @@ __all__ = [
     "fee_round_trip",
     "get_broker_adapter",
     "live_gate_status",
+    "live_order_sent",
+    "live_orders_permitted",
     "price_package_nbbo",
     "price_single_option_nbbo",
     "trading_mode",

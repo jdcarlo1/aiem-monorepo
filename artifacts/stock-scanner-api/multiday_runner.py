@@ -23,6 +23,9 @@ Backtest results (60-day large-cap):
   • D1 ≥ 5% STRONG tier         → 69.6% win rate, +4.1% avg gain
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os, math, traceback, time
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
@@ -43,7 +46,7 @@ def _td_hist(ticker: str, days: int = 40) -> "pd.DataFrame":
     _start = _end - _h_dt.timedelta(days=days + 14)
     try:
         _r = _h_req.get(
-            "https://api.tradier.com/v1/markets/history",
+            f"{TRADIER_API_BASE}/v1/markets/history",
             params={"symbol": ticker, "interval": "daily",
                     "start": str(_start), "end": str(_end)},
             headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},
@@ -78,7 +81,7 @@ def _td_intra(ticker: str) -> "pd.DataFrame":
     _today = str(_i_dt.date.today())
     try:
         _r = _i_req.get(
-            "https://api.tradier.com/v1/markets/timesales",
+            f"{TRADIER_API_BASE}/v1/markets/timesales",
             params={"symbol": ticker, "interval": "5min",
                     "start": _today, "session_filter": "open"},
             headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},

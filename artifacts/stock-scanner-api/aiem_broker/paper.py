@@ -1,6 +1,7 @@
 """Paper broker adapter — simulates fills; never talks to a real broker."""
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from typing import List, Optional
@@ -20,7 +21,9 @@ class PaperBrokerAdapter(BrokerAdapter):
     supports_live = False
     supports_options = True
 
-    def __init__(self, starting_cash: float = 100_000.0):
+    def __init__(self, starting_cash: float | None = None):
+        if starting_cash is None:
+            starting_cash = float(os.environ.get("PAPER_STARTING_CASH", "100000") or 100000)
         self._cash = float(starting_cash)
         self._positions: dict[str, BrokerPosition] = {}
         self._orders: list[dict] = []

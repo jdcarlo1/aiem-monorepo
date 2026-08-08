@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-TRADIER_API_BASE = os.environ.get("TRADIER_API_BASE", "https://api.tradier.com").rstrip("/")
+from .tradier_config import TRADIER_API_BASE
 
 
 def tradier_token() -> str:

@@ -6,6 +6,8 @@ are intentionally impossible from this adapter.
 """
 from __future__ import annotations
 
+from .live_gate import live_order_sent
+
 import json
 import os
 import threading
@@ -527,7 +529,7 @@ class TradierPaperBrokerAdapter(BrokerAdapter):
                         for k in ("last", "bid", "ask", "mid", "option_symbol")
                     },
                     "simulated": True,
-                    "live_order_sent": False,
+                    "live_order_sent": live_order_sent(http_order_posted=False),
                 },
             )
             self._orders.append(result.to_dict())

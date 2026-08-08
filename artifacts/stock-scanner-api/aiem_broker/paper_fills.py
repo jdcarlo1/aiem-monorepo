@@ -9,6 +9,8 @@ Round-trip fees for a package (commission-only legacy):
 """
 from __future__ import annotations
 
+from .live_gate import live_order_sent
+
 import os
 from datetime import date
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -176,7 +178,7 @@ def price_package_nbbo(
         "commission_per_contract_leg": COMMISSION_PER_CONTRACT_LEG,
         "pricing_source": "tradier_nbbo_paper",
         "for_exit": bool(for_exit),
-        "live_order_sent": False,
+        "live_order_sent": live_order_sent(http_order_posted=False),
         "simulated": True,
     }
 
@@ -219,7 +221,7 @@ def price_single_option_nbbo(
             notional + fees if (is_buy and not for_exit) else notional - fees, 4
         ),
         "pricing_source": "tradier_nbbo_paper",
-        "live_order_sent": False,
+        "live_order_sent": live_order_sent(http_order_posted=False),
         "simulated": True,
     }
 
@@ -244,6 +246,6 @@ def equity_nbbo_fill(ticker: str, *, is_buy: bool = True) -> Optional[dict]:
         "mid": mid,
         "half_spread": half,
         "source": "tradier_equity_nbbo",
-        "live_order_sent": False,
+        "live_order_sent": live_order_sent(http_order_posted=False),
         "simulated": True,
     }

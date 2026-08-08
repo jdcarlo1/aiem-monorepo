@@ -1,10 +1,5 @@
 """
-Broker stubs — ready to hook up later, never place live orders today.
-
-Each stub:
-  - advertises credentials / endpoints needed for a future implementation
-  - can optionally read market data if already available in-process
-  - place_order ALWAYS returns NOT_IMPLEMENTED / BLOCKED (no HTTP order calls)
+Broker stubs — Alpaca / IBKR remain stubs. Tradier live is in tradier_live.py.
 """
 from __future__ import annotations
 
@@ -12,7 +7,7 @@ import os
 from typing import List, Optional
 
 from .base import BrokerAdapter
-from .live_gate import LiveOrdersNotAllowed, assert_live_orders_allowed, live_gate_status
+from .live_gate import LiveOrdersNotAllowed, assert_live_orders_allowed, live_gate_status, live_order_sent
 from .types import (
     BrokerAccount,
     BrokerPosition,
@@ -24,7 +19,7 @@ from .types import (
 
 class _StubBroker(BrokerAdapter):
     provider_id = "stub"
-    supports_live = True  # interface ready; implementation not wired
+    supports_live = True
     supports_options = False
     env_keys: tuple = ()
     docs_hookup: str = ""
@@ -45,6 +40,7 @@ class _StubBroker(BrokerAdapter):
             "order_routing": "not_wired",
             "hookup_notes": self.docs_hookup,
             "live_gate": live_gate_status(),
+            "live_order_sent": live_order_sent(http_order_posted=False),
         }
 
     def get_account(self) -> BrokerAccount:
@@ -64,11 +60,10 @@ class _StubBroker(BrokerAdapter):
             "ticker": (ticker or "").upper(),
             "last": None,
             "source": f"{self.provider_id}_stub",
-            "note": "Quote path not wired — use Tradier market-data helpers until hookup",
+            "note": "Quote path not wired",
         }
 
     def place_order(self, order: OrderRequest) -> OrderResult:
-        # Even if someone arms live locks, stubs refuse until a real impl replaces this.
         try:
             assert_live_orders_allowed(caller=f"{self.provider_id}.place_order")
         except LiveOrdersNotAllowed as e:
@@ -81,6 +76,7 @@ class _StubBroker(BrokerAdapter):
                 side=order.side.value,
                 quantity=float(order.quantity or 0),
                 message=str(e),
+                raw={"live_order_sent": live_order_sent(http_order_posted=False)},
             )
         return OrderResult(
             ok=False,
@@ -95,23 +91,8 @@ class _StubBroker(BrokerAdapter):
                 f"implement place_order() against the broker API when ready. "
                 f"No order was sent."
             ),
+            raw={"live_order_sent": live_order_sent(http_order_posted=False)},
         )
-
-
-class TradierBrokerStub(_StubBroker):
-    """Tradier LIVE brokerage orders — NOT wired.
-
-    For brokerage-like paper fills use AIEM_BROKER_PROVIDER=tradier_paper
-    (TradierPaperBrokerAdapter) which quotes live NBBO but never POSTs orders.
-    """
-    provider_id = "tradier"
-    supports_options = True
-    env_keys = ("TRADIER_API_TOKEN_2", "TRADIER_ACCOUNT_ID")
-    docs_hookup = (
-        "LIVE ONLY: Implement POST /v1/accounts/{account_id}/orders using TRADIER_API_TOKEN_2. "
-        "Paper path is already live via tradier_paper (quotes only, no order HTTP). "
-        "Call assert_live_orders_allowed() first. Never confuse with tradier_paper."
-    )
 
 
 class AlpacaBrokerStub(_StubBroker):
@@ -134,8 +115,8 @@ class IbkrBrokerStub(_StubBroker):
     )
 
 
+# Tradier is no longer a stub — see tradier_live.TradierBrokerAdapter
 STUB_PROVIDERS = {
-    "tradier": TradierBrokerStub,
     "alpaca": AlpacaBrokerStub,
     "ibkr": IbkrBrokerStub,
 }

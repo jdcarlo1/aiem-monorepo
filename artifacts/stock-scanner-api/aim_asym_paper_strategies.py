@@ -21,6 +21,8 @@ Paper practice defaults:
 """
 from __future__ import annotations
 
+from aiem_broker.live_gate import live_order_sent
+
 import json
 import logging
 import os
@@ -37,7 +39,7 @@ import pandas as pd
 log = logging.getLogger("aim_asym")
 
 ET = ZoneInfo("America/New_York")
-RISK_USD = 500.0
+RISK_USD = float(os.environ.get("ASYM_RISK_USD", "500") or 500)
 # First RTH bar — matches spy_asymmetric_bt weekday entry (~ open)
 ENTRY_AFTER = "09:30"
 # Matches spy_asymmetric_bt.py docstring L12
@@ -63,8 +65,8 @@ RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
 
 # Dynamic TP = SAFETY_MARGIN × (plateau − D) / D × 100, set at entry from live debit.
 # Default plateau $500 = $5 wing × 100 (condors / ±5 flies). Narrow-wing (±2) = $200.
-MAX_PLATEAU_PAYOFF_USD = 500.00
-NARROW_WING_PLATEAU_PAYOFF_USD = 200.00
+MAX_PLATEAU_PAYOFF_USD = float(os.environ.get("ASYM_MAX_PLATEAU_PAYOFF_USD", "500") or 500)
+NARROW_WING_PLATEAU_PAYOFF_USD = float(os.environ.get("ASYM_NARROW_WING_PLATEAU_USD", "200") or 200)
 SAFETY_MARGIN = 0.80
 # Restored condors (PR #54/#55) + unreachable static flies (narrow-wing / call fly).
 DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset({
@@ -318,7 +320,7 @@ def price_legs_tradier_nbbo(
         "contract_count": packed["contract_count"],
         "packages": packed["packages"],
         "for_exit": for_exit,
-        "live_order_sent": False,
+        "live_order_sent": live_order_sent(http_order_posted=False),
         "simulated": True,
     }
 
@@ -767,7 +769,7 @@ class AsymOptionsLedger:
             "legs": pos.get("legs"),
             "expiration": pos.get("expiration"),
             "pricing_source": pos.get("pricing_source") or ASYM_PAPER_PRICING,
-            "live_order_sent": False,
+            "live_order_sent": live_order_sent(http_order_posted=False),
         })
         persist_asym_paper_close(
             paper_trade_id=pos.get("paper_trade_id"),
@@ -1014,7 +1016,7 @@ class AsymOptionsLedger:
             "entry_time": bar_time,
             "spy_entry": spot,
             "pricing_source": priced.get("pricing_source") or ASYM_PAPER_PRICING,
-            "live_order_sent": False,
+            "live_order_sent": live_order_sent(http_order_posted=False),
             "paper_trade_id": paper_id,
             "strategy": self.strategy_key,
         }
@@ -1039,12 +1041,14 @@ class AsymOptionsLedger:
 
 
 
-def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0) -> dict:
+def build_default_asym_ledgers(underlying: str = "SPY", capital: float | None = None) -> dict:
     """Joel top-6 first (narrow-wing #1), then optional bullish risk reversal.
 
     Dynamic-plateau strategies use take_profit_pct=0 placeholder — overwritten at
     entry via dynamic_tp_pct(D, plateau) (same path as PR #54/#55 condors).
     """
+    if capital is None:
+        capital = float(os.environ.get("ASYM_PAPER_CAPITAL_USD", "10000") or 10000)
     return {
         # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
         "narrow_wing_butterfly": AsymOptionsLedger(

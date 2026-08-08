@@ -7,6 +7,8 @@ Real spread orders fill as one net debit/credit. This module:
 """
 from __future__ import annotations
 
+from .live_gate import live_order_sent
+
 import uuid
 from datetime import date
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -61,7 +63,7 @@ def price_package_atomic(
                 "status": "blocked_halt",
                 "reason": gate["reason"],
                 "halt": halt,
-                "live_order_sent": False,
+                "live_order_sent": live_order_sent(http_order_posted=False),
                 "assumed_fill": False,
             }
 
@@ -78,7 +80,7 @@ def price_package_atomic(
                 "ok": False,
                 "status": "rejected",
                 "reason": f"MISSING_LEG_QUOTE {right} {strike}",
-                "live_order_sent": False,
+                "live_order_sent": live_order_sent(http_order_posted=False),
                 "assumed_fill": False,
                 "aon": True,
             }
@@ -89,7 +91,7 @@ def price_package_atomic(
                 "ok": False,
                 "status": "rejected",
                 "reason": f"MISSING_LEG_MID {right} {strike}",
-                "live_order_sent": False,
+                "live_order_sent": live_order_sent(http_order_posted=False),
                 "assumed_fill": False,
                 "aon": True,
             }
@@ -143,7 +145,7 @@ def price_package_atomic(
         "n_legs": n_legs,
         "pricing_source": "tradier_nbbo_package_aon",
         "for_exit": bool(for_exit),
-        "live_order_sent": False,
+        "live_order_sent": live_order_sent(http_order_posted=False),
         "simulated": True,
         "assumed_fill": False,
     }

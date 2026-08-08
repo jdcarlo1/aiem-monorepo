@@ -40,6 +40,9 @@ for the fallback quote lookup (grading still works without it — rows
 simply stay ungraded until polygon_market_daily catches up).
 """
 
+
+from aiem_broker.tradier_config import TRADIER_API_BASE
+
 import os
 import json
 import urllib.request
@@ -74,7 +77,7 @@ def _td_quotes(symbols):
     try:
         batch = ",".join(symbols[:200])
         req = urllib.request.Request(
-            f"https://api.tradier.com/v1/markets/quotes?symbols={batch}",
+            f"{TRADIER_API_BASE}/v1/markets/quotes?symbols={batch}",
             headers={"Authorization": f"Bearer {_TRADIER_TOKEN}",
                      "Accept": "application/json"},
         )
