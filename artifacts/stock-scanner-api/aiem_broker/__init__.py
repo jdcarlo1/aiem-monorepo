@@ -8,9 +8,17 @@ from .registry import (
     default_provider_name,
     get_broker_adapter,
 )
+from .paper_fills import (
+    COMMISSION_PER_CONTRACT_LEG,
+    fee_one_way,
+    fee_round_trip,
+    price_package_nbbo,
+    price_single_option_nbbo,
+)
 from .tradier_paper import TradierPaperBrokerAdapter
 from .types import (
     AssetClass,
+    OrderLeg,
     OrderRequest,
     OrderResult,
     OrderSide,
@@ -21,7 +29,9 @@ from .types import (
 
 __all__ = [
     "AssetClass",
+    "COMMISSION_PER_CONTRACT_LEG",
     "LiveOrdersNotAllowed",
+    "OrderLeg",
     "OrderRequest",
     "OrderResult",
     "OrderSide",
@@ -34,7 +44,11 @@ __all__ = [
     "broker_readiness_report",
     "clear_broker_cache",
     "default_provider_name",
+    "fee_one_way",
+    "fee_round_trip",
     "get_broker_adapter",
     "live_gate_status",
+    "price_package_nbbo",
+    "price_single_option_nbbo",
     "trading_mode",
 ]

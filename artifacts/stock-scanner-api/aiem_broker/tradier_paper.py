@@ -35,8 +35,9 @@ from .types import (
 # Default simulated buying power (real Tradier account may be unfunded).
 _DEFAULT_CASH = float(os.environ.get("TRADIER_PAPER_STARTING_CASH", "100000") or 100000)
 _COMMISSION_EQUITY = float(os.environ.get("TRADIER_PAPER_COMMISSION_EQUITY", "0") or 0)
+# Joel fee schedule: $0.65 per contract per leg per side (matches ASE COMMISSION_PER_LEG)
 _COMMISSION_OPT_PER_CONTRACT = float(
-    os.environ.get("TRADIER_PAPER_COMMISSION_OPT", "0.35") or 0.35
+    os.environ.get("TRADIER_PAPER_COMMISSION_OPT", "0.65") or 0.65
 )
 _STATE_PATH = Path(
     os.environ.get(

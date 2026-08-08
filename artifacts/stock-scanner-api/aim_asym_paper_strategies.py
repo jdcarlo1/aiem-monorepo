@@ -2,29 +2,22 @@
 """
 Asymmetric SPY paper strategies — Pattern Lab / OE Strategies.
 
-From 2y Polygon BTs (no stop, TP grid; weekdays mode):
-  Asym packages (spy_asymmetric_bt):
-    1. Long put butterfly   — TP +200% of |entry|
-    2. Long call butterfly  — TP +100% of |entry|
-    3. Put ladder (defined) — TP +150% of |entry|
-    4. Long call condor     — TP +300% of |entry|
-    5. Long put condor      — TP +300% of |entry|
-  Catalog winners (spy_catalog_untested_bt):
-    6. Narrow-wing call butterfly — TP +200% of |entry|
-    7. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
+Joel's top patterns (weekdays, 2y, no stop) — wired for live-Tradier NBBO paper practice:
+  1. Narrow-wing call butterfly — TP +300% of |entry|
+  2. Long put butterfly         — TP +275% of |entry|
+  3. Long call butterfly        — TP +275% of |entry|
+  4. Put ladder (defined)       — TP +300% of |entry|
+  5. Long call condor           — TP +300% of |entry|
+  6. Long put condor            — TP +300% of |entry|
+Extra (catalog):
+  7. Bullish risk reversal      — TP +75% of |entry| (credit, cash-secured)
 
-Parity with BT engines (weekdays mode — spy_asymmetric_bt --entry weekdays):
-  - Underlying SPY
-  - Risk budget $500 debit max per package (credits: 1 package)
-  - Entry day: any Mon–Fri (eligible from 09:30 ET when flat)
-  - Entry fill: Polygon daily option close dated EXACTLY that session day
-    (BT asof entry date — NOT prior-day lookback at 09:30)
-  - Expiry: next_friday(d0, weeks_ahead=3)
+Paper practice defaults:
+  - Pricing: live Tradier NBBO (long@ask / short@bid) — NO live orders
+  - Fees: $0.65 per contract per leg per side
+  - Set ASYM_PAPER_PRICING=polygon_daily for historical BT-parity fills
+  - Risk budget $500 debit max; Mon–Fri from 09:30 ET; flatten 15:30 expiry Friday
   - NO stop loss
-  - Flatten 15:30 ET on expiry Friday using that day's daily mark
-  - Pricing: Polygon daily option aggregates (O:SPY…) — NOT Tradier
-  - TP dollars = abs(entry_usd) * (tp_pct / 100); pnl = mark - entry
-  - Live paper: one position at a time (re-enter next weekday when flat)
 """
 from __future__ import annotations
 
@@ -51,6 +44,8 @@ ENTRY_AFTER = "09:30"
 FLATTEN_TIME = "15:30"
 POLYGON_BASE = "https://api.polygon.io"
 RATE_SLEEP = float(os.environ.get("ASYM_PAPER_RATE_SLEEP", "0.12"))
+# Live Tradier NBBO paper fills (default). Set ASYM_PAPER_PRICING=polygon_daily for BT-parity.
+ASYM_PAPER_PRICING = (os.environ.get("ASYM_PAPER_PRICING") or "tradier_nbbo").strip().lower()
 
 # strategy key -> ledger (must match aiem_paper_trades.strategy filter)
 STRATEGY_KEYS = (
@@ -66,11 +61,21 @@ STRATEGY_KEYS = (
 # Cash-secured SPY short put needs ~strike×100; keep a dedicated paper book.
 RR_PAPER_CAPITAL_USD = float(os.environ.get("ASYM_RR_PAPER_CAPITAL", "100000"))
 
-# Long call/put condor: wing width $5 → max plateau payoff $500 / package.
-# Static TP% is unreachable when debit is rich; set TP from priced debit at entry.
+# Condors use Joel's fixed BT TP (+300%). Dynamic plateau helper kept for tools/backtests.
 MAX_PLATEAU_PAYOFF_USD = 500.00
 SAFETY_MARGIN = 0.80
-DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset({"call_condor", "put_condor"})
+DYNAMIC_PLATEAU_TP_STRATEGIES = frozenset()  # empty — Joel list uses fixed TP% for all six
+
+# Joel signed TP targets (weekdays / 2y / no-stop ranking)
+JOEL_ASYM_TP_PCT = {
+    "narrow_wing_butterfly": 300.0,
+    "put_butterfly": 275.0,
+    "call_butterfly": 275.0,
+    "put_ladder": 300.0,
+    "call_condor": 300.0,
+    "put_condor": 300.0,
+    "bullish_risk_reversal": 75.0,
+}
 
 
 def dynamic_tp_pct(entry_debit_usd: float) -> float:
@@ -251,6 +256,97 @@ def price_legs_polygon(
         "asof": asof.isoformat(),
         "require_exact": bool(require_exact),
     }
+
+
+def price_legs_tradier_nbbo(
+    underlying: str,
+    expiration: date,
+    legs: list[tuple[int, str, float]],
+    *,
+    packages: int = 1,
+    for_exit: bool = False,
+) -> Optional[dict]:
+    """Live Tradier ask/bid package pricing for paper practice (no live orders)."""
+    try:
+        from aiem_broker.paper_fills import price_package_nbbo
+    except Exception as e:
+        log.warning("[%s] tradier paper_fills unavailable: %s", underlying, e)
+        return None
+    packed = price_package_nbbo(
+        underlying,
+        expiration,
+        legs,
+        packages=packages,
+        for_exit=for_exit,
+        include_fees=True,
+    )
+    if not packed:
+        return None
+    # Normalize to price_legs_polygon-compatible shape + fee fields
+    return {
+        "debit_per_share": float(packed["debit_per_share"]),
+        "legs": packed["legs"],
+        "expiration": packed["expiration"],
+        "pricing_source": "tradier_nbbo_paper",
+        "asof": date.today().isoformat(),
+        "require_exact": False,
+        "net_usd": packed["net_usd"],
+        "fees_usd": packed["fees_usd"],
+        "net_usd_after_fees": packed["net_usd_after_fees"],
+        "contract_count": packed["contract_count"],
+        "packages": packed["packages"],
+        "for_exit": for_exit,
+        "live_order_sent": False,
+        "simulated": True,
+    }
+
+
+def price_legs_for_paper(
+    underlying: str,
+    expiration: date,
+    legs: list[tuple[int, str, float]],
+    asof: date,
+    *,
+    require_exact: bool = False,
+    packages: int = 1,
+    for_exit: bool = False,
+) -> Optional[dict]:
+    """Unified paper pricing — Tradier NBBO by default, Polygon daily optional."""
+    if ASYM_PAPER_PRICING in ("tradier_nbbo", "tradier", "nbbo", "live"):
+        priced = price_legs_tradier_nbbo(
+            underlying, expiration, legs, packages=packages, for_exit=for_exit
+        )
+        if priced:
+            return priced
+        log.warning(
+            "[%s] Tradier NBBO unavailable — falling back to Polygon daily for paper",
+            underlying,
+        )
+    return price_legs_polygon(
+        underlying, expiration, legs, asof, require_exact=require_exact
+    )
+
+
+def package_value_for_paper(
+    underlying: str,
+    expiration: date,
+    legs: list[tuple[int, str, float]],
+    asof: date,
+    *,
+    require_exact: bool = False,
+    packages: int = 1,
+    for_exit: bool = True,
+) -> Optional[float]:
+    """Mark package in dollars (1×packages). Prefer Tradier NBBO."""
+    if ASYM_PAPER_PRICING in ("tradier_nbbo", "tradier", "nbbo", "live"):
+        priced = price_legs_tradier_nbbo(
+            underlying, expiration, legs, packages=packages, for_exit=for_exit
+        )
+        if priced is not None:
+            return float(priced["net_usd"])
+    return package_value_polygon(
+        underlying, expiration, legs, asof, require_exact=require_exact
+    )
 
 
 def build_long_put_butterfly(spot: float) -> list[tuple[int, str, float]]:
@@ -487,7 +583,11 @@ def persist_asym_paper_close(
 
 
 class AsymOptionsLedger:
-    """Multi-leg package paper ledger — Mon–Fri RTH open, TP%, no stop, Polygon daily."""
+    """Multi-leg package paper ledger — Mon–Fri RTH open, TP%, no stop.
+
+    Default pricing: live Tradier NBBO paper fills (ask entry / bid exit) + $0.65/leg fees.
+    Set ASYM_PAPER_PRICING=polygon_daily for historical BT-parity fills.
+    """
 
     def __init__(
         self,
@@ -542,9 +642,9 @@ class AsymOptionsLedger:
             "strategy": self.strategy_key,
             "rules": {
                 "entry": (
-                    "Mon–Fri from 09:30 ET when flat; fill = Polygon daily "
-                    "option close dated exactly that session day (BT asof "
-                    "entry date — no prior-day lookback fill)"
+                    "Mon–Fri from 09:30 ET when flat; fill = live Tradier NBBO "
+                    "(long@ask / short@bid) + $0.65/contract/leg paper fees "
+                    f"[mode={ASYM_PAPER_PRICING}]"
                 ),
                 "structure": self.pattern_name,
                 "risk_usd": self.risk_usd,
@@ -560,9 +660,14 @@ class AsymOptionsLedger:
                     else None
                 ),
                 "stop_loss": None,
-                "pricing": "Polygon daily option aggregates",
+                "pricing": (
+                    "Tradier NBBO paper (no live orders)"
+                    if ASYM_PAPER_PRICING in ("tradier_nbbo", "tradier", "nbbo", "live")
+                    else "Polygon daily option aggregates"
+                ),
                 "allow_credit": self.allow_credit,
                 "cash_secured": self.cash_secured,
+                "live_orders": False,
                 "exit": (
                     (
                         f"dynamic TP = {SAFETY_MARGIN:.0%} of max reachable "
@@ -571,7 +676,7 @@ class AsymOptionsLedger:
                     if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
                     else f"+{self.take_profit_pct:.0f}% of |entry| premium or "
                 )
-                + "flatten 15:30 on expiry Friday (daily mark asof that day)",
+                + "flatten 15:30 on expiry Friday (Tradier NBBO bid/ask mark)",
             },
             "reserved_collateral_usd": round(self._reserved_collateral_usd, 2),
             "account_balance_usd": round(self.account_balance_usd, 2),
@@ -586,20 +691,30 @@ class AsymOptionsLedger:
             "recent_trades": self.trade_log[-10:],
         }
 
-    def _mark_package(self, expiration: date, legs: list, asof: date) -> Optional[float]:
+    def _mark_package(self, expiration: date, legs: list, asof: date, packages: int = 1) -> Optional[float]:
         spec = [(int(L["qty"]), str(L["right"]), float(L["strike"])) for L in legs]
-        return package_value_polygon(self.underlying, expiration, spec, asof)
+        pkgs = int(packages or 1)
+        return package_value_for_paper(
+            self.underlying,
+            expiration,
+            spec,
+            asof,
+            packages=pkgs,
+            for_exit=True,
+        )
 
     def _free_cash_usd(self) -> float:
         return float(self.account_balance_usd) - float(self._reserved_collateral_usd)
 
-    def _close(self, exit_value_usd: float, reason: str):
+    def _close(self, exit_value_usd: float, reason: str, *, exit_fees_usd: float = 0.0):
         pos = self.active_position
         if not pos:
             return
         entry_usd = float(pos["entry_debit_usd"])
-        pnl = float(exit_value_usd) - entry_usd
-        self.account_balance_usd += float(exit_value_usd)
+        # Proceeds after exit-side commission (longs sold at bid, shorts covered at ask)
+        exit_net = float(exit_value_usd) - float(exit_fees_usd or 0.0)
+        pnl = exit_net - entry_usd
+        self.account_balance_usd += exit_net
         coll = float(pos.get("collateral_usd") or 0.0)
         if coll > 0:
             self._reserved_collateral_usd = max(
@@ -616,7 +731,10 @@ class AsymOptionsLedger:
             "direction": pos.get("direction"),
             "side": side,
             "entry": pos.get("entry_debit_usd"),
-            "exit": round(exit_value_usd, 2),
+            "exit": round(exit_net, 2),
+            "exit_mark": round(float(exit_value_usd), 2),
+            "entry_fees_usd": pos.get("entry_fees_usd"),
+            "exit_fees_usd": round(float(exit_fees_usd or 0.0), 4),
             "shares": pos.get("packages"),
             "contracts": pos.get("packages"),
             "pnl_usd": round(pnl, 2),
@@ -624,19 +742,20 @@ class AsymOptionsLedger:
             "reason": reason,
             "legs": pos.get("legs"),
             "expiration": pos.get("expiration"),
-            "pricing_source": "polygon_daily_option_aggs",
+            "pricing_source": pos.get("pricing_source") or ASYM_PAPER_PRICING,
+            "live_order_sent": False,
         })
         persist_asym_paper_close(
             paper_trade_id=pos.get("paper_trade_id"),
             strategy=self.strategy_key,
-            exit_value_usd=float(exit_value_usd),
+            exit_value_usd=float(exit_net),
             pnl_usd=float(pnl),
             reason=reason,
         )
         log.info(
-            "[%s] %s (%s): entry $%.2f -> mark $%.2f | P&L $%.2f | Bal $%.2f",
-            self.pattern_name, result, reason, entry_usd, exit_value_usd, pnl,
-            self.account_balance_usd,
+            "[%s] %s (%s): entry $%.2f -> mark $%.2f fees_exit $%.2f | P&L $%.2f | Bal $%.2f",
+            self.pattern_name, result, reason, entry_usd, exit_value_usd,
+            float(exit_fees_usd or 0.0), pnl, self.account_balance_usd,
         )
         self.active_position = None
         self.signal_state = {"status": "FLAT", "last_exit": reason}
@@ -663,30 +782,42 @@ class AsymOptionsLedger:
         # Manage open position
         if self.active_position:
             exp = date.fromisoformat(self.active_position["expiration"])
-            mark = self._mark_package(exp, self.active_position["legs"], day)
-            if mark is not None:
-                packages = float(self.active_position["packages"])
-                mark_usd = mark * packages
+            packages = float(self.active_position["packages"])
+            mark_usd = self._mark_package(
+                exp, self.active_position["legs"], day, packages=int(packages)
+            )
+            if mark_usd is not None:
                 entry_usd = float(self.active_position["entry_debit_usd"])
-                pnl = mark_usd - entry_usd
+                try:
+                    from aiem_broker.paper_fills import fee_one_way, package_contract_count
+                    spec = [
+                        (int(L["qty"]), str(L["right"]), float(L["strike"]))
+                        for L in self.active_position["legs"]
+                    ]
+                    exit_fees = fee_one_way(package_contract_count(spec, int(packages)))
+                except Exception:
+                    exit_fees = 0.0
+                exit_net = float(mark_usd) - exit_fees
+                pnl = exit_net - entry_usd
                 self.active_position["mark_premium"] = round(
-                    mark_usd / max(packages, 1) / 100.0, 4
+                    float(mark_usd) / max(packages, 1) / 100.0, 4
                 )
                 self.active_position["unrealized_pnl"] = round(pnl, 2)
-                self.net_liquidation_usd = self.account_balance_usd + mark_usd
-                # TP dollars = abs(entry) * (tp_pct / 100); condors use entry-time dynamic %
+                self.active_position["exit_fees_est"] = round(exit_fees, 4)
+                self.net_liquidation_usd = self.account_balance_usd + float(mark_usd)
                 tp_pct = float(
                     self.active_position.get("take_profit_pct", self.take_profit_pct)
                 )
                 tp_dollars = abs(entry_usd) * (tp_pct / 100.0)
                 if pnl >= tp_dollars:
-                    self._close(mark_usd, f"TP_{int(round(tp_pct))}PCT")
+                    self._close(float(mark_usd), f"TP_{int(round(tp_pct))}PCT",
+                                exit_fees_usd=exit_fees)
                     return
                 if day >= exp and bar_time >= FLATTEN_TIME:
-                    self._close(mark_usd, "EXPIRY_FLATTEN")
+                    self._close(float(mark_usd), "EXPIRY_FLATTEN", exit_fees_usd=exit_fees)
                     return
                 if day > exp:
-                    self._close(mark_usd, "EXPIRY_FLATTEN")
+                    self._close(float(mark_usd), "EXPIRY_FLATTEN", exit_fees_usd=exit_fees)
                     return
             tp_pct_note = float(
                 self.active_position.get("take_profit_pct", self.take_profit_pct)
@@ -695,7 +826,8 @@ class AsymOptionsLedger:
                 "status": "IN_POSITION",
                 "note": (
                     f"TP +{tp_pct_note:.1f}% of |entry| · no stop · "
-                    f"Polygon daily · exp {self.active_position['expiration']}"
+                    f"{self.active_position.get('pricing_source', ASYM_PAPER_PRICING)} · "
+                    f"exp {self.active_position['expiration']}"
                 ),
             }
             return
@@ -722,28 +854,26 @@ class AsymOptionsLedger:
 
         exp = next_friday(day, weeks_ahead=3)
         legs_spec = self.builder(spot)
-        # Entry fill must match BT daily close asof entry date — require exact
-        # session bars (do NOT look back to prior day at 09:30 before today settles).
-        priced = price_legs_polygon(
-            self.underlying, exp, legs_spec, day, require_exact=True
+        priced = price_legs_for_paper(
+            self.underlying, exp, legs_spec, day, require_exact=True, packages=1
         )
         if not priced:
             self.signal_state = {
-                "status": "WAITING_ENTRY_DAILY",
+                "status": "WAITING_ENTRY_QUOTE",
                 "note": (
-                    "Polygon exact session daily option aggregates unavailable "
-                    f"for {day.isoformat()} — waiting for BT-parity fill "
-                    "(no prior-day lookback / no Tradier synthetic)"
+                    f"No {ASYM_PAPER_PRICING} package quote for {day.isoformat()} — "
+                    "waiting (paper only, no live orders)"
                 ),
             }
             return
         debit_ps = float(priced["debit_per_share"])
-        unit_cost = debit_ps * 100.0  # signed: >0 debit, <0 credit
+        unit_cost = debit_ps * 100.0  # signed: >0 debit, <0 credit (premium only)
         collateral = 0.0
         packages = 1
+        premium_usd = 0.0
+        entry_fees = 0.0
 
         if unit_cost > 0:
-            # Debit package — size within risk budget (BT debit path)
             if unit_cost > self.risk_usd:
                 self.signal_state = {
                     "status": "SKIP_BUDGET",
@@ -753,17 +883,28 @@ class AsymOptionsLedger:
             packages = max(int(self.risk_usd / unit_cost), 1)
             while packages > 1 and unit_cost * packages > self.risk_usd:
                 packages -= 1
-            entry_usd = unit_cost * packages
+            premium_usd = unit_cost * packages
+            try:
+                from aiem_broker.paper_fills import fee_one_way, package_contract_count
+                entry_fees = fee_one_way(package_contract_count(legs_spec, packages))
+            except Exception:
+                entry_fees = float(priced.get("fees_usd") or 0.0) * packages
+            entry_usd = premium_usd + entry_fees
             if entry_usd > self._free_cash_usd() + 1e-9:
                 self.signal_state = {
                     "status": "SKIP_CASH",
-                    "note": f"need ${entry_usd:.0f} free cash",
+                    "note": f"need ${entry_usd:.0f} free cash (prem+fees)",
                 }
                 return
         elif unit_cost < 0 and self.allow_credit:
-            # Credit package — BT uses mult=1; optional cash-secured short put
             packages = 1
-            entry_usd = unit_cost * packages  # negative
+            premium_usd = unit_cost * packages
+            try:
+                from aiem_broker.paper_fills import fee_one_way, package_contract_count
+                entry_fees = fee_one_way(package_contract_count(legs_spec, packages))
+            except Exception:
+                entry_fees = float(priced.get("fees_usd") or 0.0)
+            entry_usd = premium_usd + entry_fees
             if self.cash_secured:
                 collateral = _short_put_collateral_usd(priced["legs"], packages)
                 if collateral > self._free_cash_usd() + 1e-9:
@@ -783,15 +924,14 @@ class AsymOptionsLedger:
             }
             return
 
-        # Condors: replace static config TP with entry-time dynamic % from priced debit
         if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES:
-            if entry_usd <= 0:
+            if premium_usd <= 0:
                 self.signal_state = {
                     "status": "SKIP_DYNAMIC_TP",
                     "note": "condor dynamic TP requires debit package",
                 }
                 return
-            per_pkg_debit = float(entry_usd) / float(packages)
+            per_pkg_debit = float(premium_usd) / float(packages)
             try:
                 self.take_profit_pct = float(dynamic_tp_pct(per_pkg_debit))
             except ValueError as _dtp_err:
@@ -801,8 +941,13 @@ class AsymOptionsLedger:
                 }
                 return
 
-        # Debit: pay premium. Credit: receive premium (subtract negative).
         self.account_balance_usd -= entry_usd
+        if priced.get("pricing_source") == "tradier_nbbo_paper" and packages != 1:
+            priced_n = price_legs_for_paper(
+                self.underlying, exp, legs_spec, day, packages=packages
+            )
+            if priced_n:
+                priced = priced_n
         paper_id = persist_asym_paper_open(
             strategy=self.strategy_key,
             underlying=self.underlying,
@@ -817,33 +962,27 @@ class AsymOptionsLedger:
         self.active_position = {
             "symbol": self.underlying,
             "option_symbol": ",".join(
-                f"{L['qty']}x{L['symbol']}" for L in priced["legs"]
+                str(L.get("symbol") or L.get("option_symbol") or "")
+                for L in priced["legs"]
             ),
             "shares": packages,
-            "contracts": packages,
             "packages": packages,
             "side": side,
             "direction": self.pattern_name,
-            "entry": round(debit_ps, 4),
-            "entry_premium": round(debit_ps, 4),
-            "entry_debit_usd": round(entry_usd, 2),
+            "entry": round(entry_usd / max(packages, 1) / 100.0, 4),
+            "entry_debit_usd": entry_usd,
+            "entry_fees_usd": round(float(entry_fees), 4),
+            "premium_usd": round(float(premium_usd), 4),
             "collateral_usd": round(collateral, 2),
+            "take_profit_pct": self.take_profit_pct,
             "stop": 0.0,
-            "take_profit_pct": float(self.take_profit_pct),
-            "target": round(
-                abs(debit_ps) * (self.take_profit_pct / 100.0), 4
-            ),
-            "max_plateau_payoff_usd": (
-                MAX_PLATEAU_PAYOFF_USD * packages
-                if self.strategy_key in DYNAMIC_PLATEAU_TP_STRATEGIES
-                else None
-            ),
-            "strike": float(round(spot)),
+            "target": 0.0,
             "legs": priced["legs"],
             "expiration": priced["expiration"],
             "entry_time": bar_time,
             "spy_entry": spot,
-            "pricing_source": "polygon_daily_option_aggs",
+            "pricing_source": priced.get("pricing_source") or ASYM_PAPER_PRICING,
+            "live_order_sent": False,
             "paper_trade_id": paper_id,
             "strategy": self.strategy_key,
         }
@@ -853,47 +992,57 @@ class AsymOptionsLedger:
             "status": "IN_POSITION",
             "note": (
                 f"entered {packages} pkg {kind} ${entry_usd:.2f} "
-                f"TP +{self.take_profit_pct:.1f}% of |entry| Polygon daily"
+                f"(fees ${float(entry_fees):.2f}) TP +{self.take_profit_pct:.1f}% "
+                f"{priced.get('pricing_source', ASYM_PAPER_PRICING)}"
                 + (f" · CSP ${collateral:.0f}" if collateral else "")
             ),
         }
         self.net_liquidation_usd = self.account_balance_usd + entry_usd
         log.info(
-            "[%s] ENTRY: %d pkg @ $%.2f %s | TP +%.1f%% | exp %s | paper_id=%s",
-            self.pattern_name, packages, entry_usd, kind, self.take_profit_pct,
-            priced["expiration"], paper_id,
+            "[%s] ENTRY: %d pkg @ $%.2f %s fees=$%.2f | TP +%.1f%% | exp %s | src=%s | paper_id=%s",
+            self.pattern_name, packages, entry_usd, kind, float(entry_fees),
+            self.take_profit_pct, priced["expiration"],
+            priced.get("pricing_source"), paper_id,
         )
 
 
+
 def build_default_asym_ledgers(underlying: str = "SPY", capital: float = 10000.0) -> dict:
+    """Joel top-6 first (narrow-wing #1), then optional bullish risk reversal."""
     return {
+        "narrow_wing_butterfly": AsymOptionsLedger(
+            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly,
+            JOEL_ASYM_TP_PCT["narrow_wing_butterfly"],
+            "narrow_wing_butterfly", underlying, capital,
+        ),
         "put_butterfly": AsymOptionsLedger(
-            "LONG_PUT_BUTTERFLY", build_long_put_butterfly, 200.0,
+            "LONG_PUT_BUTTERFLY", build_long_put_butterfly,
+            JOEL_ASYM_TP_PCT["put_butterfly"],
             "put_butterfly", underlying, capital,
         ),
         "call_butterfly": AsymOptionsLedger(
-            "LONG_CALL_BUTTERFLY", build_long_call_butterfly, 100.0,
+            "LONG_CALL_BUTTERFLY", build_long_call_butterfly,
+            JOEL_ASYM_TP_PCT["call_butterfly"],
             "call_butterfly", underlying, capital,
         ),
         "put_ladder": AsymOptionsLedger(
-            "PUT_LADDER_DEFINED", build_put_ladder_defined, 150.0,
+            "PUT_LADDER_DEFINED", build_put_ladder_defined,
+            JOEL_ASYM_TP_PCT["put_ladder"],
             "put_ladder", underlying, capital,
         ),
-        # take_profit_pct placeholder 0 — overwritten at entry via dynamic_tp_pct(D)
         "call_condor": AsymOptionsLedger(
-            "LONG_CALL_CONDOR", build_long_call_condor, 0.0,
+            "LONG_CALL_CONDOR", build_long_call_condor,
+            JOEL_ASYM_TP_PCT["call_condor"],
             "call_condor", underlying, capital,
         ),
         "put_condor": AsymOptionsLedger(
-            "LONG_PUT_CONDOR", build_long_put_condor, 0.0,
+            "LONG_PUT_CONDOR", build_long_put_condor,
+            JOEL_ASYM_TP_PCT["put_condor"],
             "put_condor", underlying, capital,
         ),
-        "narrow_wing_butterfly": AsymOptionsLedger(
-            "NARROW_WING_CALL_BUTTERFLY", build_narrow_wing_call_butterfly, 200.0,
-            "narrow_wing_butterfly", underlying, capital,
-        ),
         "bullish_risk_reversal": AsymOptionsLedger(
-            "BULLISH_RISK_REVERSAL", build_bullish_risk_reversal, 75.0,
+            "BULLISH_RISK_REVERSAL", build_bullish_risk_reversal,
+            JOEL_ASYM_TP_PCT["bullish_risk_reversal"],
             "bullish_risk_reversal", underlying, RR_PAPER_CAPITAL_USD,
             allow_credit=True,
             cash_secured=True,
