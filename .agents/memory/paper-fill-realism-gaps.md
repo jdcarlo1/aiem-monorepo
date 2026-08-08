@@ -70,7 +70,7 @@ No single prior file was titled “16 gaps.” The prior enumerations that toget
 
 | # | Gap (short) | Bucket | Status |
 |---|---|---|---|
-| 1 | Real Tradier sandbox account + token | **JOEL / EXTERNAL** | **OPEN** — only Joel can issue sandbox-authorized credentials. Brokerage token → sandbox 401. |
+| 1 | Real Tradier sandbox account + token | **JOEL / EXTERNAL** | **OPEN** — rechecked 2026-08-08T17:43Z: no `TRADIER_SANDBOX_*` env var; only `TRADIER_API_TOKEN`/`_2` (identical, len=28) present. Sandbox profile → Apigee `InvalidAPICallAsNoApiProductMatchFound`; sandbox orders → `Unauthorized Account: 6YB85617`. Token works on **prod** `api.tradier.com` only. |
 | 2 | Sandbox order adapter | **WEEKEND** | **PARTIAL** — code posts/parses and never assumes fill; live order/status/positions loop needs #1. |
 | 3 | Fill realism all books | **WEEKEND** | **PARTIAL** — asym/paper_fills NBBO+fees done; **OE mid / `MARKET_ON_EXPIRY` still open** (agent work, not blocked solely by #1). |
 | 4 | HTTP 429 backoff | **WEEKEND** | **OPEN** — not implemented this pass (agent work; not blocked solely by #1). |
