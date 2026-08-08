@@ -37,3 +37,18 @@ This was **not** a mysterious overnight crash. Live was ~182 commits behind `mai
 - Prefer: Publish **before 08:45 ET** or **after 10:30 ET**.
 - Large catch-up syncs (`main`→`dev`): Publish the night before, never mid-morning.
 - Live branch is Replit **`dev`** — merging only to `main` does not update production.
+
+## Structural guard (not just a written rule)
+
+Replit **cannot** refuse the Publish button — there is no public deploy/Publish API
+(documented in `.github/workflows/deploy-on-merge.yml`). Next-best guards shipped:
+
+1. **`deploy-on-merge.yml`** — if merge lands inside 08:50–10:20 ET, Telegram says
+   **DO NOT PUBLISH** instead of “Publish now”.
+2. **`morning-publish-blackout.yml` + `check_morning_publish_blackout.py`** — CI /
+   workflow_dispatch gate exits 1 during the window unless `ALLOW_MORNING_PUBLISH=1`.
+3. **Boot Telegram** via `morning_deploy_blackout.fire_boot_alert_if_in_window`
+   when stock-api starts inside the window (proven with frozen 09:57 ET).
+
+Proof archive: `docs/verification/morning-deploy-blackout-2026-08-07/prove_morning_blackout_pr48.out`  
+Re-run: `python3 artifacts/stock-scanner-api/prove_morning_blackout_pr48.py`

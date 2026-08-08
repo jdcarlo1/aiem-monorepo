@@ -774,40 +774,20 @@ print("[startup] liveness watchdog started (self health-check every 30s, force-r
 # Aug 7 2026: PR #46 Publish mid-morning brought stock-api up at 9:57 ET and
 # missed Loop B (9:07) + paper 9:42 → 0 autonomous paper picks.  Alert owner
 # immediately when a process boots inside the autonomous morning window.
+# Logic lives in morning_deploy_blackout.py so proofs can freeze "now".
 def _boot_morning_window_alert():
     try:
-        import datetime as _bmw_dt
-        try:
-            from zoneinfo import ZoneInfo as _BMW_ZI
-            _bmw_now = _bmw_dt.datetime.now(_BMW_ZI("America/New_York"))
-        except Exception:
-            import pytz as _bmw_pytz
-            _bmw_now = _bmw_dt.datetime.now(_bmw_pytz.timezone("America/New_York"))
-        if _bmw_now.weekday() >= 5:
-            return
-        _bmw_mins = _bmw_now.hour * 60 + _bmw_now.minute
-        # 08:50–10:20 ET = Loop B / paper / retry window
-        if not (8 * 60 + 50 <= _bmw_mins <= 10 * 60 + 20):
-            return
-        _bmw_msg = (
-            f"⚠️ stock-api BOOT during morning autonomous window "
-            f"({_bmw_now.strftime('%H:%M')} ET {_bmw_now.date()}). "
-            f"Publish/redeploy in 08:50–10:20 ET risks missing Loop B (9:07) "
-            f"and paper execute (9:42). Prefer Publish before 08:45 ET or after "
-            f"10:30 ET. Catchup + 10:15 retry will attempt recovery."
-        )
-        print(f"[startup] {_bmw_msg}", flush=True)
-        try:
-            import time as _bmw_t
-            # Wait briefly so _tg_send / TELEGRAM secrets are ready post-import.
-            for _ in range(30):
-                _tg = globals().get("_tg_send")
-                if callable(_tg):
-                    _tg(_bmw_msg)
-                    break
-                _bmw_t.sleep(2)
-        except Exception as _bmw_tg_e:
-            print(f"[startup] morning-window telegram failed: {_bmw_tg_e}", flush=True)
+        import time as _bmw_t
+        from morning_deploy_blackout import fire_boot_alert_if_in_window as _bmw_fire
+        # Wait briefly so _tg_send / TELEGRAM secrets are ready post-import.
+        _tg_fn = None
+        for _ in range(30):
+            _cand = globals().get("_tg_send")
+            if callable(_cand):
+                _tg_fn = _cand
+                break
+            _bmw_t.sleep(2)
+        _bmw_fire(tg_send=_tg_fn)
     except Exception as _bmw_e:
         print(f"[startup] morning-window boot alert error: {_bmw_e}", flush=True)
 
