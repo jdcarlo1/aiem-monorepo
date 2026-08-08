@@ -1,0 +1,25 @@
+n_intervals=463
+max_concurrent=15
+max_concurrent_first_date=2025-01-13
+max_concurrent_n_dates=4
+max_concurrent_all_dates=2025-01-13,2025-01-14,2025-09-08,2025-09-09
+top10_dates_by_concurrent:
+  15 2025-01-13
+  15 2025-01-14
+  15 2025-09-08
+  15 2025-09-09
+  14 2024-10-07
+  14 2024-10-08
+  14 2025-01-15
+  14 2025-06-02
+  14 2025-09-02
+  14 2026-01-20
+n_calendar_days_in_range=726
+dist_0-5_days=184 pct=25.3444
+dist_6-10_days=420 pct=57.8512
+dist_11-15_days=122 pct=16.8044
+dist_16-20_days=0 pct=0.0000
+dist_20+_days=0 pct=0.0000
+n_days_with_ge1_open=722
+avg_concurrent_ge1=7.721607
+sum_concurrent_ge1=5575

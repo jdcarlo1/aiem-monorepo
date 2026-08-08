@@ -1,0 +1,23 @@
+========== 3: PRICING SOURCE / STALENESS ==========
+ANSWER: Real Polygon option premiums via daily aggregates endpoint,
+  NOT Black-Scholes / F3-style synthetic leverage formula.
+
+Endpoint (options): GET /v2/aggs/ticker/{O:SPY...}/range/1/day/{start}/{end}
+Field used: daily bar close (c) as mark.
+
+grep -c /v2/aggs/ticker/ spy_asymmetric_bt.py =>
+2
+lines:
+102:        f"/v2/aggs/ticker/SPY/range/1/day/{start.isoformat()}/{end.isoformat()}",
+135:        f"/v2/aggs/ticker/{sym}/range/1/day/{start.isoformat()}/{end.isoformat()}",
+
+grep -c def fetch_option_daily =>
+1
+catalog calls bt.fetch_option_daily:
+918:                unique[sym] = bt.fetch_option_daily(sym, d0, min(exp, end))
+
+STALENESS (daily marks vs intraday fills):
+CANNOT PRODUCE exact worst-single-trade dollar staleness from these ledgers
+(ledgers store only daily close marks; no OHLC of the option day or fill timestamps).
+DISCLOSED: entry/exit are Polygon daily closes (ET date), not tick fills.
+Theoretical bound = that day option high-low range, which is NOT in the archive.

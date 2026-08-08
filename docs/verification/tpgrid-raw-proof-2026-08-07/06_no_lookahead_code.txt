@@ -1,0 +1,62 @@
+========== 6: NO LOOK-AHEAD — code lines ==========
+File: artifacts/stock-scanner-api/spy_asymmetric_bt.py
+Entry sessions filter (exit days STRICTLY AFTER entry d0):
+   447	        hold_end = min(exp_near, end)
+   448	        sessions = [x for x in spy.index if d0 < x <= hold_end]
+   449	        exit_d = None
+   450	        exit_val = None
+   451	        exit_reason = None
+   452	        pnl = None
+   453	
+   454	        for d in sessions:
+   455	            mark = package_value(leg_pos, d)
+   456	            if mark is None:
+   457	                continue
+   458	            pnl_now = _pnl(mark)
+   459	            # Stop first on same bar (conservative)
+   460	            if sl_dollars is not None and pnl_now <= -sl_dollars:
+   461	                exit_d, exit_val, exit_reason, pnl = d, mark, f"SL_{int(sl_pct)}PCT", pnl_now
+   462	                break
+   463	            if tp_dollars is not None and pnl_now >= tp_dollars:
+   464	                exit_d, exit_val, exit_reason, pnl = d, mark, f"TP_{tp_pct}PCT", pnl_now
+   465	                break
+
+Entry price taken on entry date d0 only (package_value(leg_pos, d0)):
+   420	            continue
+   421	
+   422	        entry_val = package_value(leg_pos, d0)
+   423	        if entry_val is None:
+   424	            continue
+   425	        unit_cost = entry_val
+
+Spot for strike selection is spy close ON d0:
+   394	    for d0 in entry_dates:
+   395	        if d0 not in spy.index:
+   396	            later = [x for x in spy.index if x >= d0]
+   397	            if not later:
+   398	                continue
+   399	            d0 = later[0]
+   400	        spot = float(spy.loc[d0, "close"])
+   401	        exp_near = next_friday(d0, weeks_ahead=3)
+   402	        exp_far = next_friday(d0, weeks_ahead=7)
+
+Catalog runner reuses same session filter:
+   968	        sl_dollars = None if sl_pct <= 0 else premium_basis * (sl_pct / 100.0)
+   969	
+   970	        def _pnl(mark: float) -> float:
+   971	            return mark - entry_val
+   972	
+   973	        hold_end = min(exp_near, end)
+   974	        sessions = [x for x in spy.index if d0 < x <= hold_end]
+   975	        exit_d = exit_val = exit_reason = pnl = None
+   976	        for d in sessions:
+   977	            mark = package_value_ext(leg_pos, d, spy)
+   978	            if mark is None:
+   979	                continue
+   980	            pnl_now = _pnl(mark)
+   981	            if sl_dollars is not None and pnl_now <= -sl_dollars:
+   982	                exit_d, exit_val, exit_reason, pnl = d, mark, f"SL_{int(sl_pct)}PCT", pnl_now
+   983	                break
+   984	            if tp_dollars is not None and pnl_now >= tp_dollars:
+   985	                exit_d, exit_val, exit_reason, pnl = d, mark, f"TP_{tp_pct}PCT", pnl_now
+   986	                break

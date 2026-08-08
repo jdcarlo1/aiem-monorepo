@@ -1,0 +1,36 @@
+========== jq independent resum on JSON ledgers ==========
+--- narrow_wing_butterfly__tp200.json (expected 260940) ---
+{
+  "n": 94,
+  "sum": 260940,
+  "expected": 260940,
+  "match": true
+}
+--- bullish_risk_reversal__tp75.json (expected 202238) ---
+{
+  "n": 94,
+  "sum": 202238,
+  "expected": 202238,
+  "match": true
+}
+--- 07_long_put_butterfly__tp200.json (expected 104676) ---
+{
+  "n": 91,
+  "sum": 104676,
+  "expected": 104676,
+  "match": true
+}
+--- 06_long_call_butterfly__tp100.json (expected 76186) ---
+{
+  "n": 92,
+  "sum": 76186,
+  "expected": 76186,
+  "match": true
+}
+--- 23_put_ladder_defined_risk__tp150.json (expected 69455) ---
+{
+  "n": 92,
+  "sum": 69455,
+  "expected": 69455,
+  "match": true
+}

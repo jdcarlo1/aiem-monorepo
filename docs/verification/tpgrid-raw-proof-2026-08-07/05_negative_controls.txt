@@ -1,0 +1,52 @@
+========== 5: NEGATIVE CONTROLS (one per strategy) ==========
+
+--- Narrow-Wing ---
+poison_trade= {'entry_date': '2025-06-02', 'exit_date': '2025-06-01', 'entry_val': 100.0, 'exit_val': 50.0, 'pnl': 99999.0, 'legs': ['1xO:SPY250606C00000000']}
+reject_reasons= ['exit_before_entry', 'pnl_math_mismatch calc=-50.0 logged=99999.0', 'bad_strike_leg=1xO:SPY250606C00000000']
+REJECTED
+clean_trade0_reject_reasons= [] => ACCEPT
+naive_sum_with_poison=360939.00 (includes +99999)
+filtered_sum=260940.00 expected_clean=260940
+filtered_poison_contribution=0 (must be 0)
+match_expected=True
+
+--- Bullish RR ---
+poison_trade= {'entry_date': '2025-06-02', 'exit_date': '2025-06-01', 'entry_val': 100.0, 'exit_val': 50.0, 'pnl': 99999.0, 'legs': ['1xO:SPY250606C00000000']}
+reject_reasons= ['exit_before_entry', 'pnl_math_mismatch calc=-50.0 logged=99999.0', 'bad_strike_leg=1xO:SPY250606C00000000']
+REJECTED
+clean_trade0_reject_reasons= [] => ACCEPT
+naive_sum_with_poison=302237.00 (includes +99999)
+filtered_sum=202238.00 expected_clean=202238
+filtered_poison_contribution=0 (must be 0)
+match_expected=True
+
+--- Long Put Fly ---
+poison_trade= {'entry_date': '2025-06-02', 'exit_date': '2025-06-01', 'entry_val': 100.0, 'exit_val': 50.0, 'pnl': 99999.0, 'legs': ['1xO:SPY250606C00000000']}
+reject_reasons= ['exit_before_entry', 'pnl_math_mismatch calc=-50.0 logged=99999.0', 'bad_strike_leg=1xO:SPY250606C00000000']
+REJECTED
+clean_trade0_reject_reasons= [] => ACCEPT
+naive_sum_with_poison=204675.00 (includes +99999)
+filtered_sum=104676.00 expected_clean=104676
+filtered_poison_contribution=0 (must be 0)
+match_expected=True
+
+--- Long Call Fly ---
+poison_trade= {'entry_date': '2025-06-02', 'exit_date': '2025-06-01', 'entry_val': 100.0, 'exit_val': 50.0, 'pnl': 99999.0, 'legs': ['1xO:SPY250606C00000000']}
+reject_reasons= ['exit_before_entry', 'pnl_math_mismatch calc=-50.0 logged=99999.0', 'bad_strike_leg=1xO:SPY250606C00000000']
+REJECTED
+clean_trade0_reject_reasons= [] => ACCEPT
+naive_sum_with_poison=176185.00 (includes +99999)
+filtered_sum=76186.00 expected_clean=76186
+filtered_poison_contribution=0 (must be 0)
+match_expected=True
+
+--- Put Ladder ---
+poison_trade= {'entry_date': '2025-06-02', 'exit_date': '2025-06-01', 'entry_val': 100.0, 'exit_val': 50.0, 'pnl': 99999.0, 'legs': ['1xO:SPY250606C00000000']}
+reject_reasons= ['exit_before_entry', 'pnl_math_mismatch calc=-50.0 logged=99999.0', 'bad_strike_leg=1xO:SPY250606C00000000']
+REJECTED
+clean_trade0_reject_reasons= [] => ACCEPT
+naive_sum_with_poison=169454.00 (includes +99999)
+filtered_sum=69455.00 expected_clean=69455
+filtered_poison_contribution=0 (must be 0)
+match_expected=True
+
